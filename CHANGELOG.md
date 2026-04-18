@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Service mesh integration** — Kustomize overlays for Istio, Linkerd, and Cilium. Each overlay layers mesh-specific annotations and CRDs on top of the base manifests without modifying them.
+  - `deploy/overlays/istio/` — PeerAuthentication (STRICT mTLS) + AuthorizationPolicy
+  - `deploy/overlays/linkerd/` — Server + ServerAuthorization + opaque port annotations
+  - `deploy/overlays/cilium/` — CiliumNetworkPolicy with L7 HTTP rules
+- **Mesh integration guide** — `docs/mesh-integration.md` covering four deployment profiles (bare, Istio, Linkerd, Cilium) with traffic flow diagrams, annotations, responsibility matrices, and gotchas.
+- **Helm mesh support** — `mesh.provider` value in Helm chart (`none | istio | linkerd | cilium`) with conditional pod annotation template.
+- **Kustomize base** — `deploy/manifests/kustomization.yaml` so overlays can reference base manifests.
+
 ## [0.1.0] — 2026-04-17
 
 Initial release. MCP/agentic traffic sidecar proxy with default-deny posture.

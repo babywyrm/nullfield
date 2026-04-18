@@ -422,7 +422,8 @@ For each workload being onboarded to nullfield:
 [ ] Update Service targetPort from app port to 9090
 [ ] Update Ingress/HTTPRoute backend port if applicable
 [ ] Update NetworkPolicy if applicable
-[ ] Verify: kubectl get pods shows 2/2 Running
+[ ] If running a service mesh: apply the appropriate overlay (see docs/mesh-integration.md)
+[ ] Verify: kubectl get pods shows 2/2 Running (or 3/3 with mesh sidecar)
 [ ] Verify: healthz and readyz return ok
 [ ] Verify: initialize and tools/list pass through
 [ ] Verify: unregistered tool returns -32003

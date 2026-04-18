@@ -111,6 +111,18 @@ Or manually add the container (see `deploy/helm/nullfield/templates/sidecar-snip
 
 The manifests and Helm chart are distribution-agnostic — no assumptions about CNI, ingress controller, or cloud provider.
 
+### With a service mesh (Istio, Linkerd, Cilium)
+
+Kustomize overlays add mesh-specific annotations and CRDs on top of the base manifests:
+
+```bash
+kubectl apply -k deploy/overlays/istio/    # Istio: PeerAuthentication + AuthorizationPolicy
+kubectl apply -k deploy/overlays/linkerd/  # Linkerd: Server + ServerAuthorization
+kubectl apply -k deploy/overlays/cilium/   # Cilium: CiliumNetworkPolicy
+```
+
+See [docs/mesh-integration.md](docs/mesh-integration.md) for traffic flow diagrams, annotations, and gotchas per mesh.
+
 ---
 
 ## Configuration
@@ -223,13 +235,15 @@ nullfield/
 ├── internal/config/      # Environment-based configuration
 ├── deploy/
 │   ├── helm/nullfield/   # Helm chart with sidecar template
-│   └── manifests/        # Raw K8s manifests (works on any distro)
+│   ├── manifests/        # Raw K8s manifests (works on any distro)
+│   └── overlays/         # Kustomize overlays for Istio, Linkerd, Cilium
 ├── examples/             # Example policy + tool registry
 ├── tests/
 │   ├── echo-server/      # Echo MCP server for testing
 │   └── smoke.sh          # 12-point smoke test
 ├── docs/
-│   └── implementation-guide.md
+│   ├── implementation-guide.md
+│   └── mesh-integration.md
 ├── Dockerfile
 ├── Makefile
 ├── docker-compose.yaml
@@ -251,3 +265,4 @@ nullfield/
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 See [docs/implementation-guide.md](docs/implementation-guide.md) for cluster adoption guide.
+See [docs/mesh-integration.md](docs/mesh-integration.md) for service mesh integration.

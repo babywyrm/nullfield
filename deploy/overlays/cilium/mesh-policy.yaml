@@ -1,0 +1,33 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: nullfield-policy
+  namespace: nullfield
+spec:
+  endpointSelector:
+    matchLabels:
+      app: nullfield-demo
+  ingress:
+    # MCP proxy port — POST only
+    - fromEndpoints:
+        - {}
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
+          rules:
+            http:
+              - method: POST
+    # Admin port — health probes only
+    - fromEndpoints:
+        - {}
+      toPorts:
+        - ports:
+            - port: "9091"
+              protocol: TCP
+          rules:
+            http:
+              - method: GET
+                path: "/healthz"
+              - method: GET
+                path: "/readyz"

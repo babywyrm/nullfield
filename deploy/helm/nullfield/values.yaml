@@ -36,5 +36,9 @@ serviceAccount:
   name: ""
   annotations: {}
 
+mesh:
+  # Service mesh integration: none | istio | linkerd | cilium
+  provider: "none"
+
 injector:
   enabled: false

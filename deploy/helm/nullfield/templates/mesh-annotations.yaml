@@ -1,0 +1,18 @@
+{{/*
+  Mesh-specific pod annotations.
+  Include in your Deployment pod template metadata:
+
+    metadata:
+      annotations:
+        {{- include "nullfield.meshAnnotations" . | nindent 8 }}
+*/}}
+{{- define "nullfield.meshAnnotations" -}}
+{{- if eq .Values.mesh.provider "istio" }}
+traffic.sidecar.istio.io/excludeInboundPorts: "{{ .Values.sidecar.adminPort }}"
+sidecar.istio.io/interceptionMode: REDIRECT
+{{- else if eq .Values.mesh.provider "linkerd" }}
+linkerd.io/inject: enabled
+config.linkerd.io/opaque-ports: "{{ .Values.sidecar.listenPort }}"
+config.linkerd.io/skip-inbound-ports: "{{ .Values.sidecar.adminPort }}"
+{{- end }}
+{{- end }}

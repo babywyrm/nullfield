@@ -1,0 +1,31 @@
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: nullfield-mtls
+  namespace: nullfield
+spec:
+  mtls:
+    mode: STRICT
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: nullfield-authz
+  namespace: nullfield
+spec:
+  selector:
+    matchLabels:
+      app: nullfield-demo
+  rules:
+    # Allow any meshed service to POST to the proxy port
+    - from:
+        - source:
+            principals: ["cluster.local/ns/*/sa/*"]
+      to:
+        - operation:
+            ports: ["9090"]
+            methods: ["POST"]
+    # Allow health probes on admin port
+    - to:
+        - operation:
+            ports: ["9091"]
