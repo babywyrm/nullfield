@@ -62,17 +62,35 @@ resp=$(curl -s -X POST "$BASE" \
 check "totally_fake_tool blocked: -32003 not registered" "not registered" "$resp"
 
 echo ""
-echo "[policy enforcement — registered tools hit default-deny rule]"
+echo "[policy enforcement — allowed tools forwarded to upstream]"
 
 resp=$(curl -s -X POST "$BASE" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"github_create_pr","arguments":{"repo":"test","title":"test"}}}' 2>&1 || true)
-check "github_create_pr denied by policy: -32000" "denied by policy" "$resp"
+check "github_create_pr allowed: returns tool result" "echo-server executed" "$resp"
 
 resp=$(curl -s -X POST "$BASE" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"pagerduty_resolve","arguments":{"incident_id":"P123"}}}' 2>&1 || true)
-check "pagerduty_resolve denied by policy: -32000" "denied by policy" "$resp"
+check "pagerduty_resolve allowed: returns tool result" "echo-server executed" "$resp"
+
+echo ""
+echo "[registry enforcement — tool in policy but not in registry]"
+
+# echo is in the demo-policy ALLOW rules but NOT in the tools.yaml registry
+resp=$(curl -s -X POST "$BASE" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"echo","arguments":{"message":"hello"}}}' 2>&1 || true)
+check "echo: in policy but not in registry, blocked at registry" "not registered" "$resp"
+
+echo ""
+echo "[policy enforcement — registered tool allowed by policy]"
+
+# jira_get_issue IS in both the tools.yaml registry AND the policy ALLOW rules
+resp=$(curl -s -X POST "$BASE" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"jira_get_issue","arguments":{"key":"TEST-1"}}}' 2>&1 || true)
+check "jira_get_issue: registered + allowed by policy, forwarded" "echo-server executed" "$resp"
 
 echo ""
 echo "[non-JSON traffic — passed through as-is]"

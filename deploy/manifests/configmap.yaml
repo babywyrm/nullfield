@@ -7,6 +7,7 @@ data:
   NULLFIELD_LISTEN_ADDR: ":9090"
   NULLFIELD_UPSTREAM_ADDR: "localhost:8080"
   NULLFIELD_ADMIN_ADDR: ":9091"
+  NULLFIELD_POLICY_PATH: "/etc/nullfield/policy.yaml"
   NULLFIELD_REGISTRY_PATH: "/etc/nullfield/tools.yaml"
   NULLFIELD_CIRCUIT_MAX_CALLS: "100"
   NULLFIELD_CIRCUIT_MAX_DURATION: "5m"
@@ -18,6 +19,33 @@ metadata:
   name: nullfield-tools
   namespace: nullfield
 data:
+  policy.yaml: |
+    apiVersion: nullfield.io/v1alpha1
+    kind: NullfieldPolicy
+    metadata:
+      name: demo-policy
+    spec:
+      selector:
+        matchLabels:
+          app: nullfield-demo
+      rules:
+        - action: ALLOW
+          mcpMethod: tools/call
+          toolNames:
+            - echo
+            - github_create_pr
+            - pagerduty_resolve
+          requireIdentity: true
+          maxCallsPerMinute: 30
+        - action: DENY
+          mcpMethod: tools/call
+          toolNames: ["*"]
+      circuitBreaker:
+        maxToolCallsPerSession: 50
+        maxSessionDuration: 120s
+        onTrip: KILL_POD
+      audit:
+        logLevel: FULL
   tools.yaml: |
     apiVersion: nullfield.io/v1alpha1
     kind: ToolRegistry

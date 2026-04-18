@@ -8,11 +8,13 @@ services:
       NULLFIELD_LISTEN_ADDR: ":9090"
       NULLFIELD_UPSTREAM_ADDR: "echo-server:8080"
       NULLFIELD_ADMIN_ADDR: ":9091"
+      NULLFIELD_POLICY_PATH: "/etc/nullfield/policy.yaml"
       NULLFIELD_REGISTRY_PATH: "/etc/nullfield/tools.yaml"
       NULLFIELD_CIRCUIT_MAX_CALLS: "100"
       NULLFIELD_CIRCUIT_MAX_DURATION: "5m"
       NULLFIELD_AUDIT_LOG_LEVEL: "FULL"
     volumes:
+      - ./examples/demo-policy.yaml:/etc/nullfield/policy.yaml:ro
       - ./examples/tools.yaml:/etc/nullfield/tools.yaml:ro
     depends_on:
       echo-server:

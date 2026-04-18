@@ -67,14 +67,28 @@ func main() {
 
 	auditor := audit.NewLogEmitter(logger)
 
-	engine := policy.NewRuleEngine([]v1alpha1.Rule{
-		{
-			Action:          v1alpha1.ActionDeny,
-			MCPMethod:       "tools/call",
-			ToolNames:       []string{"*"},
-			RequireIdentity: true,
-		},
-	})
+	var rules []v1alpha1.Rule
+	if cfg.PolicyPath != "" {
+		loaded, err := policy.LoadFromFile(cfg.PolicyPath)
+		if err != nil {
+			logger.Warn("could not load policy file, using default deny-all", "path", cfg.PolicyPath, "error", err)
+		} else {
+			rules = loaded
+			logger.Info("loaded policy", "path", cfg.PolicyPath, "rules", len(rules))
+		}
+	}
+	if len(rules) == 0 {
+		logger.Info("no policy rules loaded, defaulting to deny-all for tools/call")
+		rules = []v1alpha1.Rule{
+			{
+				Action:          v1alpha1.ActionDeny,
+				MCPMethod:       "tools/call",
+				ToolNames:       []string{"*"},
+				RequireIdentity: true,
+			},
+		}
+	}
+	engine := policy.NewRuleEngine(rules)
 
 	handler := proxy.NewHandler(proxy.HandlerOpts{
 		UpstreamURL: upstream,
