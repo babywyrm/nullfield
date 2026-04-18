@@ -1,0 +1,124 @@
+apiVersion: nullfield.io/v1alpha1
+kind: ToolRegistry
+metadata:
+  name: camazotz-tools
+tools:
+  # --- Read-only / safe tools (audit, list, check operations) ---
+  - name: attribution.read_audit
+    description: Read audit log
+  - name: attribution.verify_context
+    description: Verify execution context integrity
+  - name: audit.list_actions
+    description: List performed actions
+  - name: auth.issue_token
+    description: Issue an auth token
+  - name: comms.list_sent
+    description: List sent messages
+  - name: config.read_system_prompt
+    description: Read agent system prompt
+  - name: cost.check_usage
+    description: Check LLM usage quota
+  - name: cred_broker.list_vaults
+    description: List available credential vaults
+  - name: delegation.read_chain
+    description: Read delegation chain
+  - name: downgrade.check_pattern
+    description: Check current auth pattern
+  - name: downgrade.list_capabilities
+    description: List auth capabilities
+  - name: error.validate_input
+    description: Validate input schema
+  - name: hallucination.list_filesystem
+    description: List filesystem contents
+  - name: notification.check_inbox
+    description: Check notification inbox
+  - name: oauth.list_connections
+    description: List OAuth connections
+  - name: rbac.list_agents
+    description: List available agents
+  - name: rbac.check_membership
+    description: Check RBAC group membership
+  - name: revocation.use_token
+    description: Use an issued token
+  - name: shadow.list_webhooks
+    description: List registered webhooks
+  - name: temporal.get_config
+    description: Get temporal config
+  - name: temporal.check_permission
+    description: Check temporal permission
+  - name: temporal.get_status
+    description: Get temporal status
+  - name: tenant.recall_memory
+    description: Recall tenant memory
+  - name: tenant.list_tenants
+    description: List tenants
+  - name: error.debug_info
+    description: Get debug information
+
+  # --- Write / action tools (modify state, trigger flows) ---
+  - name: attribution.submit_action
+    description: Submit action with attribution
+  - name: audit.perform_action
+    description: Perform an auditable action
+  - name: auth.access_protected
+    description: Access a protected resource
+  - name: auth.access_service_b
+    description: Cross-service access (confused deputy)
+  - name: comms.send_message
+    description: Send a message
+  - name: config.update_system_prompt
+    description: Update agent system prompt
+  - name: config.ask_agent
+    description: Query the agent
+  - name: context.injectable_summary
+    description: Generate injectable summary
+  - name: cost.invoke_llm
+    description: Invoke LLM (costs tokens)
+  - name: cost.reset_usage
+    description: Reset usage counter
+  - name: cred_broker.read_credential
+    description: Read a credential from vault
+  - name: cred_broker.configure_sidecar
+    description: Configure credential sidecar
+  - name: delegation.invoke_agent
+    description: Invoke another agent
+  - name: downgrade.authenticate
+    description: Authenticate with pattern
+  - name: notification.subscribe
+    description: Subscribe to notifications
+  - name: notification.trigger_event
+    description: Trigger a notification event
+  - name: oauth.exchange_token
+    description: Exchange OAuth token
+  - name: oauth.call_downstream
+    description: Call downstream OAuth service
+  - name: rbac.trigger_agent
+    description: Trigger an agent
+  - name: relay.store_context
+    description: Store context for relay
+  - name: relay.execute_with_context
+    description: Execute with stored context
+  - name: revocation.issue_token
+    description: Issue a revocable token
+  - name: revocation.revoke_principal
+    description: Revoke a principal
+  - name: tenant.store_memory
+    description: Store tenant memory
+  - name: error.trigger_crash
+    description: Trigger an error crash
+
+  # --- High-risk tools (exfil, SSRF, supply chain, shadow) ---
+  - name: egress.fetch_url
+    description: Fetch external URL (SSRF risk)
+  - name: indirect.fetch_and_summarize
+    description: Fetch and summarize URL (prompt injection risk)
+  - name: secrets.leak_config
+    description: Leak configuration secrets
+  - name: shadow.register_webhook
+    description: Register a shadow webhook
+  - name: supply.install_package
+    description: Install a package (supply chain risk)
+  - name: tool.mutate_behavior
+    description: Mutate tool behavior (rug pull)
+  - name: hallucination.execute_plan
+    description: Execute an LLM-generated plan
