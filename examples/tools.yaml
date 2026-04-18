@@ -1,0 +1,40 @@
+apiVersion: nullfield.io/v1alpha1
+kind: ToolRegistry
+metadata:
+  name: kosmos-tools
+  namespace: kosmos
+tools:
+  - name: github_create_pr
+    description: Create a pull request on GitHub
+    allowedScopes: ["repo:write"]
+    maxCallsPerMinute: 10
+
+  - name: github_list_reviews
+    description: List PR reviews
+    allowedScopes: ["repo:read"]
+    maxCallsPerMinute: 30
+
+  - name: github_get_file
+    description: Read a file from a GitHub repository
+    allowedScopes: ["repo:read"]
+    maxCallsPerMinute: 60
+
+  - name: pagerduty_resolve
+    description: Resolve a PagerDuty incident
+    allowedScopes: ["incidents:write"]
+    maxCallsPerMinute: 10
+
+  - name: pagerduty_acknowledge
+    description: Acknowledge a PagerDuty incident
+    allowedScopes: ["incidents:write"]
+    maxCallsPerMinute: 10
+
+  - name: jira_get_issue
+    description: Fetch a Jira issue by key
+    allowedScopes: ["jira:read"]
+    maxCallsPerMinute: 30
+
+  - name: jira_search
+    description: Search Jira issues with JQL
+    allowedScopes: ["jira:read"]
+    maxCallsPerMinute: 20

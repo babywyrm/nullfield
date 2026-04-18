@@ -1,0 +1,44 @@
+{{/*
+  This is a reusable sidecar container snippet.
+  Include it in your Deployment pod spec:
+
+    containers:
+      - name: your-app
+        ...
+      {{- include "nullfield.sidecar" . | nindent 6 }}
+*/}}
+{{- define "nullfield.sidecar" -}}
+- name: nullfield
+  image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+  imagePullPolicy: {{ .Values.image.pullPolicy }}
+  ports:
+    - name: proxy
+      containerPort: {{ .Values.sidecar.listenPort }}
+      protocol: TCP
+    - name: admin
+      containerPort: {{ .Values.sidecar.adminPort }}
+      protocol: TCP
+  envFrom:
+    - configMapRef:
+        name: {{ .Release.Name }}-nullfield
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: admin
+    initialDelaySeconds: 3
+    periodSeconds: 10
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: admin
+    initialDelaySeconds: 2
+    periodSeconds: 5
+  resources:
+    {{- toYaml .Values.resources | nindent 4 }}
+  securityContext:
+    runAsNonRoot: true
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+{{- end }}

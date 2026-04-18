@@ -1,0 +1,40 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/babywyrm/nullfield
+  tag: latest
+  pullPolicy: IfNotPresent
+
+sidecar:
+  enabled: true
+  listenPort: 9090
+  adminPort: 9091
+  upstreamPort: 8080
+
+identity:
+  header: Authorization
+  jwksURL: ""
+
+circuit:
+  maxCalls: 100
+  maxDuration: "5m"
+
+audit:
+  logLevel: "FULL"
+  otelEndpoint: ""
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+injector:
+  enabled: false

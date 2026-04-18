@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-nullfield
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: nullfield
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  NULLFIELD_LISTEN_ADDR: ":{{ .Values.sidecar.listenPort }}"
+  NULLFIELD_UPSTREAM_ADDR: "localhost:{{ .Values.sidecar.upstreamPort }}"
+  NULLFIELD_ADMIN_ADDR: ":{{ .Values.sidecar.adminPort }}"
+  NULLFIELD_IDENTITY_HEADER: {{ .Values.identity.header | quote }}
+  NULLFIELD_JWKS_URL: {{ .Values.identity.jwksURL | quote }}
+  NULLFIELD_CIRCUIT_MAX_CALLS: {{ .Values.circuit.maxCalls | quote }}
+  NULLFIELD_CIRCUIT_MAX_DURATION: {{ .Values.circuit.maxDuration | quote }}
+  NULLFIELD_AUDIT_LOG_LEVEL: {{ .Values.audit.logLevel | quote }}
+  NULLFIELD_AUDIT_ENDPOINT: {{ .Values.audit.otelEndpoint | quote }}

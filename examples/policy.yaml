@@ -1,0 +1,57 @@
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: kosmos-agents
+  namespace: kosmos
+spec:
+  selector:
+    matchLabels:
+      app: kosmos-agent
+  rules:
+    # Allow specific tools with identity required
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - github_create_pr
+        - github_list_reviews
+        - pagerduty_resolve
+        - pagerduty_acknowledge
+      requireIdentity: true
+      maxCallsPerMinute: 30
+
+    # Allow read-only tools with higher rate limit
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - jira_get_issue
+        - jira_search
+        - github_get_file
+      requireIdentity: true
+      maxCallsPerMinute: 60
+
+    # Deny everything else (default deny)
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+
+    # Allow outbound to Anthropic with credential injection
+    - action: ALLOW
+      direction: OUTBOUND
+      destination: "api.anthropic.com"
+      injectCredential:
+        secretRef: anthropic-api-key
+        from: aws-secrets-manager
+
+    # Block outbound to unknown LLM providers
+    - action: DENY
+      direction: OUTBOUND
+      destination: "*"
+
+  circuitBreaker:
+    maxToolCallsPerSession: 100
+    maxSessionDuration: 300s
+    onTrip: KILL_POD
+
+  audit:
+    emitTo: otel-collector.observability:4317
+    logLevel: FULL
