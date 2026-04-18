@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nullfield-demo
+  namespace: nullfield
+  labels:
+    app.kubernetes.io/name: nullfield-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nullfield-demo
+  template:
+    metadata:
+      labels:
+        app: nullfield-demo
+    spec:
+      serviceAccountName: nullfield
+      containers:
+        # The application container (echo MCP server)
+        - name: echo-server
+          image: ghcr.io/babywyrm/nullfield-echo:latest
+          ports:
+            - name: app
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+
+        # The nullfield sidecar
+        - name: nullfield
+          image: ghcr.io/babywyrm/nullfield:latest
+          ports:
+            - name: proxy
+              containerPort: 9090
+              protocol: TCP
+            - name: admin
+              containerPort: 9091
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: nullfield-config
+          volumeMounts:
+            - name: tools
+              mountPath: /etc/nullfield
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: admin
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: admin
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+
+      volumes:
+        - name: tools
+          configMap:
+            name: nullfield-tools

@@ -1,0 +1,26 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nullfield
+  namespace: nullfield
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "watch", "list"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nullfield
+  namespace: nullfield
+subjects:
+  - kind: ServiceAccount
+    name: nullfield
+    namespace: nullfield
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nullfield

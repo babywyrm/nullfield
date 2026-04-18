@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nullfield-config
+  namespace: nullfield
+data:
+  NULLFIELD_LISTEN_ADDR: ":9090"
+  NULLFIELD_UPSTREAM_ADDR: "localhost:8080"
+  NULLFIELD_ADMIN_ADDR: ":9091"
+  NULLFIELD_REGISTRY_PATH: "/etc/nullfield/tools.yaml"
+  NULLFIELD_CIRCUIT_MAX_CALLS: "100"
+  NULLFIELD_CIRCUIT_MAX_DURATION: "5m"
+  NULLFIELD_AUDIT_LOG_LEVEL: "FULL"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nullfield-tools
+  namespace: nullfield
+data:
+  tools.yaml: |
+    apiVersion: nullfield.io/v1alpha1
+    kind: ToolRegistry
+    metadata:
+      name: demo-tools
+    tools:
+      - name: echo
+        description: Echoes back the input
+      - name: github_create_pr
+        description: Create a GitHub PR
+        allowedScopes: ["repo:write"]
+        maxCallsPerMinute: 10
+      - name: pagerduty_resolve
+        description: Resolve a PagerDuty incident
+        allowedScopes: ["incidents:write"]
+        maxCallsPerMinute: 10

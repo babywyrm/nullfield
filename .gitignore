@@ -4,3 +4,4 @@ bin/
 *.out
 .env
 .DS_Store
+echo-server

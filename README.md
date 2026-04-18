@@ -1,8 +1,10 @@
 # nullfield
 
-MCP and agentic traffic sidecar proxy for Kubernetes.
+MCP and agentic traffic sidecar proxy.
 
 nullfield sits beside any pod that sends or receives MCP JSON-RPC, LLM API calls, or agentic workflow signals. It intercepts, validates, and audits every tool call before it reaches the application — enforcing identity, policy, and scope at the network layer.
+
+Runs anywhere containers run: Kubernetes, K3s, EKS, GKE, AKS, or plain Docker Compose.
 
 > The AI advises. The gates decide. nullfield is the gate.
 
@@ -75,9 +77,16 @@ docker run -p 9090:9090 -p 9091:9091 \
   ghcr.io/babywyrm/nullfield:latest
 ```
 
-### Kubernetes sidecar
+### Kubernetes / K3s / EKS sidecar
 
-Add nullfield to any pod spec using the Helm template helper:
+Apply the raw manifests to any cluster:
+
+```bash
+kubectl apply -f deploy/manifests/namespace.yaml
+kubectl apply -f deploy/manifests/
+```
+
+Or use the Helm chart with the sidecar template helper:
 
 ```yaml
 containers:
@@ -89,6 +98,8 @@ containers:
 ```
 
 Or manually add the container (see `deploy/helm/nullfield/templates/sidecar-snippet.yaml`).
+
+The manifests and Helm chart are distribution-agnostic — no assumptions about CNI, ingress controller, or cloud provider.
 
 ---
 
@@ -201,7 +212,8 @@ nullfield/
 ├── api/v1alpha1/         # CRD type definitions
 ├── internal/config/      # Environment-based configuration
 ├── deploy/
-│   └── helm/nullfield/   # Helm chart with sidecar template
+│   ├── helm/nullfield/   # Helm chart with sidecar template
+│   └── manifests/        # Raw K8s manifests (works on any distro)
 ├── examples/             # Example policy + tool registry
 ├── Dockerfile
 ├── Makefile
