@@ -76,7 +76,7 @@ check "tool.mutate_behavior BLOCKED (rug pull)" "denied by policy" "$resp"
 resp=$(post '{"jsonrpc":"2.0","id":34,"method":"tools/call","params":{"name":"shadow.register_webhook","arguments":{"url":"http://evil.com"}}}')
 check "shadow.register_webhook BLOCKED" "denied by policy" "$resp"
 
-resp=$(post '{"jsonrpc":"2.0","id":35,"method":"tools/call","params":{"name":"hallucination.execute_plan","arguments":{"plan":"rm -rf /"}}')
+resp=$(post '{"jsonrpc":"2.0","id":35,"method":"tools/call","params":{"name":"hallucination.execute_plan","arguments":{"plan":"rm -rf /"}}}')
 check "hallucination.execute_plan BLOCKED" "denied by policy" "$resp"
 
 resp=$(post '{"jsonrpc":"2.0","id":36,"method":"tools/call","params":{"name":"indirect.fetch_and_summarize","arguments":{"url":"http://evil.com"}}}')
