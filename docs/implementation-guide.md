@@ -20,7 +20,7 @@ nullfield is an explicit reverse proxy sidecar. Your MCP client talks to nullfie
                         ┌───────────────────────────────────────────┐
                         │  Pod                                      │
                         │                                           │
-  MCP Client ─────────────► :9090 nullfield ──► :8080 your-app     │
+  MCP Client ─────────────► :9090 nullfield ──► :8080 your-app      │
   (external or          │       │                                   │
    in-cluster)          │       ├── identity check                  │
                         │       ├── registry check                  │
@@ -118,6 +118,7 @@ data:
   NULLFIELD_LISTEN_ADDR: ":9090"
   NULLFIELD_UPSTREAM_ADDR: "localhost:8080"      # your app's port
   NULLFIELD_ADMIN_ADDR: ":9091"
+  NULLFIELD_POLICY_PATH: "/etc/nullfield/policy.yaml"
   NULLFIELD_REGISTRY_PATH: "/etc/nullfield/tools.yaml"
   NULLFIELD_CIRCUIT_MAX_CALLS: "100"
   NULLFIELD_CIRCUIT_MAX_DURATION: "5m"
@@ -435,8 +436,10 @@ For each workload being onboarded to nullfield:
 
 | Phase | Feature | Impact |
 |---|---|---|
+| ~~v0.1~~ | ~~Policy from file~~ | ~~Done — load NullfieldPolicy from mounted YAML~~ |
 | v0.2 | JWKS identity validation | Replace noop verifier with real token validation |
-| v0.2 | Policy from file | Load NullfieldPolicy from mounted YAML instead of compiled-in rules |
+| v0.2 | OPA/Rego policy engine | More expressive policy rules beyond first-match |
+| v0.2 | OTLP audit export | Ship audit events to OpenTelemetry Collector |
 | v0.3 | Credential injection | Outbound LLM API calls get secrets injected from Vault/ASM |
 | v0.4 | Mutating admission webhook | Automatic sidecar injection — add a label, get nullfield |
 | v0.5 | CRD controller | Watch NullfieldPolicy and ToolRegistry as native K8s resources |

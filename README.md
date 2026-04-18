@@ -35,11 +35,11 @@ Runs anywhere containers run: Kubernetes, K3s, EKS, GKE, AKS, or plain Docker Co
 │  │  Application ├───────►│  nullfield (sidecar)  │  │
 │  │  (MCP server │        │                       │  │
 │  │   or client) │◄───────┤  ┌─ Identity verify   │  │
-│  │              │        │  ├─ Tool registry chk  │  │
-│  └──────────────┘        │  ├─ Policy evaluate    │  │
-│                          │  ├─ Circuit breaker    │  │
-│                          │  ├─ Audit emit         │  │
-│                          │  └─ Forward / reject   │  │
+│  │              │        │  ├─ Tool registry chk │  │
+│  └──────────────┘        │  ├─ Policy evaluate   │  │
+│                          │  ├─ Circuit breaker   │  │
+│                          │  ├─ Audit emit        │  │
+│                          │  └─ Forward / reject  │  │
 │                          └───────────┬───────────┘  │
 │                                      │ :9091 admin  │
 │                                      │ /healthz     │
@@ -68,7 +68,17 @@ export NULLFIELD_REGISTRY_PATH=examples/tools.yaml
 
 nullfield listens on `:9090` (proxy) and `:9091` (admin). Point your MCP client at `localhost:9090` instead of `localhost:8080`.
 
-### Docker
+### Docker Compose (recommended for local dev)
+
+```bash
+docker compose up -d
+bash tests/smoke.sh       # 12 tests: admin, passthrough, registry, policy
+docker compose logs -f nullfield   # watch the audit trail
+```
+
+This starts nullfield + an echo MCP server with a demo policy and tool registry from `examples/`.
+
+### Docker (standalone)
 
 ```bash
 make docker
@@ -215,8 +225,16 @@ nullfield/
 │   ├── helm/nullfield/   # Helm chart with sidecar template
 │   └── manifests/        # Raw K8s manifests (works on any distro)
 ├── examples/             # Example policy + tool registry
+├── tests/
+│   ├── echo-server/      # Echo MCP server for testing
+│   └── smoke.sh          # 12-point smoke test
+├── docs/
+│   └── implementation-guide.md
 ├── Dockerfile
 ├── Makefile
+├── docker-compose.yaml
+├── CHANGELOG.md
+├── LICENSE
 └── README.md
 ```
 
@@ -224,9 +242,12 @@ nullfield/
 
 ## Roadmap
 
-- [ ] **v0.1** — MCP `tools/call` interception, rule engine, audit logging, circuit breaker
-- [ ] **v0.2** — JWKS identity validation, OPA/Rego policy engine, OTLP export
+- [x] **v0.1** — MCP `tools/call` interception, rule engine, policy-from-file, audit logging, circuit breaker, K8s manifests, Docker Compose, smoke tests
+- [ ] **v0.2** — JWKS identity validation, OPA/Rego policy engine, OTLP audit export
 - [ ] **v0.3** — Credential injection from Vault/ASM, outbound LLM API proxying
 - [ ] **v0.4** — Mutating admission webhook for automatic sidecar injection
 - [ ] **v0.5** — CRD controller (watch NullfieldPolicy + ToolRegistry CRDs natively)
 - [ ] **v1.0** — Transparent iptables-based proxy (Istio-style), production hardening
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
+See [docs/implementation-guide.md](docs/implementation-guide.md) for cluster adoption guide.
