@@ -16,9 +16,9 @@ This guide covers how to deploy nullfield in clusters running Istio, Linkerd, Ci
 | Profile | Sidecars per pod | mTLS provider | MCP enforcement | Deploy command |
 |---------|-----------------|---------------|-----------------|----------------|
 | Bare | 1 (nullfield) | None | nullfield | `kubectl apply -f deploy/manifests/` |
-| Istio | 2 (Envoy + nullfield) | Istio | nullfield | `kubectl apply -k deploy/overlays/istio/` |
-| Linkerd | 2 (linkerd-proxy + nullfield) | Linkerd | nullfield | `kubectl apply -k deploy/overlays/linkerd/` |
-| Cilium | 1 (nullfield) | Cilium eBPF | nullfield | `kubectl apply -k deploy/overlays/cilium/` |
+| Istio | 2 (Envoy + nullfield) | Istio | nullfield | `kubectl apply -k meshes/istio/` |
+| Linkerd | 2 (linkerd-proxy + nullfield) | Linkerd | nullfield | `kubectl apply -k meshes/linkerd/` |
+| Cilium | 1 (nullfield) | Cilium eBPF | nullfield | `kubectl apply -k meshes/cilium/` |
 
 ---
 
@@ -134,7 +134,7 @@ spec:
 ### Deploy
 
 ```bash
-kubectl apply -k deploy/overlays/istio/
+kubectl apply -k meshes/istio/
 ```
 
 ---
@@ -219,7 +219,7 @@ spec:
 ### Deploy
 
 ```bash
-kubectl apply -k deploy/overlays/linkerd/
+kubectl apply -k meshes/linkerd/
 ```
 
 ---
@@ -298,7 +298,7 @@ spec:
 ### Deploy
 
 ```bash
-kubectl apply -k deploy/overlays/cilium/
+kubectl apply -k meshes/cilium/
 ```
 
 ---

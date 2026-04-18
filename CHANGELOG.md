@@ -6,13 +6,20 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- **Service mesh integration** — Kustomize overlays for Istio, Linkerd, and Cilium. Each overlay layers mesh-specific annotations and CRDs on top of the base manifests without modifying them.
-  - `deploy/overlays/istio/` — PeerAuthentication (STRICT mTLS) + AuthorizationPolicy
-  - `deploy/overlays/linkerd/` — Server + ServerAuthorization + opaque port annotations
-  - `deploy/overlays/cilium/` — CiliumNetworkPolicy with L7 HTTP rules
-- **Mesh integration guide** — `docs/mesh-integration.md` covering four deployment profiles (bare, Istio, Linkerd, Cilium) with traffic flow diagrams, annotations, responsibility matrices, and gotchas.
-- **Helm mesh support** — `mesh.provider` value in Helm chart (`none | istio | linkerd | cilium`) with conditional pod annotation template.
-- **Kustomize base** — `deploy/manifests/kustomization.yaml` so overlays can reference base manifests.
+- **Repo restructure** — three clear top-level concerns:
+  - `integrations/` — per-target configs (camazotz first, extensible)
+  - `meshes/` — service mesh overlays (independent of integrations)
+  - `docs/` — architecture, diagrams, guides
+- **Camazotz integration** (`integrations/camazotz/`) — 57 tools registered, three-tier policy, 15-point integration test, README with gap analysis
+- **Architecture docs** — `docs/architecture.md` (request lifecycle, decision chain, package map, L1-L4 security model)
+- **Diagrams** — `docs/diagrams/traffic-flow.md` (all deployment modes) and `docs/diagrams/policy-eval.md` (four-gate chain)
+- **Service mesh overlays** — moved to top-level `meshes/` directory:
+  - `meshes/istio/` — PeerAuthentication (STRICT mTLS) + AuthorizationPolicy
+  - `meshes/linkerd/` — Server + ServerAuthorization + opaque port annotations
+  - `meshes/cilium/` — CiliumNetworkPolicy with L7 HTTP rules
+- **Mesh integration guide** — `docs/mesh-integration.md` covering four profiles
+- **Helm mesh support** — `mesh.provider` value (`none | istio | linkerd | cilium`)
+- **Kustomize base** — `deploy/manifests/kustomization.yaml`
 
 ## [0.1.0] — 2026-04-17
 

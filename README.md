@@ -116,9 +116,9 @@ The manifests and Helm chart are distribution-agnostic — no assumptions about 
 Kustomize overlays add mesh-specific annotations and CRDs on top of the base manifests:
 
 ```bash
-kubectl apply -k deploy/overlays/istio/    # Istio: PeerAuthentication + AuthorizationPolicy
-kubectl apply -k deploy/overlays/linkerd/  # Linkerd: Server + ServerAuthorization
-kubectl apply -k deploy/overlays/cilium/   # Cilium: CiliumNetworkPolicy
+kubectl apply -k meshes/istio/    # Istio: PeerAuthentication + AuthorizationPolicy
+kubectl apply -k meshes/linkerd/  # Linkerd: Server + ServerAuthorization
+kubectl apply -k meshes/cilium/   # Cilium: CiliumNetworkPolicy
 ```
 
 See [docs/mesh-integration.md](docs/mesh-integration.md) for traffic flow diagrams, annotations, and gotchas per mesh.
@@ -233,17 +233,21 @@ nullfield/
 │   └── credentials/      # Secret provider interface (Vault/ASM/env)
 ├── api/v1alpha1/         # CRD type definitions
 ├── internal/config/      # Environment-based configuration
+├── integrations/
+│   └── camazotz/         # Camazotz vulnerable MCP server (57 tools, tiered policy)
+├── meshes/               # Service mesh overlays (Istio, Linkerd, Cilium)
 ├── deploy/
 │   ├── helm/nullfield/   # Helm chart with sidecar template
-│   ├── manifests/        # Raw K8s manifests (works on any distro)
-│   └── overlays/         # Kustomize overlays for Istio, Linkerd, Cilium
+│   └── manifests/        # Raw K8s manifests (works on any distro)
 ├── examples/             # Example policy + tool registry
 ├── tests/
 │   ├── echo-server/      # Echo MCP server for testing
 │   └── smoke.sh          # 12-point smoke test
 ├── docs/
+│   ├── architecture.md
 │   ├── implementation-guide.md
-│   └── mesh-integration.md
+│   ├── mesh-integration.md
+│   └── diagrams/
 ├── Dockerfile
 ├── Makefile
 ├── docker-compose.yaml
