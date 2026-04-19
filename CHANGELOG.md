@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **HOLD action** — park tool calls for human approval. When a HOLD rule matches, the request is held until a human approves or denies via the admin API, or the timeout expires. Includes:
+  - `pkg/hold/manager.go` — hold state machine (pending -> approved/denied/timeout)
+  - `pkg/hold/admin.go` — REST API: GET /admin/holds, POST approve/deny
+  - `pkg/hold/notify.go` — webhook notification on hold creation
+  - Hold config in policy YAML: timeout, onTimeout, notify.webhook
+  - Error code -32005 (ErrCodeHoldTimeout) for timed-out holds
+  - Audit events: hold.created, hold.approved
+  - 9 unit tests covering approve, deny, timeout, list, history, double-approve
 - **Arbiter model** — `docs/arbiter-model.md` defining the five nullfield actions (ALLOW, DENY, HOLD, SCOPE, BUDGET), decision chain, YAML spec, error codes, and how every roadmap feature maps to an action
 - **BUDGET enforcement** — per-identity and per-session call/token budgets. Attach `budget:` to any ALLOW rule to enforce hourly/daily call limits and daily token limits. Automatically detected from policy YAML — no config flag needed. `onExhausted: DENY` rejects with `-32004`.
 - **Demos** — `demos/` directory with 3 runnable walkthroughs: basic tool filtering, JWT identity tracking (with generate-test-jwt.sh), and anomaly detection patterns
