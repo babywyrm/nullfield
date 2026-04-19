@@ -1,0 +1,69 @@
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: jwt-demo-policy
+spec:
+  identity:
+    enabled: true
+    providers:
+      - name: test-idp
+        issuer: "nullfield-test"
+        jwksUri: "http://localhost:8888/jwks.json"
+        audiences: ["nullfield"]
+        clockSkew: "30s"
+
+    validation:
+      requireSignature: true
+      allowedAlgorithms: [RS256]
+      requireExpiry: true
+      requireAudience: true
+
+  integrity:
+    enabled: true
+    bindToSession: true
+    detectReplay: true
+
+  rules:
+    # Humans can use all registered tools
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      when:
+        identity: human
+        claims:
+          groups: { contains: "mcp-writers" }
+      requireIdentity: true
+
+    # Agents can only use read-only tools
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - cost.check_usage
+        - audit.list_actions
+        - tenant.list_tenants
+        - rbac.list_agents
+      when:
+        identity: agent
+      requireIdentity: true
+
+    # Autonomous callers are denied everything
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      when:
+        identity: autonomous
+      reason: "autonomous agents are not permitted"
+
+    # Default deny
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      reason: "no matching rule"
+
+  circuitBreaker:
+    maxToolCallsPerSession: 50
+    maxSessionDuration: 300s
+    onTrip: KILL_POD
+
+  audit:
+    logLevel: FULL
