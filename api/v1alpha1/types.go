@@ -17,10 +17,53 @@ type Metadata struct {
 }
 
 type NullfieldPolicySpec struct {
-	Selector       Selector       `json:"selector" yaml:"selector"`
-	Rules          []Rule         `json:"rules" yaml:"rules"`
-	CircuitBreaker CircuitBreaker `json:"circuitBreaker,omitempty" yaml:"circuitBreaker,omitempty"`
-	Audit          AuditConfig    `json:"audit,omitempty" yaml:"audit,omitempty"`
+	Selector       Selector         `json:"selector" yaml:"selector"`
+	Identity       *IdentityConfig  `json:"identity,omitempty" yaml:"identity,omitempty"`
+	Integrity      *IntegrityConfig `json:"integrity,omitempty" yaml:"integrity,omitempty"`
+	Rules          []Rule           `json:"rules" yaml:"rules"`
+	CircuitBreaker CircuitBreaker   `json:"circuitBreaker,omitempty" yaml:"circuitBreaker,omitempty"`
+	Audit          AuditConfig      `json:"audit,omitempty" yaml:"audit,omitempty"`
+}
+
+// IdentityConfig configures opt-in JWT/OIDC identity validation.
+// When Enabled is false (default), nullfield uses noop or header-only verification.
+type IdentityConfig struct {
+	Enabled    bool               `json:"enabled" yaml:"enabled"`
+	Providers  []IdentityProvider `json:"providers,omitempty" yaml:"providers,omitempty"`
+	Validation *ValidationConfig  `json:"validation,omitempty" yaml:"validation,omitempty"`
+}
+
+type IdentityProvider struct {
+	Name      string   `json:"name" yaml:"name"`
+	Issuer    string   `json:"issuer" yaml:"issuer"`
+	JWKSURI   string   `json:"jwksUri" yaml:"jwksUri"`
+	Audiences []string `json:"audiences,omitempty" yaml:"audiences,omitempty"`
+	ClockSkew string   `json:"clockSkew,omitempty" yaml:"clockSkew,omitempty"`
+}
+
+type ValidationConfig struct {
+	RequireSignature bool     `json:"requireSignature,omitempty" yaml:"requireSignature,omitempty"`
+	AllowedAlgorithms []string `json:"allowedAlgorithms,omitempty" yaml:"allowedAlgorithms,omitempty"`
+	RequireExpiry    bool     `json:"requireExpiry,omitempty" yaml:"requireExpiry,omitempty"`
+	MaxLifetime      string   `json:"maxLifetime,omitempty" yaml:"maxLifetime,omitempty"`
+	RequireAudience  bool     `json:"requireAudience,omitempty" yaml:"requireAudience,omitempty"`
+}
+
+// IntegrityConfig configures opt-in token integrity checks.
+// When Enabled is false (default), no session binding or replay detection occurs.
+type IntegrityConfig struct {
+	Enabled         bool `json:"enabled" yaml:"enabled"`
+	BindToSession   bool `json:"bindToSession,omitempty" yaml:"bindToSession,omitempty"`
+	DetectReplay    bool `json:"detectReplay,omitempty" yaml:"detectReplay,omitempty"`
+	ChainValidation bool `json:"chainValidation,omitempty" yaml:"chainValidation,omitempty"`
+}
+
+// WhenCondition specifies optional conditions a rule must match.
+// All specified fields must match (AND logic). Absent fields match anything.
+type WhenCondition struct {
+	IdentityType string         `json:"identity,omitempty" yaml:"identity,omitempty"`
+	Provider     string         `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Claims       map[string]any `json:"claims,omitempty" yaml:"claims,omitempty"`
 }
 
 type Selector struct {
@@ -54,6 +97,8 @@ type Rule struct {
 	CELExpression   string          `json:"celExpression,omitempty" yaml:"celExpression,omitempty"`
 	InjectCred      *CredentialRef  `json:"injectCredential,omitempty" yaml:"injectCredential,omitempty"`
 	ParamRules      []ParamRule     `json:"paramRules,omitempty" yaml:"paramRules,omitempty"`
+	When            *WhenCondition  `json:"when,omitempty" yaml:"when,omitempty"`
+	Reason          string          `json:"reason,omitempty" yaml:"reason,omitempty"`
 }
 
 type CredentialRef struct {

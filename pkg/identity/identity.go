@@ -7,12 +7,28 @@ import (
 	"strings"
 )
 
+// IdentityType classifies the caller.
+type IdentityType string
+
+const (
+	IdentityHuman      IdentityType = "human"
+	IdentityAgent      IdentityType = "agent"
+	IdentityAutonomous IdentityType = "autonomous"
+	IdentityUnknown    IdentityType = "unknown"
+)
+
 type Identity struct {
-	Subject   string
-	Issuer    string
-	SessionID string
-	Scopes    []string
-	Raw       string
+	Subject      string
+	Issuer       string
+	SessionID    string
+	Scopes       []string
+	Raw          string
+	Type         IdentityType
+	Provider     string
+	Groups       []string
+	Claims       map[string]any
+	ExpiresAt    int64
+	JTI          string
 }
 
 type contextKey struct{}
