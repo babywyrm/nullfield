@@ -83,13 +83,29 @@ type Selector struct {
 	MatchLabels map[string]string `json:"matchLabels" yaml:"matchLabels"`
 }
 
-// Action is ALLOW or DENY.
+// Action defines what nullfield does with a tool call.
 type Action string
 
 const (
-	ActionAllow Action = "ALLOW"
-	ActionDeny  Action = "DENY"
+	ActionAllow  Action = "ALLOW"
+	ActionDeny   Action = "DENY"
+	ActionHold   Action = "HOLD"
+	ActionScope  Action = "SCOPE"
 )
+
+// BudgetConfig attaches resource limits to an ALLOW rule.
+// The tool call is allowed only if the budget has room.
+type BudgetConfig struct {
+	PerIdentity *BudgetLimits `json:"perIdentity,omitempty" yaml:"perIdentity,omitempty"`
+	PerSession  *BudgetLimits `json:"perSession,omitempty" yaml:"perSession,omitempty"`
+	OnExhausted string        `json:"onExhausted,omitempty" yaml:"onExhausted,omitempty"`
+}
+
+type BudgetLimits struct {
+	MaxCallsPerHour int `json:"maxCallsPerHour,omitempty" yaml:"maxCallsPerHour,omitempty"`
+	MaxCallsPerDay  int `json:"maxCallsPerDay,omitempty" yaml:"maxCallsPerDay,omitempty"`
+	MaxTokensPerDay int `json:"maxTokensPerDay,omitempty" yaml:"maxTokensPerDay,omitempty"`
+}
 
 // Direction is INBOUND or OUTBOUND.
 type Direction string
@@ -111,6 +127,7 @@ type Rule struct {
 	InjectCred      *CredentialRef  `json:"injectCredential,omitempty" yaml:"injectCredential,omitempty"`
 	ParamRules      []ParamRule     `json:"paramRules,omitempty" yaml:"paramRules,omitempty"`
 	When            *WhenCondition  `json:"when,omitempty" yaml:"when,omitempty"`
+	Budget          *BudgetConfig   `json:"budget,omitempty" yaml:"budget,omitempty"`
 	Reason          string          `json:"reason,omitempty" yaml:"reason,omitempty"`
 }
 
