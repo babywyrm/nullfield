@@ -7,3 +7,4 @@ bin/
 echo-server
 /nullfield
 /nullfield-controller
+docs/SESSION-CONTEXT.md

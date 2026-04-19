@@ -18,7 +18,7 @@ Every tool call that reaches nullfield results in one of five actions — the fu
 ALLOW    Forward the request immediately.
 DENY     Reject the request immediately.
 HOLD     Park the request. Notify a human. Wait for approval or timeout.
-SCOPE    Allow but modify — strip parameters, inject credentials, redact response. (planned)
+SCOPE    Allow but modify — strip parameters, inject credentials, redact response.
 BUDGET   Allow but track — enforce call quotas, token limits, cost caps.
 ```
 
@@ -67,7 +67,7 @@ rules:
 | Agent reads a status check | ALLOW | Safe, no side effects |
 | Agent tries to exfiltrate secrets | DENY | Blocked unconditionally |
 | Agent wants to deploy to production | HOLD | Human must approve before it proceeds |
-| Agent reads credentials from vault | SCOPE (planned) | Allow but redact the secret value in the response |
+| Agent reads credentials from vault | SCOPE | Allow but redact the secret value in the response |
 | Agent calls an LLM 100 times/hour | BUDGET | Allow but enforce a quota to prevent cost runaway |
 | Unknown tool name appears | DENY (registry) | Not in the approved list — rejected before policy even runs |
 | Same JWT used twice | DENY (integrity) | Replay detection catches reused tokens |
@@ -112,44 +112,45 @@ Every layer is opt-in. The minimum deployment is the sidecar + a policy YAML. Ev
       │
       │  POST /mcp (JSON-RPC)
       ▼
-┌──────────────────────────────────────────────────────────────┐
-│  Pod                                                         │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐    │
-│  │  nullfield sidecar (:9090)                           │    │
-│  │                                                      │    │
-│  │  1. Identity ── verify JWT, extract type/claims      │    │
-│  │  2. Registry ── is this tool registered?             │    │
-│  │  3. Integrity ── session binding, replay detection   │    │
-│  │  4. Circuit breaker ── session within limits?        │    │
-│  │  5. Policy ── first-match rule → action:             │    │
-│  │     ├─ DENY ──── reject immediately                  │    │
-│  │     ├─ HOLD ──── delegate to controller via gRPC     │    │
-│  │     ├─ BUDGET ── check controller budget via gRPC    │    │
-│  │     ├─ SCOPE ─── modify request (planned)            │    │
-│  │     └─ ALLOW ─── forward to upstream                 │    │
-│  │  6. Audit ── structured JSON event for every action  │    │
-│  └──────────────────────┬───────────────────────────────┘    │
-│                         │                                    │
-│                         ▼                                    │
-│  ┌──────────────────────────────┐   :9091 admin              │
-│  │  Your MCP Server (:8080)    │   /healthz /readyz          │
-│  │  (camazotz, your app, etc.) │   /metrics /admin/holds     │
-│  └──────────────────────────────┘                            │
-└──────────────────────────────────┬───────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  Pod                                                            │
+│                                                                 │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  nullfield sidecar (:9090)                                │  │
+│  │                                                           │  │
+│  │  1. Identity ── verify JWT, extract type/claims           │  │
+│  │  2. Registry ── is this tool registered?                  │  │
+│  │  3. Integrity ── session binding, replay detection        │  │
+│  │  4. Circuit breaker ── session within limits?             │  │
+│  │  5. Policy ── first-match rule → action:                  │  │
+│  │     ├─ DENY ──── reject immediately                       │  │
+│  │     ├─ HOLD ──── park for human approval                  │  │
+│  │     ├─ BUDGET ── check quota, reject if exhausted         │  │
+│  │     ├─ SCOPE ─── modify request/response in transit       │  │
+│  │     └─ ALLOW ─── forward to upstream                      │  │
+│  │  6. Audit ── structured JSON event for every action       │  │
+│  └────────────────────────────┬──────────────────────────────┘  │
+│                               │                                 │
+│                               ▼                                 │
+│  ┌───────────────────────────────────────────┐  :9091 admin     │
+│  │  Your MCP Server (:8080)                  │  /healthz        │
+│  │  (camazotz, your app, etc.)               │  /readyz         │
+│  └───────────────────────────────────────────┘  /metrics        │
+│                                                                 │
+└─────────────────────────────────┬───────────────────────────────┘
                                   │ gRPC (opt-in)
                                   ▼
-┌──────────────────────────────────────────────────────────────┐
-│  nullfield-controller (deploy once per cluster)              │
-│                                                              │
-│  ┌─ Holds ──── centralized hold state machine               │
-│  ├─ Budgets ── shared per-identity/session counters          │
-│  ├─ Events ─── aggregated audit event stream                 │
-│  ├─ Alerting ─ webhook/Slack dispatch with dedup             │
-│  └─ Admin ──── unified /admin API across all sidecars        │
-│                                                              │
-│  :50051 gRPC    :9091 /metrics /admin                        │
-└──────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  nullfield-controller (deploy once per cluster, optional)       │
+│                                                                 │
+│  ┌─ Holds ──── centralized hold state machine                   │
+│  ├─ Budgets ── shared per-identity/session counters             │
+│  ├─ Events ─── aggregated audit event stream                    │
+│  ├─ Alerting ─ webhook/Slack dispatch with dedup                │
+│  └─ Admin ──── unified /admin API across all sidecars           │
+│                                                                 │
+│  :9092 gRPC   :9093 admin   :9091 health/metrics                │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
