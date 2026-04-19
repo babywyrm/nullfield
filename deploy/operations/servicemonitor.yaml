@@ -1,0 +1,16 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nullfield
+  labels:
+    app.kubernetes.io/name: nullfield
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nullfield
+  namespaceSelector:
+    any: true
+  endpoints:
+    - port: nullfield-admin
+      path: /metrics
+      interval: 15s

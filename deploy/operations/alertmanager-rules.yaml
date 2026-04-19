@@ -1,0 +1,54 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nullfield-alerts
+  labels:
+    app.kubernetes.io/name: nullfield
+spec:
+  groups:
+    - name: nullfield.rules
+      rules:
+        - alert: NullfieldHighDenyRate
+          expr: rate(nullfield_tool_calls_total{action="denied"}[5m]) > 1
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "nullfield deny rate elevated"
+            description: "More than 1 tool call/sec denied for 2+ minutes. Check for attack or misconfiguration."
+
+        - alert: NullfieldIdentityFailures
+          expr: rate(nullfield_identity_failures_total[5m]) > 0.1
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "nullfield identity verification failures"
+            description: "Identity failures detected — possible token tampering or misconfigured IDP."
+
+        - alert: NullfieldCircuitBreakerTrips
+          expr: increase(nullfield_circuit_trips_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "nullfield circuit breaker tripped"
+            description: "A session exceeded call limits — possible runaway agent loop."
+
+        - alert: NullfieldAnomalyDetected
+          expr: increase(nullfield_anomaly_alerts_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "nullfield anomaly detected"
+            description: "Anomaly alert fired — check velocity, sequence, or drift events in audit logs."
+
+        - alert: NullfieldBudgetExhausted
+          expr: rate(nullfield_tool_calls_total{reason=~"budget exhausted.*"}[5m]) > 0
+          for: 1m
+          labels:
+            severity: info
+          annotations:
+            summary: "nullfield budget limits being hit"
+            description: "One or more identities are hitting budget limits — review quota configuration."
