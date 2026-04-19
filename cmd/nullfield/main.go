@@ -13,6 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/babywyrm/nullfield/internal/config"
+	"github.com/babywyrm/nullfield/pkg/anomaly"
 	"github.com/babywyrm/nullfield/pkg/audit"
 	"github.com/babywyrm/nullfield/pkg/circuit"
 	"github.com/babywyrm/nullfield/pkg/identity"
@@ -139,12 +140,29 @@ func main() {
 
 	engine := policy.NewRuleEngine(spec.Rules)
 
+	// Anomaly detection — opt-in via policy anomaly.enabled.
+	var velocityTracker *anomaly.VelocityTracker
+	if spec.Anomaly != nil && spec.Anomaly.Enabled && spec.Anomaly.Velocity != nil {
+		action := anomaly.AlertActionLog
+		if spec.Anomaly.Velocity.AlertAction == "DENY" {
+			action = anomaly.AlertActionDeny
+		}
+		velocityTracker = anomaly.NewVelocityTracker(anomaly.VelocityConfig{
+			Threshold:   spec.Anomaly.Velocity.Threshold,
+			AlertAction: action,
+		})
+		logger.Info("anomaly detection enabled",
+			"velocityThreshold", spec.Anomaly.Velocity.Threshold,
+			"alertAction", spec.Anomaly.Velocity.AlertAction)
+	}
+
 	handler := proxy.NewHandler(proxy.HandlerOpts{
 		UpstreamURL: upstream,
 		Engine:      engine,
 		Auditor:     auditor,
 		Verifier:    verifier,
 		Integrity:   integrityChecker,
+		Velocity:    velocityTracker,
 		Registry:    reg,
 		Breaker:     breaker,
 		Logger:      logger,

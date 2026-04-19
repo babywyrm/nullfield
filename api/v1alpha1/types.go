@@ -20,9 +20,22 @@ type NullfieldPolicySpec struct {
 	Selector       Selector         `json:"selector" yaml:"selector"`
 	Identity       *IdentityConfig  `json:"identity,omitempty" yaml:"identity,omitempty"`
 	Integrity      *IntegrityConfig `json:"integrity,omitempty" yaml:"integrity,omitempty"`
+	Anomaly        *AnomalyConfig   `json:"anomaly,omitempty" yaml:"anomaly,omitempty"`
 	Rules          []Rule           `json:"rules" yaml:"rules"`
 	CircuitBreaker CircuitBreaker   `json:"circuitBreaker,omitempty" yaml:"circuitBreaker,omitempty"`
 	Audit          AuditConfig      `json:"audit,omitempty" yaml:"audit,omitempty"`
+}
+
+// AnomalyConfig configures opt-in anomaly detection patterns.
+// When Enabled is false (default), no anomaly tracking occurs.
+type AnomalyConfig struct {
+	Enabled  bool            `json:"enabled" yaml:"enabled"`
+	Velocity *VelocityConfig `json:"velocity,omitempty" yaml:"velocity,omitempty"`
+}
+
+type VelocityConfig struct {
+	Threshold   int    `json:"threshold,omitempty" yaml:"threshold,omitempty"`
+	AlertAction string `json:"alertAction,omitempty" yaml:"alertAction,omitempty"`
 }
 
 // IdentityConfig configures opt-in JWT/OIDC identity validation.

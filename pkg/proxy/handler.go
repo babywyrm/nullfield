@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 
+	"github.com/babywyrm/nullfield/pkg/anomaly"
 	"github.com/babywyrm/nullfield/pkg/audit"
 	"github.com/babywyrm/nullfield/pkg/circuit"
 	"github.com/babywyrm/nullfield/pkg/identity"
@@ -24,6 +26,7 @@ type Handler struct {
 	auditor   audit.Emitter
 	verifier  identity.Verifier
 	integrity *identity.IntegrityChecker
+	velocity  *anomaly.VelocityTracker
 	registry  *registry.Registry
 	breaker   *circuit.Breaker
 	logger    *slog.Logger
@@ -35,6 +38,7 @@ type HandlerOpts struct {
 	Auditor     audit.Emitter
 	Verifier    identity.Verifier
 	Integrity   *identity.IntegrityChecker
+	Velocity    *anomaly.VelocityTracker
 	Registry    *registry.Registry
 	Breaker     *circuit.Breaker
 	Logger      *slog.Logger
@@ -48,6 +52,7 @@ func NewHandler(opts HandlerOpts) *Handler {
 		auditor:   opts.Auditor,
 		verifier:  opts.Verifier,
 		integrity: opts.Integrity,
+		velocity:  opts.Velocity,
 		registry:  opts.Registry,
 		breaker:   opts.Breaker,
 		logger:    opts.Logger,
@@ -163,6 +168,22 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 	}
 
 	h.breaker.Record(id.SessionID)
+
+	if h.velocity != nil {
+		if alert := h.velocity.Record(id.Subject, tc.Name); alert != nil {
+			h.auditor.Emit(ctx, audit.Event{
+				Type:     audit.EventAnomalyVelocity,
+				Method:   req.Method,
+				ToolName: tc.Name,
+				Identity: id.Subject,
+				Reason:   fmt.Sprintf("velocity %d/min exceeds threshold %d", alert.CallsPerMin, alert.Threshold),
+			})
+			if alert.Action == anomaly.AlertActionDeny {
+				h.writeJSONRPCError(w, req.ID, ErrCodeRateLimited, fmt.Sprintf("velocity limit exceeded: %d calls/min", alert.CallsPerMin))
+				return
+			}
+		}
+	}
 
 	h.auditor.Emit(ctx, audit.Event{
 		Type:     audit.EventToolAllowed,
