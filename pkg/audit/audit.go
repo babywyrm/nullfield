@@ -19,7 +19,9 @@ const (
 	EventAnomalyVelocity EventType = "anomaly.velocity"
 	EventHoldCreated     EventType = "hold.created"
 	EventHoldApproved    EventType = "hold.approved"
-	EventScopeModified   EventType = "scope.modified"
+	EventScopeModified     EventType = "scope.modified"
+	EventAnomalySequence   EventType = "anomaly.sequence"
+	EventClaimsDrift       EventType = "claims.drift"
 )
 
 type Event struct {

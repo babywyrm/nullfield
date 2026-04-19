@@ -29,8 +29,15 @@ type NullfieldPolicySpec struct {
 // AnomalyConfig configures opt-in anomaly detection patterns.
 // When Enabled is false (default), no anomaly tracking occurs.
 type AnomalyConfig struct {
-	Enabled  bool            `json:"enabled" yaml:"enabled"`
-	Velocity *VelocityConfig `json:"velocity,omitempty" yaml:"velocity,omitempty"`
+	Enabled   bool               `json:"enabled" yaml:"enabled"`
+	Velocity  *VelocityConfig    `json:"velocity,omitempty" yaml:"velocity,omitempty"`
+	Sequences []SequencePattern  `json:"sequences,omitempty" yaml:"sequences,omitempty"`
+}
+
+type SequencePattern struct {
+	Name        string   `json:"name" yaml:"name"`
+	Tools       []string `json:"tools" yaml:"tools"`
+	AlertAction string   `json:"alertAction,omitempty" yaml:"alertAction,omitempty"`
 }
 
 type VelocityConfig struct {
