@@ -10,12 +10,13 @@ import (
 type EventType string
 
 const (
-	EventMCPRequest     EventType = "mcp.request"
-	EventToolAllowed    EventType = "tool.allowed"
-	EventToolDenied     EventType = "tool.denied"
-	EventIdentityFailed EventType = "identity.failed"
-	EventCircuitTripped EventType = "circuit.tripped"
-	EventUpstreamError  EventType = "upstream.error"
+	EventMCPRequest      EventType = "mcp.request"
+	EventToolAllowed     EventType = "tool.allowed"
+	EventToolDenied      EventType = "tool.denied"
+	EventIdentityFailed  EventType = "identity.failed"
+	EventCircuitTripped  EventType = "circuit.tripped"
+	EventUpstreamError   EventType = "upstream.error"
+	EventAnomalyVelocity EventType = "anomaly.velocity"
 )
 
 type Event struct {

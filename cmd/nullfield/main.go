@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"github.com/babywyrm/nullfield/internal/config"
 	"github.com/babywyrm/nullfield/pkg/audit"
 	"github.com/babywyrm/nullfield/pkg/circuit"
@@ -46,7 +48,10 @@ func main() {
 		}
 	}
 
-	auditor := audit.NewLogEmitter(logger)
+	auditor := audit.NewMultiEmitter(
+		audit.NewLogEmitter(logger),
+		audit.NewMetricsEmitter(),
+	)
 
 	// Load full policy spec (identity, integrity, rules).
 	var spec *v1alpha1.NullfieldPolicySpec
@@ -155,6 +160,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
+	adminMux.Handle("/metrics", promhttp.Handler())
 
 	proxyServer := &http.Server{
 		Addr:         cfg.ListenAddr,
