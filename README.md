@@ -360,11 +360,11 @@ nullfield/
 - [x] **v0.3** — Arbiter model: BUDGET (per-identity/session call + token limits), HOLD (human approval gates with admin API, webhook notify, timeout)
 - [x] **v0.4** — SCOPE action: request argument stripping/injection, response pattern redaction, full audit trail of modifications
 
+- [x] **v0.5** — OTLP trace export, tool-chain sequence detection (8 tests), claims drift detection (8 tests), observability stack (Grafana dashboard, ServiceMonitor, 5 alert rules)
+
 ### Next
 
-- [ ] **v0.5** — OTLP trace/span export, tool-chain sequence detection, claims drift detection
-- [ ] **v0.5** — Observability stack: Grafana dashboard JSON, pre-built alert rules (Alertmanager), structured log format for Loki/Splunk/ELK, ServiceMonitor for Prometheus Operator
-- [ ] **v0.5** — Webhook/Slack alerting for denials and anomalies, time-of-day rules
+- [ ] **v0.6** — Webhook/Slack alerting for denials and anomalies, time-of-day rules
 - [ ] **v0.6** — Credential injection from Vault/ASM, outbound LLM API proxying
 - [ ] **v0.6** — Gateway mode: single nullfield instance proxying multiple MCP servers with per-upstream policy routing
 - [ ] **v0.7** — Mutating admission webhook for automatic sidecar injection

@@ -129,7 +129,7 @@ Standard JSON-RPC 2.0 application-defined error codes:
   reason: "secret exfiltration blocked"
 ```
 
-### HOLD (new — v0.7)
+### HOLD (v0.3)
 
 ```yaml
 - action: HOLD
@@ -148,7 +148,7 @@ Standard JSON-RPC 2.0 application-defined error codes:
   reason: "agent delegation requires human approval"
 ```
 
-### SCOPE (new — v0.7)
+### SCOPE (v0.4)
 
 ```yaml
 - action: SCOPE
@@ -214,7 +214,7 @@ Every feature on the roadmap slots into one of the five actions:
 | v0.1 | DENY | Implemented |
 | v0.3 | BUDGET | Implemented — per-identity/session call + token limits |
 | v0.3 | HOLD | Implemented — admin API, webhook notify, timeout |
-| Future | SCOPE | Defined — request/response body modification |
+| v0.4 | SCOPE | Implemented — request/response modification, redaction |
 
 BUDGET first because it's the simplest, most immediately useful, and structurally familiar. HOLD second because it's the flagship arbiter feature. SCOPE last because modifying request/response bodies changes the trust model.
 

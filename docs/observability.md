@@ -94,6 +94,8 @@ Every decision emits a JSON log line to stdout with these fields:
 | `identity.failed` | Identity verification or integrity check failed |
 | `circuit.tripped` | Session exceeded call count or duration limit |
 | `anomaly.velocity` | Tool call velocity exceeded threshold |
+| `anomaly.sequence` | Suspicious tool call sequence detected |
+| `identity.drift` | Claims (scopes/groups) changed mid-session |
 
 ### Filtering audit logs
 
@@ -159,11 +161,82 @@ integrity:
 
 ---
 
+## OTLP Trace Export
+
+nullfield can emit OpenTelemetry spans for every decision. Each audit event becomes a span with attributes for event type, tool, identity, and reason. Opt-in via environment variable:
+
+```bash
+NULLFIELD_AUDIT_ENDPOINT=otel-collector.observability:4317
+```
+
+When configured, the tracer creates spans named `nullfield.<event_type>` (e.g. `nullfield.tool.allowed`, `nullfield.tool.denied`) with error status set automatically for denials, identity failures, and circuit trips.
+
+Works with any OTLP-compatible collector (Jaeger, Tempo, Datadog, Honeycomb, etc.).
+
+---
+
+## Tool-Chain Sequence Detection
+
+Detects suspicious ordered patterns of tool calls within a session. Configure patterns in the policy:
+
+```yaml
+anomaly:
+  enabled: true
+  sequences:
+    - name: recon-then-exfil
+      tools: [audit.list_actions, secrets.read_credential, egress.fetch_url]
+      alertAction: DENY
+    - name: enumerate-then-invoke
+      tools: [tools.list, delegation.invoke_agent]
+      alertAction: LOG
+```
+
+The tracker maintains a sliding window of recent tool calls per session (default 20). When a pattern matches (tools appear in order, not necessarily consecutively), it emits an alert and optionally denies the request.
+
+---
+
+## Claims Drift Detection
+
+Detects when an identity's JWT claims (scopes, groups) change mid-session without re-authentication. Enable via:
+
+```yaml
+integrity:
+  enabled: true
+  detectDrift: true
+```
+
+On the first request in a session, nullfield snapshots the identity's scopes and groups. Subsequent requests are compared against the baseline. If scopes or groups change, the request is rejected with `-32001` and an `identity.failed` audit event.
+
+This catches token manipulation where an attacker escalates privileges by modifying claims between requests.
+
+---
+
+## Cluster-Level Observability Stack
+
+Pre-built resources in `deploy/operations/`:
+
+| File | Purpose | Requires |
+|------|---------|----------|
+| `servicemonitor.yaml` | Prometheus scrape config for nullfield sidecars | Prometheus Operator |
+| `alertmanager-rules.yaml` | 5 alert rules (high deny rate, identity failures, circuit trips, anomalies, budget exhaustion) | Prometheus Operator |
+| `grafana-dashboard.json` | 8-panel dashboard covering all nullfield metrics | Grafana |
+
+Deploy with:
+
+```bash
+kubectl apply -f deploy/operations/servicemonitor.yaml
+kubectl apply -f deploy/operations/alertmanager-rules.yaml
+# Import grafana-dashboard.json via Grafana UI
+```
+
+---
+
 ## Combining everything
 
 A full observability setup:
 
-1. **Prometheus** scrapes `/metrics` every 15s
-2. **Grafana** dashboard shows tool call rates, deny rates, anomaly alerts
-3. **kubectl logs** or a log aggregator captures the structured audit trail
-4. **Alertmanager** fires on `nullfield_anomaly_alerts_total` or `nullfield_identity_failures_total` spikes
+1. **Prometheus** scrapes `/metrics` every 15s via ServiceMonitor
+2. **Grafana** dashboard shows tool call rates, deny rates, anomaly alerts (8 panels)
+3. **OTLP collector** receives trace spans for every decision (Jaeger/Tempo/etc.)
+4. **kubectl logs** or a log aggregator captures the structured audit trail
+5. **Alertmanager** fires on deny rate spikes, identity failures, circuit trips, anomalies, or budget exhaustion

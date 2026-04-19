@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **v0.5: Observability + Anomaly Detection**
+  - OTLP trace export — OpenTelemetry spans for every decision (opt-in via `NULLFIELD_AUDIT_ENDPOINT`)
+  - Tool-chain sequence detection — configurable suspicious call patterns per session (8 tests)
+  - Claims drift detection — detect scope/group changes mid-session (8 tests)
+  - Observability stack (`deploy/operations/`): Grafana dashboard (8 panels), ServiceMonitor, 5 Alertmanager rules
 - **SCOPE action** — modify tool call requests and responses in transit. Strip dangerous arguments, inject scoped credentials, redact sensitive patterns in responses. Standalone action with full audit trail of what was modified. 9 unit tests.
 - **HOLD action** — park tool calls for human approval. When a HOLD rule matches, the request is held until a human approves or denies via the admin API, or the timeout expires. Includes:
   - `pkg/hold/manager.go` — hold state machine (pending -> approved/denied/timeout)
