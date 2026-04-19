@@ -268,16 +268,18 @@ nullfield/
 - [x] **v0.1** — MCP `tools/call` interception, rule engine, policy-from-file, audit logging, circuit breaker, K8s manifests, Docker Compose, smoke tests
 - [x] **v0.2** — L2 identity-aware policy: JWKS validation, multi-provider support, `when:` conditions (identity type, provider, claims), session binding, replay detection
 - [x] **v0.2** — Prometheus `/metrics` endpoint, velocity anomaly detection, 3 runnable demo walkthroughs
+- [x] **v0.3** — Arbiter model: BUDGET (per-identity/session call + token limits), HOLD (human approval gates with admin API, webhook notify, timeout)
 
 ### Next
 
-- [ ] **v0.3** — OTLP trace/span export, tool-chain sequence detection (suspicious call patterns), claims drift detection (scope escalation mid-session)
-- [ ] **v0.3** — Webhook/Slack alerting for denials and anomalies, time-of-day rules
-- [ ] **v0.4** — Credential injection from Vault/ASM, outbound LLM API proxying with token budget tracking
-- [ ] **v0.5** — Mutating admission webhook for automatic sidecar injection
-- [ ] **v0.6** — CRD controller (watch NullfieldPolicy + ToolRegistry as native K8s resources)
-- [ ] **v0.7** — L3 tool governance: registration workflow, approval gates (`HOLD` action), tool lifecycle management, rug-pull detection (tool change after init)
-- [ ] **v0.8** — L4 agentic flow control: identity chaining, delegation depth limits, human-in-the-loop approval holds, call chain tracing
+- [ ] **v0.4** — SCOPE action (request/response modification, credential injection, response redaction)
+- [ ] **v0.4** — OTLP trace/span export, tool-chain sequence detection, claims drift detection
+- [ ] **v0.5** — Webhook/Slack alerting for denials and anomalies, time-of-day rules
+- [ ] **v0.5** — Credential injection from Vault/ASM, outbound LLM API proxying
+- [ ] **v0.6** — Mutating admission webhook for automatic sidecar injection
+- [ ] **v0.7** — CRD controller (watch NullfieldPolicy + ToolRegistry as native K8s resources)
+- [ ] **v0.8** — L3 tool governance: registration workflow, tool lifecycle, rug-pull detection
+- [ ] **v0.9** — L4 agentic flow control: identity chaining, delegation depth limits, human-in-the-loop
 - [ ] **v0.9** — Response inspection (detect system prompt leakage, PII in tool responses), cost attribution per identity/session
 - [ ] **v1.0** — Transparent iptables-based proxy (Istio-style), production hardening, ext_authz gRPC mode
 

@@ -208,11 +208,13 @@ Every feature on the roadmap slots into one of the five actions:
 
 ## Implementation Order
 
-| Phase | Action | Complexity | Dependencies |
-|-------|--------|-----------|--------------|
-| v0.3 | BUDGET | Low | Extends existing counter pattern (circuit breaker, velocity) |
-| v0.7 | HOLD | High | Needs goroutine parking, approval API, notification webhooks |
-| v0.7 | SCOPE | Medium | Needs request/response body modification, pattern matching |
+| Phase | Action | Status |
+|-------|--------|--------|
+| v0.1 | ALLOW | Implemented |
+| v0.1 | DENY | Implemented |
+| v0.3 | BUDGET | Implemented — per-identity/session call + token limits |
+| v0.3 | HOLD | Implemented — admin API, webhook notify, timeout |
+| Future | SCOPE | Defined — request/response body modification |
 
 BUDGET first because it's the simplest, most immediately useful, and structurally familiar. HOLD second because it's the flagship arbiter feature. SCOPE last because modifying request/response bodies changes the trust model.
 
