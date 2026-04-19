@@ -93,6 +93,18 @@ const (
 	ActionScope  Action = "SCOPE"
 )
 
+// HoldConfig configures the HOLD action — park a request for human approval.
+type HoldConfig struct {
+	Timeout   string       `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+	OnTimeout string       `json:"onTimeout,omitempty" yaml:"onTimeout,omitempty"`
+	Notify    *NotifyConfig `json:"notify,omitempty" yaml:"notify,omitempty"`
+}
+
+type NotifyConfig struct {
+	Webhook  string `json:"webhook,omitempty" yaml:"webhook,omitempty"`
+	AdminAPI bool   `json:"adminAPI,omitempty" yaml:"adminAPI,omitempty"`
+}
+
 // BudgetConfig attaches resource limits to an ALLOW rule.
 // The tool call is allowed only if the budget has room.
 type BudgetConfig struct {
@@ -127,6 +139,7 @@ type Rule struct {
 	InjectCred      *CredentialRef  `json:"injectCredential,omitempty" yaml:"injectCredential,omitempty"`
 	ParamRules      []ParamRule     `json:"paramRules,omitempty" yaml:"paramRules,omitempty"`
 	When            *WhenCondition  `json:"when,omitempty" yaml:"when,omitempty"`
+	Hold            *HoldConfig     `json:"hold,omitempty" yaml:"hold,omitempty"`
 	Budget          *BudgetConfig   `json:"budget,omitempty" yaml:"budget,omitempty"`
 	Reason          string          `json:"reason,omitempty" yaml:"reason,omitempty"`
 }
