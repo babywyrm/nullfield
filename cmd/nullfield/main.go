@@ -208,11 +208,16 @@ func main() {
 		logger.Info("hold admin API registered at /admin/holds")
 	}
 
+	writeTimeout := 30 * time.Second
+	if holdManager != nil {
+		writeTimeout = 10 * time.Minute
+	}
+
 	proxyServer := &http.Server{
 		Addr:         cfg.ListenAddr,
 		Handler:      handler,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: writeTimeout,
 		IdleTimeout:  120 * time.Second,
 	}
 

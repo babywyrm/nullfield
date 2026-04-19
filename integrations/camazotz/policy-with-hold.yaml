@@ -1,0 +1,51 @@
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: camazotz-policy-with-hold
+spec:
+  rules:
+    # Read-only tools — ALLOW immediately
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - cost.check_usage
+        - audit.list_actions
+        - tenant.list_tenants
+      requireIdentity: true
+
+    # Dangerous write tools — HOLD for human approval
+    - action: HOLD
+      mcpMethod: tools/call
+      toolNames:
+        - delegation.invoke_agent
+        - cred_broker.configure_sidecar
+        - config.update_system_prompt
+      hold:
+        timeout: "30s"
+        onTimeout: DENY
+      reason: "dangerous tool requires human approval"
+
+    # High-risk tools — DENY
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames:
+        - egress.fetch_url
+        - secrets.leak_config
+        - supply.install_package
+        - tool.mutate_behavior
+        - shadow.register_webhook
+        - hallucination.execute_plan
+        - indirect.fetch_and_summarize
+
+    # Everything else — ALLOW (for demo simplicity)
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      requireIdentity: true
+
+  circuitBreaker:
+    maxToolCallsPerSession: 50
+    maxSessionDuration: 300s
+
+  audit:
+    logLevel: FULL
