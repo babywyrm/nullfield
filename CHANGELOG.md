@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **L2: Identity-aware policy** — opt-in identity validation and conditional policy rules:
+  - JWT/JWKS verification with multi-provider support (RS256, ES256, key caching)
+  - `when:` blocks on rules — match by identity type (human/agent/autonomous), provider, and claims
+  - Session binding — detect mid-session identity swaps
+  - Token replay detection — reject reused JTI claims
+  - All features off by default — existing policies work unchanged
+  - `docs/identity-policy.md` — four-level configuration guide
+  - 15 unit tests covering rule matching, session binding, and replay detection
+  - Example policies: `policy-minimal.yaml` (5 lines) and `policy-identity.yaml` (full L2)
 - **Repo restructure** — three clear top-level concerns:
   - `integrations/` — per-target configs (camazotz first, extensible)
   - `meshes/` — service mesh overlays (independent of integrations)

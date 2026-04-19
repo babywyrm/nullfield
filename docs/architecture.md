@@ -27,36 +27,41 @@ HTTP Request arrives (:9090)
        ├─ 3. CIRCUIT BREAKER ──► Session within limits?
        │   no? ──► Audit "circuit.tripped" ──► Return -32002 (circuit open)
        │
-       ├─ 4. POLICY ──► Evaluate rules top-to-bottom, first match wins
+       ├─ 4. INTEGRITY (opt-in) ──► Session binding + replay detection
+       │   fail? ──► Audit "identity.failed" ──► Return -32001
+       │
+       ├─ 5. POLICY ──► Evaluate rules top-to-bottom, first match wins
+       │   Rules can have when: conditions (identity type, provider, claims)
        │   denied? ──► Audit "tool.denied" ──► Return -32000 (policy denied)
        │
-       └─ 5. FORWARD ──► Audit "tool.allowed" ──► Proxy to upstream
+       └─ 6. FORWARD ──► Audit "tool.allowed" ──► Proxy to upstream
 ```
 
 ---
 
 ## Decision Chain
 
-The three gates are evaluated in order. Each gate is independent — a request must pass all three to reach the upstream.
+The gates are evaluated in order. Each gate is independent — a request must pass all of them to reach the upstream.
 
 ```text
-           ┌─────────────┐     ┌──────────────┐     ┌────────────┐
-Request ──►│  REGISTRY    │────►│  CIRCUIT BRK │────►│   POLICY   │────► Upstream
-           │              │     │              │     │            │
-           │ Is tool name │     │ Session call │     │ First-match│
-           │ registered?  │     │ count + time │     │ ALLOW/DENY │
-           │              │     │ within limit?│     │ rule eval  │
-           └──────┬───────┘     └──────┬───────┘     └─────┬──────┘
-                  │ NO                 │ NO                 │ NO MATCH
-                  ▼                    ▼                    ▼
-              -32003               -32002               -32000
-           "not registered"    "circuit open"      "denied by policy"
+           ┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌────────────┐
+Request ──►│  REGISTRY    │────►│  CIRCUIT BRK │────►│  INTEGRITY   │────►│   POLICY   │──► Upstream
+           │              │     │              │     │  (opt-in)    │     │            │
+           │ Is tool name │     │ Session call │     │ Session bind │     │ First-match│
+           │ registered?  │     │ count + time │     │ + replay chk │     │ ALLOW/DENY │
+           │              │     │ within limit?│     │              │     │ + when:    │
+           └──────┬───────┘     └──────┬───────┘     └──────┬───────┘     └─────┬──────┘
+                  │ NO                 │ NO                  │ FAIL              │ NO MATCH
+                  ▼                    ▼                     ▼                   ▼
+              -32003               -32002                -32001              -32000
+           "not registered"    "circuit open"       "integrity fail"   "denied by policy"
 ```
 
 Why this order:
 1. **Registry first** — cheapest check. HashMap lookup. Rejects obviously wrong tool names before doing anything else.
 2. **Circuit breaker second** — protects the policy engine and upstream from runaway agents. If a session is already over limits, don't bother evaluating policy.
-3. **Policy last** — most expensive check. Rule iteration with potential CEL evaluation (future). Only runs for registered tools within circuit limits.
+3. **Integrity third** (opt-in) — session binding and replay detection. Only runs if `integrity.enabled: true`.
+4. **Policy last** — most expensive check. Rule iteration with when-condition evaluation. Only runs for registered tools within circuit and integrity limits.
 
 ---
 
