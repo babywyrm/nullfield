@@ -105,6 +105,22 @@ type NotifyConfig struct {
 	AdminAPI bool   `json:"adminAPI,omitempty" yaml:"adminAPI,omitempty"`
 }
 
+// ScopeConfig configures the SCOPE action — modify request/response in transit.
+type ScopeConfig struct {
+	Request  *ScopeRequestConfig  `json:"request,omitempty" yaml:"request,omitempty"`
+	Response *ScopeResponseConfig `json:"response,omitempty" yaml:"response,omitempty"`
+}
+
+type ScopeRequestConfig struct {
+	StripArguments  []string       `json:"stripArguments,omitempty" yaml:"stripArguments,omitempty"`
+	InjectArguments map[string]any `json:"injectArguments,omitempty" yaml:"injectArguments,omitempty"`
+}
+
+type ScopeResponseConfig struct {
+	RedactPatterns    []string `json:"redactPatterns,omitempty" yaml:"redactPatterns,omitempty"`
+	RedactReplacement string   `json:"redactReplacement,omitempty" yaml:"redactReplacement,omitempty"`
+}
+
 // BudgetConfig attaches resource limits to an ALLOW rule.
 // The tool call is allowed only if the budget has room.
 type BudgetConfig struct {
@@ -140,6 +156,7 @@ type Rule struct {
 	ParamRules      []ParamRule     `json:"paramRules,omitempty" yaml:"paramRules,omitempty"`
 	When            *WhenCondition  `json:"when,omitempty" yaml:"when,omitempty"`
 	Hold            *HoldConfig     `json:"hold,omitempty" yaml:"hold,omitempty"`
+	Scope           *ScopeConfig    `json:"scope,omitempty" yaml:"scope,omitempty"`
 	Budget          *BudgetConfig   `json:"budget,omitempty" yaml:"budget,omitempty"`
 	Reason          string          `json:"reason,omitempty" yaml:"reason,omitempty"`
 }
