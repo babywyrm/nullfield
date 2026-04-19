@@ -19,6 +19,7 @@ type Request struct {
 type Decision struct {
 	Allowed     bool
 	Held        bool
+	Scoped      bool
 	Reason      string
 	MatchedRule *v1alpha1.Rule
 }

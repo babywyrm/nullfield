@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"time"
 
+	v1alpha1 "github.com/babywyrm/nullfield/api/v1alpha1"
 	"github.com/babywyrm/nullfield/pkg/anomaly"
 	"github.com/babywyrm/nullfield/pkg/audit"
 	"github.com/babywyrm/nullfield/pkg/budget"
@@ -20,6 +21,7 @@ import (
 	"github.com/babywyrm/nullfield/pkg/identity"
 	"github.com/babywyrm/nullfield/pkg/policy"
 	"github.com/babywyrm/nullfield/pkg/registry"
+	"github.com/babywyrm/nullfield/pkg/scope"
 )
 
 // Handler is the main reverse proxy handler that intercepts MCP traffic.
@@ -225,6 +227,38 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 		return
 	}
 
+	// SCOPE — modify request arguments if the matched rule has scope config.
+	var scopeResponseCfg *v1alpha1.ScopeResponseConfig
+	if decision.Scoped && decision.MatchedRule != nil && decision.MatchedRule.Scope != nil {
+		scopeCfg := decision.MatchedRule.Scope
+		var mods scope.Modifications
+
+		if scopeCfg.Request != nil {
+			var modifiedArgs map[string]any
+			modifiedArgs, mods = scope.ModifyRequest(tc.Arguments, scopeCfg.Request)
+			tc.Arguments = modifiedArgs
+
+			newBody, err := scope.RebuildRequestBody(body, modifiedArgs)
+			if err != nil {
+				h.writeJSONRPCError(w, req.ID, ErrCodeScopeViolation, "scope: failed to rebuild request")
+				return
+			}
+			body = newBody
+		}
+
+		if scopeCfg.Response != nil {
+			scopeResponseCfg = scopeCfg.Response
+		}
+
+		h.auditor.Emit(ctx, audit.Event{
+			Type:     audit.EventScopeModified,
+			Method:   req.Method,
+			ToolName: tc.Name,
+			Identity: id.Subject,
+			Reason:   fmt.Sprintf("stripped=%v injected=%v", mods.StrippedArgs, mods.InjectedArgs),
+		})
+	}
+
 	// Budget check — if the matched rule has a budget config, enforce it.
 	if h.budgets != nil && decision.MatchedRule != nil && decision.MatchedRule.Budget != nil {
 		bc := decision.MatchedRule.Budget
@@ -283,7 +317,42 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 	})
 
 	r.Body = io.NopCloser(bytes.NewReader(body))
-	h.upstream.ServeHTTP(w, r)
+
+	if scopeResponseCfg != nil && len(scopeResponseCfg.RedactPatterns) > 0 {
+		rec := &responseRecorder{ResponseWriter: w, body: &bytes.Buffer{}}
+		h.upstream.ServeHTTP(rec, r)
+
+		redacted, count := scope.ModifyResponse(rec.body.Bytes(), scopeResponseCfg)
+		if count > 0 {
+			h.auditor.Emit(ctx, audit.Event{
+				Type:     audit.EventScopeModified,
+				Method:   req.Method,
+				ToolName: tc.Name,
+				Identity: id.Subject,
+				Reason:   fmt.Sprintf("response: %d patterns redacted", count),
+			})
+		}
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(redacted)))
+		w.WriteHeader(rec.statusCode)
+		w.Write(redacted)
+	} else {
+		h.upstream.ServeHTTP(w, r)
+	}
+}
+
+// responseRecorder captures the upstream response for post-processing (SCOPE redaction).
+type responseRecorder struct {
+	http.ResponseWriter
+	statusCode int
+	body       *bytes.Buffer
+}
+
+func (r *responseRecorder) WriteHeader(code int) {
+	r.statusCode = code
+}
+
+func (r *responseRecorder) Write(b []byte) (int, error) {
+	return r.body.Write(b)
 }
 
 func (h *Handler) writeJSONRPCError(w http.ResponseWriter, id any, code int, message string) {
