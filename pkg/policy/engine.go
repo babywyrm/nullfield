@@ -17,8 +17,9 @@ type Request struct {
 
 // Decision is the output of a policy evaluation.
 type Decision struct {
-	Allowed    bool
-	Reason     string
+	Allowed     bool
+	Held        bool
+	Reason      string
 	MatchedRule *v1alpha1.Rule
 }
 

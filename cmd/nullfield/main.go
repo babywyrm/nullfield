@@ -17,6 +17,7 @@ import (
 	"github.com/babywyrm/nullfield/pkg/audit"
 	"github.com/babywyrm/nullfield/pkg/budget"
 	"github.com/babywyrm/nullfield/pkg/circuit"
+	"github.com/babywyrm/nullfield/pkg/hold"
 	"github.com/babywyrm/nullfield/pkg/identity"
 	"github.com/babywyrm/nullfield/pkg/policy"
 	"github.com/babywyrm/nullfield/pkg/proxy"
@@ -167,6 +168,16 @@ func main() {
 		}
 	}
 
+	// Hold manager — created if any rule uses the HOLD action.
+	var holdManager *hold.Manager
+	for _, r := range spec.Rules {
+		if r.Action == v1alpha1.ActionHold {
+			holdManager = hold.NewManager()
+			logger.Info("hold manager enabled")
+			break
+		}
+	}
+
 	handler := proxy.NewHandler(proxy.HandlerOpts{
 		UpstreamURL: upstream,
 		Engine:      engine,
@@ -175,6 +186,7 @@ func main() {
 		Integrity:   integrityChecker,
 		Velocity:    velocityTracker,
 		Budgets:     budgetTracker,
+		Holds:       holdManager,
 		Registry:    reg,
 		Breaker:     breaker,
 		Logger:      logger,
@@ -191,6 +203,10 @@ func main() {
 		w.Write([]byte("ok"))
 	})
 	adminMux.Handle("/metrics", promhttp.Handler())
+	if holdManager != nil {
+		hold.RegisterAdminHandlers(adminMux, holdManager)
+		logger.Info("hold admin API registered at /admin/holds")
+	}
 
 	proxyServer := &http.Server{
 		Addr:         cfg.ListenAddr,

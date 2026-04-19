@@ -87,4 +87,6 @@ const (
 	ErrCodeCircuitOpen    = -32002
 	ErrCodeToolUnknown    = -32003
 	ErrCodeRateLimited    = -32004
+	ErrCodeHoldTimeout    = -32005
+	ErrCodeScopeViolation = -32006
 )

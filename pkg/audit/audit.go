@@ -17,6 +17,8 @@ const (
 	EventCircuitTripped  EventType = "circuit.tripped"
 	EventUpstreamError   EventType = "upstream.error"
 	EventAnomalyVelocity EventType = "anomaly.velocity"
+	EventHoldCreated     EventType = "hold.created"
+	EventHoldApproved    EventType = "hold.approved"
 )
 
 type Event struct {

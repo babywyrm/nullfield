@@ -43,6 +43,11 @@ func (e *RuleEngine) Evaluate(_ context.Context, req Request) Decision {
 				reason = "denied by rule for tool: " + req.ToolName
 			}
 			return Decision{Allowed: false, Reason: reason, MatchedRule: &matched}
+		case v1alpha1.ActionHold:
+			if reason == "" {
+				reason = "held for approval: " + req.ToolName
+			}
+			return Decision{Allowed: false, Held: true, Reason: reason, MatchedRule: &matched}
 		}
 	}
 

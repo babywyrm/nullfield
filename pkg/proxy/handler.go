@@ -10,11 +10,13 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"time"
 
 	"github.com/babywyrm/nullfield/pkg/anomaly"
 	"github.com/babywyrm/nullfield/pkg/audit"
 	"github.com/babywyrm/nullfield/pkg/budget"
 	"github.com/babywyrm/nullfield/pkg/circuit"
+	"github.com/babywyrm/nullfield/pkg/hold"
 	"github.com/babywyrm/nullfield/pkg/identity"
 	"github.com/babywyrm/nullfield/pkg/policy"
 	"github.com/babywyrm/nullfield/pkg/registry"
@@ -29,6 +31,7 @@ type Handler struct {
 	integrity *identity.IntegrityChecker
 	velocity  *anomaly.VelocityTracker
 	budgets   *budget.Tracker
+	holds     *hold.Manager
 	registry  *registry.Registry
 	breaker   *circuit.Breaker
 	logger    *slog.Logger
@@ -42,6 +45,7 @@ type HandlerOpts struct {
 	Integrity   *identity.IntegrityChecker
 	Velocity    *anomaly.VelocityTracker
 	Budgets     *budget.Tracker
+	Holds       *hold.Manager
 	Registry    *registry.Registry
 	Breaker     *circuit.Breaker
 	Logger      *slog.Logger
@@ -57,6 +61,7 @@ func NewHandler(opts HandlerOpts) *Handler {
 		integrity: opts.Integrity,
 		velocity:  opts.Velocity,
 		budgets:   opts.Budgets,
+		holds:     opts.Holds,
 		registry:  opts.Registry,
 		breaker:   opts.Breaker,
 		logger:    opts.Logger,
@@ -159,7 +164,56 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 		Identity:  id,
 	})
 
-	if !decision.Allowed {
+	if decision.Held && h.holds != nil && decision.MatchedRule != nil && decision.MatchedRule.Hold != nil {
+		holdCfg := decision.MatchedRule.Hold
+		timeout := 5 * time.Minute
+		if holdCfg.Timeout != "" {
+			if parsed, err := time.ParseDuration(holdCfg.Timeout); err == nil {
+				timeout = parsed
+			}
+		}
+
+		holdID, ch := h.holds.Hold(tc.Name, tc.Arguments, id.Subject, id.SessionID, decision.Reason, timeout)
+
+		h.logger.InfoContext(ctx, "request held for approval",
+			"holdId", holdID, "tool", tc.Name, "identity", id.Subject, "timeout", timeout)
+
+		h.auditor.Emit(ctx, audit.Event{
+			Type:     audit.EventHoldCreated,
+			Method:   req.Method,
+			ToolName: tc.Name,
+			Identity: id.Subject,
+			Reason:   fmt.Sprintf("held: %s (id=%s, timeout=%s)", decision.Reason, holdID, timeout),
+		})
+
+		resolution := <-ch
+
+		if !resolution.Approved {
+			h.auditor.Emit(ctx, audit.Event{
+				Type:     audit.EventToolDenied,
+				Method:   req.Method,
+				ToolName: tc.Name,
+				Identity: id.Subject,
+				Reason:   fmt.Sprintf("hold %s: denied by %s", holdID, resolution.By),
+			})
+			if resolution.By == "timeout" {
+				h.writeJSONRPCError(w, req.ID, ErrCodeHoldTimeout, "hold timed out without approval")
+			} else {
+				h.writeJSONRPCError(w, req.ID, ErrCodePolicyDenied, "hold denied by "+resolution.By)
+			}
+			return
+		}
+
+		h.logger.InfoContext(ctx, "hold approved", "holdId", holdID, "approvedBy", resolution.By)
+		h.auditor.Emit(ctx, audit.Event{
+			Type:     audit.EventHoldApproved,
+			Method:   req.Method,
+			ToolName: tc.Name,
+			Identity: id.Subject,
+			Reason:   fmt.Sprintf("hold %s: approved by %s", holdID, resolution.By),
+		})
+		// Fall through to budget check and forwarding.
+	} else if !decision.Allowed {
 		h.auditor.Emit(ctx, audit.Event{
 			Type:     audit.EventToolDenied,
 			Method:   req.Method,
