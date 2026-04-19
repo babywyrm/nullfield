@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Arbiter model** — `docs/arbiter-model.md` defining the five nullfield actions (ALLOW, DENY, HOLD, SCOPE, BUDGET), decision chain, YAML spec, error codes, and how every roadmap feature maps to an action
+- **BUDGET enforcement** — per-identity and per-session call/token budgets. Attach `budget:` to any ALLOW rule to enforce hourly/daily call limits and daily token limits. Automatically detected from policy YAML — no config flag needed. `onExhausted: DENY` rejects with `-32004`.
 - **Demos** — `demos/` directory with 3 runnable walkthroughs: basic tool filtering, JWT identity tracking (with generate-test-jwt.sh), and anomaly detection patterns
 - **Prometheus metrics** — `/metrics` endpoint on admin port with tool call counters, deny counters, identity failures, circuit trips, and anomaly alerts. Always on, zero config.
 - **Velocity detection** — per-identity tool call rate tracking with configurable threshold and alertAction (LOG or DENY). Opt-in via `anomaly.enabled: true` in policy.
