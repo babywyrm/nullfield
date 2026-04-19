@@ -1,0 +1,107 @@
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: camazotz-policy-with-budget
+spec:
+  rules:
+    # Tier 1: Read-only tools — no budget (cheap operations)
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - attribution.read_audit
+        - attribution.verify_context
+        - audit.list_actions
+        - auth.issue_token
+        - comms.list_sent
+        - config.read_system_prompt
+        - cost.check_usage
+        - cred_broker.list_vaults
+        - delegation.read_chain
+        - downgrade.check_pattern
+        - downgrade.list_capabilities
+        - error.validate_input
+        - hallucination.list_filesystem
+        - notification.check_inbox
+        - oauth.list_connections
+        - rbac.list_agents
+        - rbac.check_membership
+        - revocation.use_token
+        - shadow.list_webhooks
+        - temporal.get_config
+        - temporal.check_permission
+        - temporal.get_status
+        - tenant.recall_memory
+        - tenant.list_tenants
+        - error.debug_info
+      requireIdentity: true
+
+    # Tier 2a: LLM-backed tools — BUDGET-LIMITED
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - config.ask_agent
+        - cost.invoke_llm
+        - comms.send_message
+        - context.injectable_summary
+      requireIdentity: true
+      budget:
+        perIdentity:
+          maxCallsPerHour: 20
+          maxCallsPerDay: 100
+        perSession:
+          maxCallsPerHour: 10
+        onExhausted: DENY
+      reason: "LLM-backed tools are budget-limited"
+
+    # Tier 2b: Write tools (non-LLM) — normal allow
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - attribution.submit_action
+        - audit.perform_action
+        - auth.access_protected
+        - auth.access_service_b
+        - config.update_system_prompt
+        - cost.reset_usage
+        - cred_broker.read_credential
+        - cred_broker.configure_sidecar
+        - delegation.invoke_agent
+        - downgrade.authenticate
+        - notification.subscribe
+        - notification.trigger_event
+        - oauth.exchange_token
+        - oauth.call_downstream
+        - rbac.trigger_agent
+        - relay.store_context
+        - relay.execute_with_context
+        - revocation.issue_token
+        - revocation.revoke_principal
+        - tenant.store_memory
+        - error.trigger_crash
+      requireIdentity: true
+
+    # Tier 3: High-risk tools — DENY
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames:
+        - egress.fetch_url
+        - indirect.fetch_and_summarize
+        - secrets.leak_config
+        - shadow.register_webhook
+        - supply.install_package
+        - tool.mutate_behavior
+        - hallucination.execute_plan
+
+    # Default deny
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      reason: "default deny"
+
+  circuitBreaker:
+    maxToolCallsPerSession: 50
+    maxSessionDuration: 300s
+    onTrip: KILL_POD
+
+  audit:
+    logLevel: FULL
