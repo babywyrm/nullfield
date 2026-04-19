@@ -1,15 +1,53 @@
-replicaCount: 1
-
-image:
-  repository: ghcr.io/babywyrm/nullfield
-  tag: latest
-  pullPolicy: IfNotPresent
+controller:
+  enabled: false
+  replicas: 1
+  image:
+    repository: ghcr.io/babywyrm/nullfield-controller
+    tag: latest
+    pullPolicy: IfNotPresent
+  grpcPort: 9092
+  adminPort: 9093
+  healthPort: 9091
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  alerting:
+    webhook: ""
+    slack:
+      channel: ""
+      token: ""
 
 sidecar:
-  enabled: true
+  image:
+    repository: ghcr.io/babywyrm/nullfield
+    tag: latest
+    pullPolicy: IfNotPresent
   listenPort: 9090
   adminPort: 9091
-  upstreamPort: 8080
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+targets: []
+# Example:
+# - name: brain-gateway
+#   namespace: camazotz
+#   upstreamPort: 8080
+#   policyFile: files/camazotz/policy.yaml
+#   registryFile: files/camazotz/tools.yaml
+#   identity:
+#     jwksURL: ""
+#   circuit:
+#     maxCalls: 50
+#     maxDuration: "5m"
 
 identity:
   header: Authorization
@@ -23,22 +61,19 @@ audit:
   logLevel: "FULL"
   otelEndpoint: ""
 
-resources:
-  requests:
-    cpu: 50m
-    memory: 64Mi
-  limits:
-    cpu: 200m
-    memory: 128Mi
+monitoring:
+  serviceMonitor:
+    enabled: false
+    interval: 15s
+  alertRules:
+    enabled: false
+  grafanaDashboard:
+    enabled: false
+
+mesh:
+  provider: "none"
 
 serviceAccount:
   create: true
   name: ""
   annotations: {}
-
-mesh:
-  # Service mesh integration: none | istio | linkerd | cilium
-  provider: "none"
-
-injector:
-  enabled: false

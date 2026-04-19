@@ -17,6 +17,7 @@ import (
 	"github.com/babywyrm/nullfield/pkg/audit"
 	"github.com/babywyrm/nullfield/pkg/budget"
 	"github.com/babywyrm/nullfield/pkg/circuit"
+	"github.com/babywyrm/nullfield/pkg/controller"
 	"github.com/babywyrm/nullfield/pkg/hold"
 	"github.com/babywyrm/nullfield/pkg/identity"
 	"github.com/babywyrm/nullfield/pkg/policy"
@@ -42,6 +43,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	var ctrlClient *controller.Client
+	if cfg.ControllerAddr != "" {
+		var err error
+		ctrlClient, err = controller.NewClient(cfg.ControllerAddr, logger)
+		if err != nil {
+			logger.Error("failed to connect to controller", "addr", cfg.ControllerAddr, "error", err)
+			os.Exit(1)
+		}
+		defer ctrlClient.Close()
+		logger.Info("controller mode enabled", "addr", cfg.ControllerAddr)
+	}
+
 	reg := registry.New()
 	if cfg.ToolRegistryPath != "" {
 		if err := reg.LoadFromFile(cfg.ToolRegistryPath); err != nil {
@@ -64,6 +77,10 @@ func main() {
 			emitters = append(emitters, audit.NewOTLPEmitter())
 			defer shutdown(context.Background())
 		}
+	}
+
+	if ctrlClient != nil {
+		emitters = append(emitters, &controllerEmitter{client: ctrlClient, logger: logger})
 	}
 
 	auditor := audit.NewMultiEmitter(emitters...)
@@ -170,23 +187,25 @@ func main() {
 			"alertAction", spec.Anomaly.Velocity.AlertAction)
 	}
 
-	// Budget tracker — created if any rule has a budget: block.
 	var budgetTracker *budget.Tracker
-	for _, r := range spec.Rules {
-		if r.Budget != nil {
-			budgetTracker = budget.New()
-			logger.Info("budget tracking enabled")
-			break
+	if ctrlClient == nil {
+		for _, r := range spec.Rules {
+			if r.Budget != nil {
+				budgetTracker = budget.New()
+				logger.Info("budget tracking enabled")
+				break
+			}
 		}
 	}
 
-	// Hold manager — created if any rule uses the HOLD action.
 	var holdManager *hold.Manager
-	for _, r := range spec.Rules {
-		if r.Action == v1alpha1.ActionHold {
-			holdManager = hold.NewManager()
-			logger.Info("hold manager enabled")
-			break
+	if ctrlClient == nil {
+		for _, r := range spec.Rules {
+			if r.Action == v1alpha1.ActionHold {
+				holdManager = hold.NewManager()
+				logger.Info("hold manager enabled")
+				break
+			}
 		}
 	}
 
@@ -203,6 +222,23 @@ func main() {
 		Breaker:     breaker,
 		Logger:      logger,
 	})
+
+	if ctrlClient != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := ctrlClient.RegisterSidecar(ctx, &controller.RegisterSidecarRequest{
+				PodName:   os.Getenv("HOSTNAME"),
+				Version:   "dev",
+				ToolCount: int32(len(reg.All())),
+				RuleCount: int32(len(spec.Rules)),
+			}); err != nil {
+				logger.Warn("failed to register with controller", "error", err)
+			} else {
+				logger.Info("registered with controller")
+			}
+		}()
+	}
 
 	// Admin server — health, readiness, metrics.
 	adminMux := http.NewServeMux()
@@ -263,4 +299,25 @@ func main() {
 	proxyServer.Shutdown(ctx)
 	adminServer.Shutdown(ctx)
 	logger.Info("nullfield stopped")
+}
+
+type controllerEmitter struct {
+	client *controller.Client
+	logger *slog.Logger
+}
+
+func (e *controllerEmitter) Emit(_ context.Context, event audit.Event) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := e.client.ReportEvent(ctx, &controller.ReportEventRequest{
+			EventType: string(event.Type),
+			Method:    event.Method,
+			Tool:      event.ToolName,
+			Identity:  event.Identity,
+			Reason:    event.Reason,
+		}); err != nil {
+			e.logger.Debug("controller report failed", "error", err)
+		}
+	}()
 }

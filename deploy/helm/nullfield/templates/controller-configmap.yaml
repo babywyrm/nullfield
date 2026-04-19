@@ -1,0 +1,23 @@
+{{- if .Values.controller.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nullfield.fullname" . }}-controller-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nullfield.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+data:
+  NULLFIELD_CONTROLLER_GRPC_ADDR: ":{{ .Values.controller.grpcPort }}"
+  NULLFIELD_CONTROLLER_ADMIN_ADDR: ":{{ .Values.controller.adminPort }}"
+  NULLFIELD_CONTROLLER_HEALTH_ADDR: ":{{ .Values.controller.healthPort }}"
+  {{- if .Values.controller.alerting.webhook }}
+  NULLFIELD_ALERTING_WEBHOOK: {{ .Values.controller.alerting.webhook | quote }}
+  {{- end }}
+  {{- if .Values.controller.alerting.slack.channel }}
+  NULLFIELD_ALERTING_SLACK_CHANNEL: {{ .Values.controller.alerting.slack.channel | quote }}
+  {{- end }}
+  {{- if .Values.controller.alerting.slack.token }}
+  NULLFIELD_ALERTING_SLACK_TOKEN: {{ .Values.controller.alerting.slack.token | quote }}
+  {{- end }}
+{{- end }}

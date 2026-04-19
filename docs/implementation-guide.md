@@ -433,20 +433,64 @@ For each workload being onboarded to nullfield:
 
 ---
 
-## 9. What's Next (Roadmap)
+## 9. Deploying with the Controller
+
+The nullfield-controller is an optional cluster-level pod that centralizes stateful operations. Deploy it when you need:
+
+- **Shared budgets** across multiple sidecar replicas (without the controller, each replica tracks budgets independently)
+- **Centralized holds** so HOLD approvals apply cluster-wide
+- **Webhook/Slack alerting** with dedup and rate limiting
+- **Unified admin dashboard** across all sidecars
+
+### Using the Helm chart
+
+The universal Helm chart deploys both the controller and per-target sidecar configs:
+
+```bash
+helm install nullfield deploy/helm/nullfield/ \
+  --set controller.enabled=true \
+  --set targets={camazotz}
+```
+
+This creates:
+- Controller Deployment + Service (`nullfield-controller:50051`)
+- Per-target ConfigMaps (policy + registry from `files/<target>/`)
+- ServiceMonitor scraping both controller and sidecars
+- PrometheusRule with alert definitions
+- Grafana dashboard ConfigMap
+
+### Connecting sidecars to the controller
+
+Set `NULLFIELD_CONTROLLER_ADDR` in your sidecar config:
+
+```yaml
+NULLFIELD_CONTROLLER_ADDR: "nullfield-controller.nullfield.svc.cluster.local:50051"
+```
+
+On startup, the sidecar registers itself via `RegisterSidecar` and begins delegating HOLD and BUDGET decisions via gRPC.
+
+### Without the controller
+
+Omit `NULLFIELD_CONTROLLER_ADDR` (or leave it empty). The sidecar operates in standalone mode — holds and budgets are tracked locally in-process. This is the same behavior as v0.5 and earlier.
+
+---
+
+## 10. What's Next (Roadmap)
 
 | Phase | Feature | Status |
 |---|---|---|
 | ~~v0.1~~ | ~~Policy from file, tool registry, circuit breaker~~ | Done |
 | ~~v0.2~~ | ~~JWKS identity validation, when-conditions, integrity checks~~ | Done |
 | ~~v0.2~~ | ~~Prometheus metrics, velocity detection, demos~~ | Done |
-| v0.3 | OTLP export, tool-chain sequence detection, claims drift | Next |
-| v0.3 | Webhook/Slack alerting, time-of-day rules | Next |
-| v0.4 | Credential injection from Vault/ASM, LLM token budgets | Planned |
-| v0.5 | Mutating admission webhook (automatic sidecar injection) | Planned |
-| v0.6 | CRD controller (native K8s resources) | Planned |
-| v0.7 | L3 tool governance (approval gates, HOLD action) | Planned |
-| v0.8 | L4 agentic flow control (delegation chains, human-in-the-loop) | Planned |
+| ~~v0.3~~ | ~~Arbiter model: BUDGET + HOLD actions~~ | Done |
+| ~~v0.4~~ | ~~SCOPE action: request/response modification~~ | Done |
+| ~~v0.5~~ | ~~OTLP export, sequence detection, claims drift, observability stack~~ | Done |
+| ~~v0.6~~ | ~~Controller pod, universal Helm chart, per-target config~~ | Done |
+| v0.7 | Mutating admission webhook (automatic sidecar injection) | Next |
+| v0.7 | Credential injection from Vault/ASM, LLM API proxying | Next |
+| v0.7 | Gateway mode (multi-upstream policy routing) | Next |
+| v0.8 | CRD controller (native K8s resources) | Planned |
+| v0.9 | L3 tool governance, L4 agentic flow control | Planned |
 | v1.0 | Transparent proxy, ext_authz gRPC mode, production hardening | Planned |
 
-The mutating webhook (v0.5) eliminates most of this manual work — teams will just label their namespace or deployment and nullfield gets injected automatically, similar to Istio sidecar injection.
+The mutating webhook (v0.7) eliminates most of this manual work — teams will just label their namespace or deployment and nullfield gets injected automatically, similar to Istio sidecar injection.

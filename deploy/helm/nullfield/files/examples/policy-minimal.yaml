@@ -1,0 +1,32 @@
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: minimal-policy
+spec:
+  rules:
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - status.health_check
+        - status.version
+      requireIdentity: false
+      maxCallsPerMinute: 30
+
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames:
+        - admin.delete_all
+        - admin.exec_raw
+      requireIdentity: true
+
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+
+  circuitBreaker:
+    maxToolCallsPerSession: 100
+    maxSessionDuration: 600s
+    onTrip: REJECT
+
+  audit:
+    logLevel: FULL

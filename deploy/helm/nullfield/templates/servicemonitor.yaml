@@ -1,0 +1,24 @@
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "nullfield.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nullfield.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "nullfield.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    any: true
+  endpoints:
+    - port: admin
+      path: /metrics
+      interval: {{ .Values.monitoring.serviceMonitor.interval }}
+    {{- if .Values.controller.enabled }}
+    - port: admin
+      path: /metrics
+      interval: {{ .Values.monitoring.serviceMonitor.interval }}
+    {{- end }}
+{{- end }}

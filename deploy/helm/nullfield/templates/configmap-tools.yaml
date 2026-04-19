@@ -1,0 +1,22 @@
+{{- range .Values.targets }}
+{{- if or .policyFile .registryFile }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .name }}-nullfield-tools
+  namespace: {{ .namespace | default $.Release.Namespace }}
+  labels:
+    {{- include "nullfield.labels" $ | nindent 4 }}
+    nullfield.io/target: {{ .name }}
+data:
+  {{- if .policyFile }}
+  policy.yaml: |
+    {{- $.Files.Get .policyFile | nindent 4 }}
+  {{- end }}
+  {{- if .registryFile }}
+  tools.yaml: |
+    {{- $.Files.Get .registryFile | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}

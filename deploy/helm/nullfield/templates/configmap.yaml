@@ -1,18 +1,24 @@
+{{- range .Values.targets }}
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ .Release.Name }}-nullfield
-  namespace: {{ .Release.Namespace }}
+  name: {{ .name }}-nullfield-config
+  namespace: {{ .namespace | default $.Release.Namespace }}
   labels:
-    app.kubernetes.io/name: nullfield
-    app.kubernetes.io/instance: {{ .Release.Name }}
+    {{- include "nullfield.labels" $ | nindent 4 }}
+    nullfield.io/target: {{ .name }}
 data:
-  NULLFIELD_LISTEN_ADDR: ":{{ .Values.sidecar.listenPort }}"
-  NULLFIELD_UPSTREAM_ADDR: "localhost:{{ .Values.sidecar.upstreamPort }}"
-  NULLFIELD_ADMIN_ADDR: ":{{ .Values.sidecar.adminPort }}"
-  NULLFIELD_IDENTITY_HEADER: {{ .Values.identity.header | quote }}
-  NULLFIELD_JWKS_URL: {{ .Values.identity.jwksURL | quote }}
-  NULLFIELD_CIRCUIT_MAX_CALLS: {{ .Values.circuit.maxCalls | quote }}
-  NULLFIELD_CIRCUIT_MAX_DURATION: {{ .Values.circuit.maxDuration | quote }}
-  NULLFIELD_AUDIT_LOG_LEVEL: {{ .Values.audit.logLevel | quote }}
-  NULLFIELD_AUDIT_ENDPOINT: {{ .Values.audit.otelEndpoint | quote }}
+  NULLFIELD_LISTEN_ADDR: ":{{ $.Values.sidecar.listenPort }}"
+  NULLFIELD_UPSTREAM_ADDR: "localhost:{{ .upstreamPort | default 8080 }}"
+  NULLFIELD_ADMIN_ADDR: ":{{ $.Values.sidecar.adminPort }}"
+  NULLFIELD_IDENTITY_HEADER: {{ ((.identity).header) | default $.Values.identity.header | quote }}
+  NULLFIELD_JWKS_URL: {{ ((.identity).jwksURL) | default $.Values.identity.jwksURL | quote }}
+  NULLFIELD_CIRCUIT_MAX_CALLS: {{ ((.circuit).maxCalls) | default $.Values.circuit.maxCalls | quote }}
+  NULLFIELD_CIRCUIT_MAX_DURATION: {{ ((.circuit).maxDuration) | default $.Values.circuit.maxDuration | quote }}
+  NULLFIELD_AUDIT_LOG_LEVEL: {{ ((.audit).logLevel) | default $.Values.audit.logLevel | quote }}
+  NULLFIELD_AUDIT_ENDPOINT: {{ ((.audit).otelEndpoint) | default $.Values.audit.otelEndpoint | quote }}
+  {{- if $.Values.controller.enabled }}
+  NULLFIELD_CONTROLLER_ADDR: "{{ include "nullfield.fullname" $ }}-controller.{{ $.Release.Namespace }}:{{ $.Values.controller.grpcPort }}"
+  {{- end }}
+{{- end }}

@@ -1,0 +1,65 @@
+{{- if .Values.controller.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nullfield.fullname" . }}-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nullfield.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+spec:
+  replicas: {{ .Values.controller.replicas }}
+  selector:
+    matchLabels:
+      {{- include "nullfield.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: controller
+  template:
+    metadata:
+      labels:
+        {{- include "nullfield.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: controller
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.controller.adminPort | quote }}
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: {{ include "nullfield.fullname" . }}
+      containers:
+        - name: controller
+          image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag }}"
+          imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.controller.grpcPort }}
+              protocol: TCP
+            - name: admin
+              containerPort: {{ .Values.controller.adminPort }}
+              protocol: TCP
+            - name: health
+              containerPort: {{ .Values.controller.healthPort }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "nullfield.fullname" . }}-controller-config
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+{{- end }}

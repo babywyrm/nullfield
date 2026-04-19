@@ -29,6 +29,8 @@ type Config struct {
 
 	TLSCertFile string
 	TLSKeyFile  string
+
+	ControllerAddr string
 }
 
 func Load() (*Config, error) {
@@ -46,6 +48,7 @@ func Load() (*Config, error) {
 		VaultRole:           envOr("NULLFIELD_VAULT_ROLE", ""),
 		TLSCertFile:         envOr("NULLFIELD_TLS_CERT", ""),
 		TLSKeyFile:          envOr("NULLFIELD_TLS_KEY", ""),
+		ControllerAddr:      envOr("NULLFIELD_CONTROLLER_ADDR", ""),
 	}
 
 	maxCalls, err := strconv.Atoi(envOr("NULLFIELD_CIRCUIT_MAX_CALLS", "100"))

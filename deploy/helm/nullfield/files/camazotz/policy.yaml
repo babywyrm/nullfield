@@ -1,0 +1,100 @@
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: camazotz-policy
+spec:
+  selector:
+    matchLabels:
+      app: camazotz
+  rules:
+    # --- TIER 1: Read-only / safe tools — ALLOW ---
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - attribution.read_audit
+        - attribution.verify_context
+        - audit.list_actions
+        - auth.issue_token
+        - comms.list_sent
+        - config.read_system_prompt
+        - cost.check_usage
+        - cred_broker.list_vaults
+        - delegation.read_chain
+        - downgrade.check_pattern
+        - downgrade.list_capabilities
+        - error.validate_input
+        - hallucination.list_filesystem
+        - notification.check_inbox
+        - oauth.list_connections
+        - rbac.list_agents
+        - rbac.check_membership
+        - revocation.use_token
+        - shadow.list_webhooks
+        - temporal.get_config
+        - temporal.check_permission
+        - temporal.get_status
+        - tenant.recall_memory
+        - tenant.list_tenants
+        - error.debug_info
+      requireIdentity: true
+      maxCallsPerMinute: 60
+
+    # --- TIER 2: Write / action tools — ALLOW with lower rate ---
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - attribution.submit_action
+        - audit.perform_action
+        - auth.access_protected
+        - auth.access_service_b
+        - comms.send_message
+        - config.update_system_prompt
+        - config.ask_agent
+        - context.injectable_summary
+        - cost.invoke_llm
+        - cost.reset_usage
+        - cred_broker.read_credential
+        - cred_broker.configure_sidecar
+        - delegation.invoke_agent
+        - downgrade.authenticate
+        - notification.subscribe
+        - notification.trigger_event
+        - oauth.exchange_token
+        - oauth.call_downstream
+        - rbac.trigger_agent
+        - relay.store_context
+        - relay.execute_with_context
+        - revocation.issue_token
+        - revocation.revoke_principal
+        - tenant.store_memory
+        - error.trigger_crash
+      requireIdentity: true
+      maxCallsPerMinute: 20
+
+    # --- TIER 3: High-risk tools — DENY ---
+    # These are the dangerous ones: SSRF, exfiltration, supply chain,
+    # secret leaks, rug pull, unvalidated plan execution.
+    # nullfield blocks them before they reach camazotz.
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames:
+        - egress.fetch_url
+        - indirect.fetch_and_summarize
+        - secrets.leak_config
+        - shadow.register_webhook
+        - supply.install_package
+        - tool.mutate_behavior
+        - hallucination.execute_plan
+
+    # --- Default deny: anything not explicitly listed above ---
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+
+  circuitBreaker:
+    maxToolCallsPerSession: 50
+    maxSessionDuration: 300s
+    onTrip: KILL_POD
+
+  audit:
+    logLevel: FULL

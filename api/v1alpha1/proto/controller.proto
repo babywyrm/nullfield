@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package nullfield.v1alpha1;
+
+option go_package = "github.com/babywyrm/nullfield/api/v1alpha1/controllerpb";
+
+import "google/protobuf/timestamp.proto";
+
+service NullfieldController {
+  // CheckBudget verifies whether the caller has remaining budget.
+  // Sidecars call this before forwarding budgeted tool calls.
+  rpc CheckBudget(CheckBudgetRequest) returns (CheckBudgetResponse);
+
+  // CreateHold parks a tool call for human approval.
+  // Sidecars call this when a HOLD rule matches and block until resolved.
+  rpc CreateHold(CreateHoldRequest) returns (CreateHoldResponse);
+
+  // ReportEvent sends an audit event to the controller for alerting.
+  // Fire-and-forget — sidecars do not block on the response.
+  rpc ReportEvent(ReportEventRequest) returns (ReportEventResponse);
+
+  // RegisterSidecar announces a sidecar to the controller on startup.
+  rpc RegisterSidecar(RegisterSidecarRequest) returns (RegisterSidecarResponse);
+}
+
+// --- Budget ---
+
+message CheckBudgetRequest {
+  string identity   = 1;
+  string session_id = 2;
+  string tool       = 3;
+  int64  tokens     = 4; // estimated tokens for this call (0 if unknown)
+}
+
+message CheckBudgetResponse {
+  bool   allowed          = 1;
+  string reason           = 2; // populated when denied
+  int64  remaining_calls  = 3;
+  int64  remaining_tokens = 4;
+}
+
+// --- Hold ---
+
+message CreateHoldRequest {
+  string tool        = 1;
+  string identity    = 2;
+  string session_id  = 3;
+  string reason      = 4;
+  string timeout     = 5; // duration string, e.g. "5m"
+  string on_timeout  = 6; // "DENY" or "ALLOW"
+  bytes  payload     = 7; // original JSON-RPC request body
+}
+
+message CreateHoldResponse {
+  string hold_id  = 1;
+  string decision = 2; // "approved", "denied", "timeout"
+  string reason   = 3;
+}
+
+// --- Events ---
+
+message ReportEventRequest {
+  string event_type = 1; // e.g. "tool.denied", "anomaly.velocity"
+  string method     = 2;
+  string tool       = 3;
+  string identity   = 4;
+  string session_id = 5;
+  string reason     = 6;
+  string target     = 7; // which target namespace/deployment
+  google.protobuf.Timestamp timestamp = 8;
+}
+
+message ReportEventResponse {}
+
+// --- Registration ---
+
+message RegisterSidecarRequest {
+  string target_name      = 1; // e.g. "brain-gateway"
+  string target_namespace = 2; // e.g. "camazotz"
+  string pod_name         = 3;
+  string version          = 4; // nullfield version
+  int32  tool_count       = 5; // number of registered tools
+  int32  rule_count       = 6; // number of policy rules
+}
+
+message RegisterSidecarResponse {
+  bool   accepted = 1;
+  string message  = 2;
+}

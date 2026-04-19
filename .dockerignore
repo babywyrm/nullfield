@@ -1,0 +1,13 @@
+.git
+.env
+.DS_Store
+*.exe
+*.test
+*.out
+bin/
+tests/
+demos/
+docs/
+deploy/
+meshes/
+integrations/

@@ -79,9 +79,11 @@ See [docs/arbiter-model.md](docs/arbiter-model.md) for the full specification.
 
 ## Deployment Model
 
-nullfield is lightweight by design. Two deployment patterns:
+nullfield is lightweight by design. Three deployment patterns:
 
-**Sidecar** — one nullfield container per pod, next to your MCP server. Traffic enters through nullfield before reaching the app. This is the default.
+**Sidecar** — one nullfield container per pod, next to your MCP server. Traffic enters through nullfield before reaching the app. This is the default. Stateless enforcement — policy, registry, identity, circuit breaker.
+
+**Controller** — one nullfield-controller pod per cluster, deployed alongside the sidecars. Handles stateful coordination that doesn't belong in individual sidecars: centralized holds, shared budget counters, webhook alerting, and a unified admin API. Sidecars connect to the controller via gRPC. Opt-in — sidecars work standalone without it.
 
 **Gateway** (planned) — one nullfield instance proxying multiple MCP servers. For teams that want centralized enforcement.
 
@@ -93,7 +95,8 @@ nullfield is lightweight by design. Two deployment patterns:
 
 ### What lives outside the sidecar (cluster-level, deploy once)
 
-- ServiceMonitor — tells Prometheus to scrape nullfield sidecars
+- nullfield-controller — centralized holds, shared budgets, alerting, admin dashboard
+- ServiceMonitor — tells Prometheus to scrape nullfield sidecars and controller
 - Grafana dashboard — pre-built visibility into tool calls, denials, budgets
 - Alertmanager rules — fire on anomalies, budget exhaustion, identity failures
 - CRD definitions — when using native K8s policy resources (planned)
@@ -113,7 +116,7 @@ Every layer is opt-in. The minimum deployment is the sidecar + a policy YAML. Ev
 │  Pod                                                         │
 │                                                              │
 │  ┌──────────────────────────────────────────────────────┐    │
-│  │  nullfield (:9090)                                   │    │
+│  │  nullfield sidecar (:9090)                           │    │
 │  │                                                      │    │
 │  │  1. Identity ── verify JWT, extract type/claims      │    │
 │  │  2. Registry ── is this tool registered?             │    │
@@ -121,8 +124,8 @@ Every layer is opt-in. The minimum deployment is the sidecar + a policy YAML. Ev
 │  │  4. Circuit breaker ── session within limits?        │    │
 │  │  5. Policy ── first-match rule → action:             │    │
 │  │     ├─ DENY ──── reject immediately                  │    │
-│  │     ├─ HOLD ──── park, notify human, wait            │    │
-│  │     ├─ BUDGET ── check quota, reject if exhausted    │    │
+│  │     ├─ HOLD ──── delegate to controller via gRPC     │    │
+│  │     ├─ BUDGET ── check controller budget via gRPC    │    │
 │  │     ├─ SCOPE ─── modify request (planned)            │    │
 │  │     └─ ALLOW ─── forward to upstream                 │    │
 │  │  6. Audit ── structured JSON event for every action  │    │
@@ -133,6 +136,19 @@ Every layer is opt-in. The minimum deployment is the sidecar + a policy YAML. Ev
 │  │  Your MCP Server (:8080)    │   /healthz /readyz          │
 │  │  (camazotz, your app, etc.) │   /metrics /admin/holds     │
 │  └──────────────────────────────┘                            │
+└──────────────────────────────────┬───────────────────────────┘
+                                  │ gRPC (opt-in)
+                                  ▼
+┌──────────────────────────────────────────────────────────────┐
+│  nullfield-controller (deploy once per cluster)              │
+│                                                              │
+│  ┌─ Holds ──── centralized hold state machine               │
+│  ├─ Budgets ── shared per-identity/session counters          │
+│  ├─ Events ─── aggregated audit event stream                 │
+│  ├─ Alerting ─ webhook/Slack dispatch with dedup             │
+│  └─ Admin ──── unified /admin API across all sidecars        │
+│                                                              │
+│  :50051 gRPC    :9091 /metrics /admin                        │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -230,6 +246,7 @@ All configuration via environment variables:
 | `NULLFIELD_CIRCUIT_MAX_CALLS` | `100` | Max tool calls per session before circuit opens |
 | `NULLFIELD_CIRCUIT_MAX_DURATION` | `5m` | Max session duration before circuit opens |
 | `NULLFIELD_AUDIT_LOG_LEVEL` | `FULL` | Audit verbosity: `FULL`, `SUMMARY`, `NONE` |
+| `NULLFIELD_CONTROLLER_ADDR` | _(empty)_ | Controller gRPC address (e.g. `nullfield-controller:50051`). Empty = standalone mode |
 | `NULLFIELD_AUDIT_ENDPOINT` | _(empty)_ | OTLP gRPC endpoint for audit events |
 
 ---
@@ -311,7 +328,9 @@ nullfield returns standard JSON-RPC 2.0 errors with application-defined codes:
 
 ```
 nullfield/
-├── cmd/nullfield/        # Entrypoint
+├── cmd/
+│   ├── nullfield/              # Sidecar entrypoint
+│   └── nullfield-controller/   # Controller entrypoint
 ├── pkg/
 │   ├── proxy/            # MCP JSON-RPC reverse proxy + handler
 │   ├── policy/           # Rule engine (first-match ALLOW/DENY)
@@ -319,15 +338,26 @@ nullfield/
 │   ├── audit/            # Structured audit event emitter
 │   ├── registry/         # Tool registry (file-backed, hot-reloadable)
 │   ├── circuit/          # Per-session circuit breaker
+│   ├── budget/           # Budget tracking (local + remote via controller)
+│   ├── hold/             # Hold state machine (local + remote via controller)
+│   ├── controller/       # Controller server (holds, budget, events, alerting)
+│   ├── scope/            # SCOPE action — request/response modification
+│   ├── anomaly/          # Velocity + sequence anomaly detection
 │   └── credentials/      # Secret provider interface (Vault/ASM/env)
-├── api/v1alpha1/         # CRD type definitions
+├── api/v1alpha1/
+│   ├── types.go                # CRD type definitions
+│   ├── controllerpb/           # gRPC generated code
+│   └── proto/                  # Proto definitions (controller.proto)
 ├── internal/config/      # Environment-based configuration
 ├── integrations/
 │   └── camazotz/         # Camazotz vulnerable MCP server (57 tools, tiered policy)
 ├── meshes/               # Service mesh overlays (Istio, Linkerd, Cilium)
 ├── deploy/
-│   ├── helm/nullfield/   # Helm chart with sidecar template
-│   └── manifests/        # Raw K8s manifests (works on any distro)
+│   ├── helm/nullfield/   # Universal Helm chart (sidecar + controller + observability)
+│   │   ├── files/        # Per-target policy/registry (camazotz/, examples/)
+│   │   └── templates/    # Controller, sidecar, ServiceMonitor, PrometheusRule, Grafana CM
+│   ├── manifests/        # Raw K8s manifests (works on any distro)
+│   └── operations/       # Standalone observability resources
 ├── examples/             # Example policy + tool registry
 ├── demos/                # Runnable walkthroughs (basic, JWT, anomaly)
 ├── tests/
@@ -335,12 +365,14 @@ nullfield/
 │   └── smoke.sh          # 12-point smoke test
 ├── docs/
 │   ├── architecture.md
+│   ├── arbiter-model.md
 │   ├── identity-policy.md
 │   ├── implementation-guide.md
 │   ├── mesh-integration.md
 │   ├── observability.md
 │   └── diagrams/
 ├── Dockerfile
+├── Dockerfile.controller
 ├── Makefile
 ├── docker-compose.yaml
 ├── CHANGELOG.md
@@ -359,15 +391,14 @@ nullfield/
 - [x] **v0.2** — Prometheus `/metrics` endpoint, velocity anomaly detection, 3 runnable demo walkthroughs
 - [x] **v0.3** — Arbiter model: BUDGET (per-identity/session call + token limits), HOLD (human approval gates with admin API, webhook notify, timeout)
 - [x] **v0.4** — SCOPE action: request argument stripping/injection, response pattern redaction, full audit trail of modifications
-
 - [x] **v0.5** — OTLP trace export, tool-chain sequence detection (8 tests), claims drift detection (8 tests), observability stack (Grafana dashboard, ServiceMonitor, 5 alert rules)
+- [x] **v0.6** — Controller pod (centralized holds, shared budgets, webhook alerting, admin dashboard), universal Helm chart with per-target config, Grafana dashboard ConfigMap
 
 ### Next
 
-- [ ] **v0.6** — Webhook/Slack alerting for denials and anomalies, time-of-day rules
-- [ ] **v0.6** — Credential injection from Vault/ASM, outbound LLM API proxying
-- [ ] **v0.6** — Gateway mode: single nullfield instance proxying multiple MCP servers with per-upstream policy routing
 - [ ] **v0.7** — Mutating admission webhook for automatic sidecar injection
+- [ ] **v0.7** — Credential injection from Vault/ASM, outbound LLM API proxying
+- [ ] **v0.7** — Gateway mode: single nullfield instance proxying multiple MCP servers with per-upstream policy routing
 - [ ] **v0.8** — CRD controller (watch NullfieldPolicy + ToolRegistry as native K8s resources)
 - [ ] **v0.9** — L3 tool governance: registration workflow, tool lifecycle, rug-pull detection
 - [ ] **v0.9** — L4 agentic flow control: identity chaining, delegation depth limits, human-in-the-loop

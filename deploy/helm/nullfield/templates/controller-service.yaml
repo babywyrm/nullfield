@@ -1,0 +1,28 @@
+{{- if .Values.controller.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nullfield.fullname" . }}-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nullfield.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "nullfield.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+  ports:
+    - name: grpc
+      port: {{ .Values.controller.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+    - name: admin
+      port: {{ .Values.controller.adminPort }}
+      targetPort: admin
+      protocol: TCP
+    - name: health
+      port: {{ .Values.controller.healthPort }}
+      targetPort: health
+      protocol: TCP
+{{- end }}

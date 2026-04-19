@@ -1,0 +1,13 @@
+apiVersion: nullfield.io/v1alpha1
+kind: ToolRegistry
+metadata:
+  name: minimal-tools
+tools:
+  - name: status.health_check
+    description: Returns service health status
+
+  - name: status.version
+    description: Returns service version info
+
+  - name: admin.delete_all
+    description: Dangerous — deletes all records (deny by default)

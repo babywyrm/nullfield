@@ -83,6 +83,53 @@ Why this order:
 
 ---
 
+## Controller vs Sidecar
+
+nullfield splits responsibilities between two components:
+
+**Sidecar** — stateless enforcement, runs per-pod. Handles identity verification, registry checks, integrity, circuit breaker, policy evaluation, and audit logging. All decisions that can be made locally stay local. If the controller is unreachable, the sidecar continues to enforce policy independently.
+
+**Controller** — stateful coordination, runs once per cluster. Handles holds, shared budgets, webhook alerting, event aggregation, and the unified admin dashboard. Sidecars delegate to the controller via gRPC when `NULLFIELD_CONTROLLER_ADDR` is set.
+
+```text
+┌──────────┐   ┌──────────┐   ┌──────────┐
+│ Sidecar  │   │ Sidecar  │   │ Sidecar  │
+│ (pod A)  │   │ (pod B)  │   │ (pod C)  │
+└────┬─────┘   └────┬─────┘   └────┬─────┘
+     │              │              │
+     │    gRPC      │    gRPC      │    gRPC
+     └──────────────┼──────────────┘
+                    ▼
+          ┌─────────────────┐
+          │   Controller    │
+          │                 │
+          │  holds, budgets │
+          │  events, alerts │
+          │  admin API      │
+          └─────────────────┘
+```
+
+### gRPC communication
+
+The sidecar connects to the controller via the `NullfieldController` gRPC service (defined in `api/v1alpha1/proto/controller.proto`). RPCs:
+
+| RPC | Purpose |
+|-----|---------|
+| `RegisterSidecar` | Sidecar announces itself on startup (target name, pod identity) |
+| `CreateHold` | Sidecar delegates a HOLD decision to the controller |
+| `CheckBudget` | Sidecar checks/increments a shared budget counter |
+| `ReportEvent` | Sidecar forwards audit events for aggregation and alerting |
+
+### Failure modes
+
+| Scenario | Behavior | Rationale |
+|----------|----------|-----------|
+| Controller unreachable, BUDGET check | Fail open — allow the call | Availability over precision; local circuit breaker still enforces per-session limits |
+| Controller unreachable, HOLD check | Fail closed — deny the call | HOLD exists to gate dangerous actions; allowing without approval defeats the purpose |
+| Controller unreachable, event reporting | Fail open — log locally, drop gRPC send | Audit events are still emitted to stdout; alerting degrades but enforcement doesn't |
+
+---
+
 ## Layered Security Model
 
 nullfield implements defense in depth through four planned layers:

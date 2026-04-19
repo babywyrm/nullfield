@@ -6,6 +6,18 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **v0.6: Controller + Universal Helm Chart**
+  - nullfield-controller — standalone control plane pod for stateful coordination
+  - Centralized holds — all sidecars delegate HOLD decisions to the controller via gRPC
+  - Shared budget state — per-identity/session counters are centralized (no N× budget with N replicas)
+  - Webhook/Slack alerting — controller dispatches alerts with dedup and rate limiting
+  - Admin dashboard — unified /admin API (holds, budgets, events, targets)
+  - Sidecar registration — sidecars announce to controller on startup
+  - Universal Helm chart — target-agnostic distribution with per-target ConfigMaps
+  - Per-target policy/registry — chart generates ConfigMaps per target from files/
+  - Observability in chart — ServiceMonitor, PrometheusRule, Grafana dashboard as chart templates
+  - gRPC proto — NullfieldController service with CheckBudget, CreateHold, ReportEvent, RegisterSidecar
+  - Backward compatible — controller is opt-in via NULLFIELD_CONTROLLER_ADDR
 - **v0.5: Observability + Anomaly Detection**
   - OTLP trace export — OpenTelemetry spans for every decision (opt-in via `NULLFIELD_AUDIT_ENDPOINT`)
   - Tool-chain sequence detection — configurable suspicious call patterns per session (8 tests)

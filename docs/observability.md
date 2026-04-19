@@ -211,17 +211,33 @@ This catches token manipulation where an attacker escalates privileges by modify
 
 ---
 
+## Controller Metrics
+
+The nullfield-controller exposes its own `/metrics` endpoint on `:9091` with controller-specific counters:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `nullfield_controller_holds_total` | counter | Hold operations by outcome (approved/denied/timeout) |
+| `nullfield_controller_budget_checks_total` | counter | Budget check requests from sidecars |
+| `nullfield_controller_events_total` | counter | Audit events received from sidecars |
+| `nullfield_controller_alerts_total` | counter | Webhook/Slack alerts dispatched |
+| `nullfield_controller_sidecars_registered` | gauge | Currently registered sidecars |
+
+---
+
 ## Cluster-Level Observability Stack
 
-Pre-built resources in `deploy/operations/`:
+Pre-built resources in `deploy/operations/` (standalone) and `deploy/helm/nullfield/templates/` (Helm chart):
 
 | File | Purpose | Requires |
 |------|---------|----------|
-| `servicemonitor.yaml` | Prometheus scrape config for nullfield sidecars | Prometheus Operator |
-| `alertmanager-rules.yaml` | 5 alert rules (high deny rate, identity failures, circuit trips, anomalies, budget exhaustion) | Prometheus Operator |
-| `grafana-dashboard.json` | 8-panel dashboard covering all nullfield metrics | Grafana |
+| `servicemonitor.yaml` | Prometheus scrape config for nullfield sidecars and controller | Prometheus Operator |
+| `alertmanager-rules.yaml` / `prometheusrule.yaml` | 5 alert rules (high deny rate, identity failures, circuit trips, anomalies, budget exhaustion) | Prometheus Operator |
+| `grafana-dashboard.json` / `grafana-dashboard-cm.yaml` | 8-panel dashboard covering all nullfield metrics | Grafana |
 
-Deploy with:
+The Helm chart includes these as templates — they deploy automatically with `helm install`. The ServiceMonitor scrapes both the sidecar admin ports and the controller's `:9091` endpoint, so all metrics land in the same Prometheus instance.
+
+Deploy standalone (without Helm):
 
 ```bash
 kubectl apply -f deploy/operations/servicemonitor.yaml
@@ -235,8 +251,9 @@ kubectl apply -f deploy/operations/alertmanager-rules.yaml
 
 A full observability setup:
 
-1. **Prometheus** scrapes `/metrics` every 15s via ServiceMonitor
+1. **Prometheus** scrapes `/metrics` every 15s via ServiceMonitor (sidecars + controller)
 2. **Grafana** dashboard shows tool call rates, deny rates, anomaly alerts (8 panels)
 3. **OTLP collector** receives trace spans for every decision (Jaeger/Tempo/etc.)
 4. **kubectl logs** or a log aggregator captures the structured audit trail
 5. **Alertmanager** fires on deny rate spikes, identity failures, circuit trips, anomalies, or budget exhaustion
+6. **Controller admin API** provides a unified view of holds, budgets, events, and registered sidecars at `/admin`

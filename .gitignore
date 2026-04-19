@@ -5,3 +5,5 @@ bin/
 .env
 .DS_Store
 echo-server
+/nullfield
+/nullfield-controller
