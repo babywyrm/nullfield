@@ -51,10 +51,22 @@ func main() {
 		}
 	}
 
-	auditor := audit.NewMultiEmitter(
+	emitters := []audit.Emitter{
 		audit.NewLogEmitter(logger),
 		audit.NewMetricsEmitter(),
-	)
+	}
+
+	if cfg.AuditEndpoint != "" {
+		shutdown, err := audit.InitOTLP(context.Background(), cfg.AuditEndpoint, logger)
+		if err != nil {
+			logger.Warn("failed to init OTLP exporter", "error", err)
+		} else {
+			emitters = append(emitters, audit.NewOTLPEmitter())
+			defer shutdown(context.Background())
+		}
+	}
+
+	auditor := audit.NewMultiEmitter(emitters...)
 
 	// Load full policy spec (identity, integrity, rules).
 	var spec *v1alpha1.NullfieldPolicySpec

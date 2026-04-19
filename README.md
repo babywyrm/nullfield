@@ -358,11 +358,11 @@ nullfield/
 - [x] **v0.2** — L2 identity-aware policy: JWKS validation, multi-provider support, `when:` conditions (identity type, provider, claims), session binding, replay detection
 - [x] **v0.2** — Prometheus `/metrics` endpoint, velocity anomaly detection, 3 runnable demo walkthroughs
 - [x] **v0.3** — Arbiter model: BUDGET (per-identity/session call + token limits), HOLD (human approval gates with admin API, webhook notify, timeout)
+- [x] **v0.4** — SCOPE action: request argument stripping/injection, response pattern redaction, full audit trail of modifications
 
 ### Next
 
-- [ ] **v0.4** — SCOPE action (request/response modification, credential injection, response redaction)
-- [ ] **v0.4** — OTLP trace/span export, tool-chain sequence detection, claims drift detection
+- [ ] **v0.5** — OTLP trace/span export, tool-chain sequence detection, claims drift detection
 - [ ] **v0.5** — Observability stack: Grafana dashboard JSON, pre-built alert rules (Alertmanager), structured log format for Loki/Splunk/ELK, ServiceMonitor for Prometheus Operator
 - [ ] **v0.5** — Webhook/Slack alerting for denials and anomalies, time-of-day rules
 - [ ] **v0.6** — Credential injection from Vault/ASM, outbound LLM API proxying
