@@ -1,50 +1,139 @@
 # nullfield
 
-MCP and agentic traffic sidecar proxy.
+Lightweight arbiter for MCP and agentic traffic.
 
-nullfield sits beside any pod that sends or receives MCP JSON-RPC, LLM API calls, or agentic workflow signals. It intercepts, validates, and audits every tool call before it reaches the application — enforcing identity, policy, and scope at the network layer.
+nullfield is a sidecar proxy that intercepts every MCP tool call and decides — based on configurable policy — whether to **allow**, **deny**, **hold for human approval**, **modify**, or **budget-limit** it. It enforces identity, scope, and cost controls at the network layer so the AI never has the final say.
 
-Runs anywhere containers run: Kubernetes, K3s, EKS, GKE, AKS, or plain Docker Compose.
+Runs anywhere containers run. One binary, one YAML policy, zero dependencies on any cloud provider or orchestrator.
 
 > The AI advises. The gates decide. nullfield is the gate.
 
 ---
 
-## What It Does
+## The Five Actions
 
-| Capability | Description |
-|---|---|
-| **MCP JSON-RPC interception** | Parses `tools/call`, `tools/list`, `resources/read` etc. and applies policy before forwarding |
-| **Tool registry enforcement** | Only registered, approved tools can execute. Unregistered tool calls are rejected. |
-| **Identity verification** | Every request must carry a valid identity token. No anonymous tool execution. |
-| **Policy engine** | First-match rule evaluation: ALLOW/DENY per tool, per method, with CEL expressions |
-| **Circuit breaker** | Per-session call count and duration limits. Kill runaway agent loops. |
-| **Credential injection** | Outbound LLM API calls get credentials injected from Vault/ASM. Apps never see raw keys. |
-| **Structured audit** | Every proxied action emits a JSON audit event with trace ID, identity, tool, and arguments |
+Every tool call that reaches nullfield results in one of five actions — the fundamental verbs of agentic traffic control:
+
+```text
+ALLOW    Forward the request immediately.
+DENY     Reject the request immediately.
+HOLD     Park the request. Notify a human. Wait for approval or timeout.
+SCOPE    Allow but modify — strip parameters, inject credentials, redact response. (planned)
+BUDGET   Allow but track — enforce call quotas, token limits, cost caps.
+```
+
+These compose. A single request may pass through multiple actions:
+
+```text
+BUDGET check (within quota?) → HOLD (wait for approval) → ALLOW (forward to upstream)
+```
+
+### In YAML
+
+```yaml
+rules:
+  # Humans can use read tools freely
+  - action: ALLOW
+    toolNames: [cost.check_usage, audit.list_actions]
+    when: { identity: human }
+
+  # LLM-backed tools are budget-limited
+  - action: ALLOW
+    toolNames: [config.ask_agent]
+    budget:
+      perIdentity: { maxCallsPerHour: 20 }
+      perSession: { maxCallsPerHour: 10 }
+
+  # Agent delegation requires human approval
+  - action: HOLD
+    toolNames: [delegation.invoke_agent]
+    when: { identity: agent }
+    hold: { timeout: "5m", onTimeout: DENY }
+
+  # Dangerous tools are blocked
+  - action: DENY
+    toolNames: [secrets.leak_config, egress.fetch_url]
+
+  # Default deny
+  - action: DENY
+    toolNames: ["*"]
+    reason: "no matching rule"
+```
+
+### When to use each action
+
+| Scenario | Action | Why |
+|---|---|---|
+| Agent reads a status check | ALLOW | Safe, no side effects |
+| Agent tries to exfiltrate secrets | DENY | Blocked unconditionally |
+| Agent wants to deploy to production | HOLD | Human must approve before it proceeds |
+| Agent reads credentials from vault | SCOPE (planned) | Allow but redact the secret value in the response |
+| Agent calls an LLM 100 times/hour | BUDGET | Allow but enforce a quota to prevent cost runaway |
+| Unknown tool name appears | DENY (registry) | Not in the approved list — rejected before policy even runs |
+| Same JWT used twice | DENY (integrity) | Replay detection catches reused tokens |
+| Identity changes mid-session | DENY (integrity) | Session binding catches context swaps |
+
+See [docs/arbiter-model.md](docs/arbiter-model.md) for the full specification.
+
+---
+
+## Deployment Model
+
+nullfield is lightweight by design. Two deployment patterns:
+
+**Sidecar** — one nullfield container per pod, next to your MCP server. Traffic enters through nullfield before reaching the app. This is the default.
+
+**Gateway** (planned) — one nullfield instance proxying multiple MCP servers. For teams that want centralized enforcement.
+
+### What lives in the sidecar (per-pod)
+
+- nullfield proxy (:9090) — intercepts MCP traffic
+- Admin API (:9091) — /healthz, /readyz, /metrics, /admin/holds
+- Policy + registry — mounted from ConfigMap
+
+### What lives outside the sidecar (cluster-level, deploy once)
+
+- ServiceMonitor — tells Prometheus to scrape nullfield sidecars
+- Grafana dashboard — pre-built visibility into tool calls, denials, budgets
+- Alertmanager rules — fire on anomalies, budget exhaustion, identity failures
+- CRD definitions — when using native K8s policy resources (planned)
+
+Every layer is opt-in. The minimum deployment is the sidecar + a policy YAML. Everything else bolts on.
 
 ---
 
 ## Architecture
 
 ```text
-┌─────────────────────────────────────────────────────┐
-│  Pod                                                │
-│                                                     │
-│  ┌──────────────┐        ┌───────────────────────┐  │
-│  │              │  :9090 │                       │  │
-│  │  Application ├───────►│  nullfield (sidecar)  │  │
-│  │  (MCP server │        │                       │  │
-│  │   or client) │◄───────┤  ┌─ Identity verify   │  │
-│  │              │        │  ├─ Tool registry chk │  │
-│  └──────────────┘        │  ├─ Policy evaluate   │  │
-│                          │  ├─ Circuit breaker   │  │
-│                          │  ├─ Audit emit        │  │
-│                          │  └─ Forward / reject  │  │
-│                          └───────────┬───────────┘  │
-│                                      │ :9091 admin  │
-│                                      │ /healthz     │
-│                                      │ /readyz      │
-└──────────────────────────────────────┘
+  MCP Client
+      │
+      │  POST /mcp (JSON-RPC)
+      ▼
+┌──────────────────────────────────────────────────────────────┐
+│  Pod                                                         │
+│                                                              │
+│  ┌──────────────────────────────────────────────────────┐    │
+│  │  nullfield (:9090)                                   │    │
+│  │                                                      │    │
+│  │  1. Identity ── verify JWT, extract type/claims      │    │
+│  │  2. Registry ── is this tool registered?             │    │
+│  │  3. Integrity ── session binding, replay detection   │    │
+│  │  4. Circuit breaker ── session within limits?        │    │
+│  │  5. Policy ── first-match rule → action:             │    │
+│  │     ├─ DENY ──── reject immediately                  │    │
+│  │     ├─ HOLD ──── park, notify human, wait            │    │
+│  │     ├─ BUDGET ── check quota, reject if exhausted    │    │
+│  │     ├─ SCOPE ─── modify request (planned)            │    │
+│  │     └─ ALLOW ─── forward to upstream                 │    │
+│  │  6. Audit ── structured JSON event for every action  │    │
+│  └──────────────────────┬───────────────────────────────┘    │
+│                         │                                    │
+│                         ▼                                    │
+│  ┌──────────────────────────────┐   :9091 admin              │
+│  │  Your MCP Server (:8080)    │   /healthz /readyz          │
+│  │  (camazotz, your app, etc.) │   /metrics /admin/holds     │
+│  └──────────────────────────────┘                            │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -274,11 +363,13 @@ nullfield/
 
 - [ ] **v0.4** — SCOPE action (request/response modification, credential injection, response redaction)
 - [ ] **v0.4** — OTLP trace/span export, tool-chain sequence detection, claims drift detection
+- [ ] **v0.5** — Observability stack: Grafana dashboard JSON, pre-built alert rules (Alertmanager), structured log format for Loki/Splunk/ELK, ServiceMonitor for Prometheus Operator
 - [ ] **v0.5** — Webhook/Slack alerting for denials and anomalies, time-of-day rules
-- [ ] **v0.5** — Credential injection from Vault/ASM, outbound LLM API proxying
-- [ ] **v0.6** — Mutating admission webhook for automatic sidecar injection
-- [ ] **v0.7** — CRD controller (watch NullfieldPolicy + ToolRegistry as native K8s resources)
-- [ ] **v0.8** — L3 tool governance: registration workflow, tool lifecycle, rug-pull detection
+- [ ] **v0.6** — Credential injection from Vault/ASM, outbound LLM API proxying
+- [ ] **v0.6** — Gateway mode: single nullfield instance proxying multiple MCP servers with per-upstream policy routing
+- [ ] **v0.7** — Mutating admission webhook for automatic sidecar injection
+- [ ] **v0.8** — CRD controller (watch NullfieldPolicy + ToolRegistry as native K8s resources)
+- [ ] **v0.9** — L3 tool governance: registration workflow, tool lifecycle, rug-pull detection
 - [ ] **v0.9** — L4 agentic flow control: identity chaining, delegation depth limits, human-in-the-loop
 - [ ] **v0.9** — Response inspection (detect system prompt leakage, PII in tool responses), cost attribution per identity/session
 - [ ] **v1.0** — Transparent iptables-based proxy (Istio-style), production hardening, ext_authz gRPC mode
@@ -288,6 +379,8 @@ nullfield/
 - [ ] WASM filter compilation for Envoy (in-process, zero-sidecar)
 - [ ] OPA/Rego policy engine as alternative to first-match rules
 - [ ] Multi-cluster federation (shared policy, distributed audit)
+- [ ] Terraform/Pulumi modules for cloud deployment (ECS, Lambda, Cloud Run)
+- [ ] SDK/middleware for in-process agent frameworks (LangChain, CrewAI, AutoGen)
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 See [docs/implementation-guide.md](docs/implementation-guide.md) for cluster adoption guide.
