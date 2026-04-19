@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Demos** — `demos/` directory with 3 runnable walkthroughs: basic tool filtering, JWT identity tracking (with generate-test-jwt.sh), and anomaly detection patterns
+- **Prometheus metrics** — `/metrics` endpoint on admin port with tool call counters, deny counters, identity failures, circuit trips, and anomaly alerts. Always on, zero config.
+- **Velocity detection** — per-identity tool call rate tracking with configurable threshold and alertAction (LOG or DENY). Opt-in via `anomaly.enabled: true` in policy.
+- **Observability guide** — `docs/observability.md` covering Prometheus scraping, PromQL queries, audit log filtering, and anomaly detection setup
 - **L2: Identity-aware policy** — opt-in identity validation and conditional policy rules:
   - JWT/JWKS verification with multi-provider support (RS256, ES256, key caching)
   - `when:` blocks on rules — match by identity type (human/agent/autonomous), provider, and claims

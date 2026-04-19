@@ -77,6 +77,7 @@ Why this order:
 | `pkg/policy` | Rule engine interface (`engine.go`). First-match ALLOW/DENY evaluator (`rules.go`). YAML policy loader (`loader.go`). |
 | `pkg/audit` | Structured JSON event emitter. Event types: mcp.request, tool.allowed, tool.denied, identity.failed, circuit.tripped. |
 | `pkg/credentials` | Secret provider interface for credential injection (env/static for now, Vault/ASM future). |
+| `pkg/anomaly` | Velocity tracker — per-identity tool call rate detection with sliding window. |
 | `api/v1alpha1` | Go type definitions for NullfieldPolicy, ToolRegistry, and related CRD structures. |
 | `internal/config` | Environment variable loading with defaults and validation. |
 
@@ -96,7 +97,7 @@ nullfield implements defense in depth through four planned layers:
 │  Registration workflow, approval gates,              │
 │  tool lifecycle, rug-pull detection                  │
 ├─────────────────────────────────────────────────────┤
-│  L2: Identity-Aware Policy (future)                 │
+│  L2: Identity-Aware Policy (implemented)             │
 │  Different rules for human vs agent vs autonomous,   │
 │  tenant scoping, identity type in policy rules       │
 ├─────────────────────────────────────────────────────┤
