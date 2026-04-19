@@ -1,0 +1,13 @@
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: minimal
+spec:
+  rules:
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames: [my_safe_tool]
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      reason: "default deny"

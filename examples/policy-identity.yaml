@@ -1,0 +1,89 @@
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: identity-aware
+spec:
+  # Opt-in: enable JWT validation with one or more identity providers.
+  # Remove this section entirely to use nullfield without identity validation.
+  identity:
+    enabled: true
+    providers:
+      - name: okta
+        issuer: "https://your-org.okta.com"
+        jwksUri: "https://your-org.okta.com/oauth2/v1/keys"
+        audiences: ["api://nullfield"]
+        clockSkew: "30s"
+
+      - name: zitadel
+        issuer: "http://zitadel:8080"
+        jwksUri: "http://zitadel:8080/oauth/v2/keys"
+        audiences: ["camazotz-gateway"]
+
+    validation:
+      requireSignature: true
+      allowedAlgorithms: [RS256, ES256]
+      requireExpiry: true
+      requireAudience: true
+
+  # Opt-in: enable integrity checks for token manipulation detection.
+  # Remove this section entirely to skip integrity checks.
+  integrity:
+    enabled: true
+    bindToSession: true
+    detectReplay: true
+
+  rules:
+    # Humans from Okta can use write tools
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - github_create_pr
+        - pagerduty_resolve
+      when:
+        identity: human
+        provider: okta
+        claims:
+          groups: { contains: "mcp-writers" }
+      requireIdentity: true
+
+    # Agents from Zitadel can use read-only tools
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - cost.check_usage
+        - audit.list_actions
+        - tenant.list_tenants
+      when:
+        identity: agent
+        provider: zitadel
+      requireIdentity: true
+
+    # Anyone (human or agent) can use these safe tools
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - config.read_system_prompt
+        - error.validate_input
+      requireIdentity: true
+
+    # Block autonomous callers from everything
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      when:
+        identity: autonomous
+      reason: "autonomous agents are not permitted"
+
+    # Default deny
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      reason: "no matching rule"
+
+  circuitBreaker:
+    maxToolCallsPerSession: 50
+    maxSessionDuration: 300s
+    onTrip: KILL_POD
+
+  audit:
+    logLevel: FULL

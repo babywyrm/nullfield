@@ -46,55 +46,100 @@ func main() {
 		}
 	}
 
+	auditor := audit.NewLogEmitter(logger)
+
+	// Load full policy spec (identity, integrity, rules).
+	var spec *v1alpha1.NullfieldPolicySpec
+	if cfg.PolicyPath != "" {
+		loaded, err := policy.LoadSpecFromFile(cfg.PolicyPath)
+		if err != nil {
+			logger.Warn("could not load policy file, using default deny-all", "path", cfg.PolicyPath, "error", err)
+		} else {
+			spec = loaded
+			logger.Info("loaded policy", "path", cfg.PolicyPath, "rules", len(spec.Rules))
+		}
+	}
+	if spec == nil || len(spec.Rules) == 0 {
+		logger.Info("no policy rules loaded, defaulting to deny-all for tools/call")
+		spec = &v1alpha1.NullfieldPolicySpec{
+			Rules: []v1alpha1.Rule{
+				{
+					Action:          v1alpha1.ActionDeny,
+					MCPMethod:       "tools/call",
+					ToolNames:       []string{"*"},
+					RequireIdentity: true,
+				},
+			},
+		}
+	}
+
+	// Identity verification — opt-in via policy identity.enabled.
 	var verifier identity.Verifier
-	if cfg.IdentityJWKSURL != "" {
+	if spec.Identity != nil && spec.Identity.Enabled && len(spec.Identity.Providers) > 0 {
+		var providers []*identity.JWKSVerifier
+		for _, p := range spec.Identity.Providers {
+			var clockSkew time.Duration
+			if p.ClockSkew != "" {
+				clockSkew, _ = time.ParseDuration(p.ClockSkew)
+			}
+			var allowedAlgs []string
+			if spec.Identity.Validation != nil {
+				allowedAlgs = spec.Identity.Validation.AllowedAlgorithms
+			}
+			providers = append(providers, identity.NewJWKSVerifier(identity.JWKSVerifierConfig{
+				ProviderName: p.Name,
+				Issuer:       p.Issuer,
+				JWKSURI:      p.JWKSURI,
+				Audiences:    p.Audiences,
+				ClockSkew:    clockSkew,
+				AllowedAlgs:  allowedAlgs,
+				Header:       cfg.IdentityTokenHeader,
+			}))
+			logger.Info("configured identity provider", "name", p.Name, "issuer", p.Issuer)
+		}
+		verifier = identity.NewMultiVerifier(providers, cfg.IdentityTokenHeader)
+		logger.Info("identity validation enabled", "providers", len(providers))
+	} else if cfg.IdentityJWKSURL != "" {
 		verifier = identity.NewHeaderVerifier(cfg.IdentityTokenHeader)
 	} else {
-		logger.Warn("no JWKS URL configured, using noop identity verifier (dev mode)")
+		logger.Warn("no identity providers configured, using noop verifier (dev mode)")
 		verifier = &identity.NoopVerifier{}
+	}
+
+	// Integrity checks — opt-in via policy integrity.enabled.
+	var integrityChecker *identity.IntegrityChecker
+	if spec.Integrity != nil && spec.Integrity.Enabled {
+		integrityChecker = identity.NewIntegrityChecker(identity.IntegrityConfig{
+			BindToSession: spec.Integrity.BindToSession,
+			DetectReplay:  spec.Integrity.DetectReplay,
+		})
+		logger.Info("integrity checks enabled",
+			"sessionBinding", spec.Integrity.BindToSession,
+			"replayDetection", spec.Integrity.DetectReplay)
 	}
 
 	breaker := circuit.New(cfg.CircuitMaxCalls, cfg.CircuitMaxDuration)
 
-	// Sweep expired sessions every 60s.
+	// Sweep expired sessions and replay entries every 60s.
 	go func() {
 		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
 			breaker.Sweep()
+			if integrityChecker != nil {
+				integrityChecker.Sweep()
+			}
 		}
 	}()
 
-	auditor := audit.NewLogEmitter(logger)
-
-	var rules []v1alpha1.Rule
-	if cfg.PolicyPath != "" {
-		loaded, err := policy.LoadFromFile(cfg.PolicyPath)
-		if err != nil {
-			logger.Warn("could not load policy file, using default deny-all", "path", cfg.PolicyPath, "error", err)
-		} else {
-			rules = loaded
-			logger.Info("loaded policy", "path", cfg.PolicyPath, "rules", len(rules))
-		}
-	}
-	if len(rules) == 0 {
-		logger.Info("no policy rules loaded, defaulting to deny-all for tools/call")
-		rules = []v1alpha1.Rule{
-			{
-				Action:          v1alpha1.ActionDeny,
-				MCPMethod:       "tools/call",
-				ToolNames:       []string{"*"},
-				RequireIdentity: true,
-			},
-		}
-	}
-	engine := policy.NewRuleEngine(rules)
+	engine := policy.NewRuleEngine(spec.Rules)
 
 	handler := proxy.NewHandler(proxy.HandlerOpts{
 		UpstreamURL: upstream,
 		Engine:      engine,
 		Auditor:     auditor,
 		Verifier:    verifier,
+		Integrity:   integrityChecker,
 		Registry:    reg,
 		Breaker:     breaker,
 		Logger:      logger,

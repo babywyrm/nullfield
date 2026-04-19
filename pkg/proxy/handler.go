@@ -19,13 +19,14 @@ import (
 
 // Handler is the main reverse proxy handler that intercepts MCP traffic.
 type Handler struct {
-	upstream *httputil.ReverseProxy
-	engine   policy.Engine
-	auditor  audit.Emitter
-	verifier identity.Verifier
-	registry *registry.Registry
-	breaker  *circuit.Breaker
-	logger   *slog.Logger
+	upstream  *httputil.ReverseProxy
+	engine    policy.Engine
+	auditor   audit.Emitter
+	verifier  identity.Verifier
+	integrity *identity.IntegrityChecker
+	registry  *registry.Registry
+	breaker   *circuit.Breaker
+	logger    *slog.Logger
 }
 
 type HandlerOpts struct {
@@ -33,6 +34,7 @@ type HandlerOpts struct {
 	Engine      policy.Engine
 	Auditor     audit.Emitter
 	Verifier    identity.Verifier
+	Integrity   *identity.IntegrityChecker
 	Registry    *registry.Registry
 	Breaker     *circuit.Breaker
 	Logger      *slog.Logger
@@ -41,13 +43,14 @@ type HandlerOpts struct {
 func NewHandler(opts HandlerOpts) *Handler {
 	proxy := httputil.NewSingleHostReverseProxy(opts.UpstreamURL)
 	return &Handler{
-		upstream: proxy,
-		engine:   opts.Engine,
-		auditor:  opts.Auditor,
-		verifier: opts.Verifier,
-		registry: opts.Registry,
-		breaker:  opts.Breaker,
-		logger:   opts.Logger,
+		upstream:  proxy,
+		engine:    opts.Engine,
+		auditor:   opts.Auditor,
+		verifier:  opts.Verifier,
+		integrity: opts.Integrity,
+		registry:  opts.Registry,
+		breaker:   opts.Breaker,
+		logger:    opts.Logger,
 	}
 }
 
@@ -80,6 +83,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.writeJSONRPCError(w, req.ID, ErrCodeIdentityFailed, "identity verification failed")
 		return
 	}
+	if h.integrity != nil {
+		if err := h.integrity.Check(id); err != nil {
+			h.logger.WarnContext(ctx, "integrity check failed", "error", err, "method", req.Method)
+			h.auditor.Emit(ctx, audit.Event{
+				Type:   audit.EventIdentityFailed,
+				Method: req.Method,
+				Error:  err.Error(),
+			})
+			h.writeJSONRPCError(w, req.ID, ErrCodeIdentityFailed, "integrity check failed: "+err.Error())
+			return
+		}
+	}
+
 	ctx = identity.WithIdentity(ctx, id)
 
 	if req.Method == MethodToolsCall {

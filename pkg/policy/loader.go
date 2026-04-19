@@ -9,7 +9,18 @@ import (
 )
 
 // LoadFromFile reads a NullfieldPolicy YAML and returns the rules.
+// Retained for backward compatibility.
 func LoadFromFile(path string) ([]v1alpha1.Rule, error) {
+	spec, err := LoadSpecFromFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return spec.Rules, nil
+}
+
+// LoadSpecFromFile reads a NullfieldPolicy YAML and returns the full spec,
+// including identity config, integrity config, and rules.
+func LoadSpecFromFile(path string) (*v1alpha1.NullfieldPolicySpec, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read policy file: %w", err)
@@ -24,5 +35,5 @@ func LoadFromFile(path string) ([]v1alpha1.Rule, error) {
 		return nil, fmt.Errorf("policy file contains no rules")
 	}
 
-	return pol.Spec.Rules, nil
+	return &pol.Spec, nil
 }
