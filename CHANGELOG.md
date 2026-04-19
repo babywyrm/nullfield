@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **SCOPE action** — modify tool call requests and responses in transit. Strip dangerous arguments, inject scoped credentials, redact sensitive patterns in responses. Standalone action with full audit trail of what was modified. 9 unit tests.
 - **HOLD action** — park tool calls for human approval. When a HOLD rule matches, the request is held until a human approves or denies via the admin API, or the timeout expires. Includes:
   - `pkg/hold/manager.go` — hold state machine (pending -> approved/denied/timeout)
   - `pkg/hold/admin.go` — REST API: GET /admin/holds, POST approve/deny
