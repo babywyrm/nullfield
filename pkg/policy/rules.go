@@ -34,14 +34,15 @@ func (e *RuleEngine) Evaluate(_ context.Context, req Request) Decision {
 		}
 
 		reason := rule.Reason
+		matched := rule
 		switch rule.Action {
 		case v1alpha1.ActionAllow:
-			return Decision{Allowed: true}
+			return Decision{Allowed: true, MatchedRule: &matched}
 		case v1alpha1.ActionDeny:
 			if reason == "" {
 				reason = "denied by rule for tool: " + req.ToolName
 			}
-			return Decision{Allowed: false, Reason: reason}
+			return Decision{Allowed: false, Reason: reason, MatchedRule: &matched}
 		}
 	}
 

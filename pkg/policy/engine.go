@@ -3,6 +3,7 @@ package policy
 import (
 	"context"
 
+	v1alpha1 "github.com/babywyrm/nullfield/api/v1alpha1"
 	"github.com/babywyrm/nullfield/pkg/identity"
 )
 
@@ -16,9 +17,11 @@ type Request struct {
 
 // Decision is the output of a policy evaluation.
 type Decision struct {
-	Allowed bool
-	Reason  string
+	Allowed    bool
+	Reason     string
+	MatchedRule *v1alpha1.Rule
 }
+
 
 // Engine evaluates policy rules against an incoming request.
 type Engine interface {

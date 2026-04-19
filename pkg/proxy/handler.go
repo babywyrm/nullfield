@@ -13,6 +13,7 @@ import (
 
 	"github.com/babywyrm/nullfield/pkg/anomaly"
 	"github.com/babywyrm/nullfield/pkg/audit"
+	"github.com/babywyrm/nullfield/pkg/budget"
 	"github.com/babywyrm/nullfield/pkg/circuit"
 	"github.com/babywyrm/nullfield/pkg/identity"
 	"github.com/babywyrm/nullfield/pkg/policy"
@@ -27,6 +28,7 @@ type Handler struct {
 	verifier  identity.Verifier
 	integrity *identity.IntegrityChecker
 	velocity  *anomaly.VelocityTracker
+	budgets   *budget.Tracker
 	registry  *registry.Registry
 	breaker   *circuit.Breaker
 	logger    *slog.Logger
@@ -39,6 +41,7 @@ type HandlerOpts struct {
 	Verifier    identity.Verifier
 	Integrity   *identity.IntegrityChecker
 	Velocity    *anomaly.VelocityTracker
+	Budgets     *budget.Tracker
 	Registry    *registry.Registry
 	Breaker     *circuit.Breaker
 	Logger      *slog.Logger
@@ -53,6 +56,7 @@ func NewHandler(opts HandlerOpts) *Handler {
 		verifier:  opts.Verifier,
 		integrity: opts.Integrity,
 		velocity:  opts.Velocity,
+		budgets:   opts.Budgets,
 		registry:  opts.Registry,
 		breaker:   opts.Breaker,
 		logger:    opts.Logger,
@@ -165,6 +169,37 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 		})
 		h.writeJSONRPCError(w, req.ID, ErrCodePolicyDenied, "denied by policy: "+decision.Reason)
 		return
+	}
+
+	// Budget check — if the matched rule has a budget config, enforce it.
+	if h.budgets != nil && decision.MatchedRule != nil && decision.MatchedRule.Budget != nil {
+		bc := decision.MatchedRule.Budget
+		var perID, perSess *budget.Limits
+		if bc.PerIdentity != nil {
+			perID = &budget.Limits{
+				MaxCallsPerHour: bc.PerIdentity.MaxCallsPerHour,
+				MaxCallsPerDay:  bc.PerIdentity.MaxCallsPerDay,
+				MaxTokensPerDay: bc.PerIdentity.MaxTokensPerDay,
+			}
+		}
+		if bc.PerSession != nil {
+			perSess = &budget.Limits{
+				MaxCallsPerHour: bc.PerSession.MaxCallsPerHour,
+				MaxCallsPerDay:  bc.PerSession.MaxCallsPerDay,
+				MaxTokensPerDay: bc.PerSession.MaxTokensPerDay,
+			}
+		}
+		if err := h.budgets.CheckAndRecord(id.Subject, id.SessionID, perID, perSess); err != nil {
+			h.auditor.Emit(ctx, audit.Event{
+				Type:     audit.EventToolDenied,
+				Method:   req.Method,
+				ToolName: tc.Name,
+				Identity: id.Subject,
+				Reason:   "budget exhausted: " + err.Error(),
+			})
+			h.writeJSONRPCError(w, req.ID, ErrCodeRateLimited, "budget exhausted: "+err.Error())
+			return
+		}
 	}
 
 	h.breaker.Record(id.SessionID)

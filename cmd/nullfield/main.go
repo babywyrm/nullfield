@@ -15,6 +15,7 @@ import (
 	"github.com/babywyrm/nullfield/internal/config"
 	"github.com/babywyrm/nullfield/pkg/anomaly"
 	"github.com/babywyrm/nullfield/pkg/audit"
+	"github.com/babywyrm/nullfield/pkg/budget"
 	"github.com/babywyrm/nullfield/pkg/circuit"
 	"github.com/babywyrm/nullfield/pkg/identity"
 	"github.com/babywyrm/nullfield/pkg/policy"
@@ -156,6 +157,16 @@ func main() {
 			"alertAction", spec.Anomaly.Velocity.AlertAction)
 	}
 
+	// Budget tracker — created if any rule has a budget: block.
+	var budgetTracker *budget.Tracker
+	for _, r := range spec.Rules {
+		if r.Budget != nil {
+			budgetTracker = budget.New()
+			logger.Info("budget tracking enabled")
+			break
+		}
+	}
+
 	handler := proxy.NewHandler(proxy.HandlerOpts{
 		UpstreamURL: upstream,
 		Engine:      engine,
@@ -163,6 +174,7 @@ func main() {
 		Verifier:    verifier,
 		Integrity:   integrityChecker,
 		Velocity:    velocityTracker,
+		Budgets:     budgetTracker,
 		Registry:    reg,
 		Breaker:     breaker,
 		Logger:      logger,
