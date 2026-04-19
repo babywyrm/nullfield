@@ -435,15 +435,18 @@ For each workload being onboarded to nullfield:
 
 ## 9. What's Next (Roadmap)
 
-| Phase | Feature | Impact |
+| Phase | Feature | Status |
 |---|---|---|
-| ~~v0.1~~ | ~~Policy from file~~ | ~~Done — load NullfieldPolicy from mounted YAML~~ |
-| v0.2 | JWKS identity validation | Replace noop verifier with real token validation |
-| v0.2 | OPA/Rego policy engine | More expressive policy rules beyond first-match |
-| v0.2 | OTLP audit export | Ship audit events to OpenTelemetry Collector |
-| v0.3 | Credential injection | Outbound LLM API calls get secrets injected from Vault/ASM |
-| v0.4 | Mutating admission webhook | Automatic sidecar injection — add a label, get nullfield |
-| v0.5 | CRD controller | Watch NullfieldPolicy and ToolRegistry as native K8s resources |
-| v1.0 | Transparent proxy | iptables-based interception, no service port changes needed |
+| ~~v0.1~~ | ~~Policy from file, tool registry, circuit breaker~~ | Done |
+| ~~v0.2~~ | ~~JWKS identity validation, when-conditions, integrity checks~~ | Done |
+| ~~v0.2~~ | ~~Prometheus metrics, velocity detection, demos~~ | Done |
+| v0.3 | OTLP export, tool-chain sequence detection, claims drift | Next |
+| v0.3 | Webhook/Slack alerting, time-of-day rules | Next |
+| v0.4 | Credential injection from Vault/ASM, LLM token budgets | Planned |
+| v0.5 | Mutating admission webhook (automatic sidecar injection) | Planned |
+| v0.6 | CRD controller (native K8s resources) | Planned |
+| v0.7 | L3 tool governance (approval gates, HOLD action) | Planned |
+| v0.8 | L4 agentic flow control (delegation chains, human-in-the-loop) | Planned |
+| v1.0 | Transparent proxy, ext_authz gRPC mode, production hardening | Planned |
 
-The mutating webhook (v0.4) eliminates most of this manual work — teams will just label their namespace or deployment and nullfield gets injected automatically, similar to Istio sidecar injection.
+The mutating webhook (v0.5) eliminates most of this manual work — teams will just label their namespace or deployment and nullfield gets injected automatically, similar to Istio sidecar injection.

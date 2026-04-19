@@ -240,13 +240,16 @@ nullfield/
 │   ├── helm/nullfield/   # Helm chart with sidecar template
 │   └── manifests/        # Raw K8s manifests (works on any distro)
 ├── examples/             # Example policy + tool registry
+├── demos/                # Runnable walkthroughs (basic, JWT, anomaly)
 ├── tests/
 │   ├── echo-server/      # Echo MCP server for testing
 │   └── smoke.sh          # 12-point smoke test
 ├── docs/
 │   ├── architecture.md
+│   ├── identity-policy.md
 │   ├── implementation-guide.md
 │   ├── mesh-integration.md
+│   ├── observability.md
 │   └── diagrams/
 ├── Dockerfile
 ├── Makefile
@@ -260,13 +263,33 @@ nullfield/
 
 ## Roadmap
 
+### Implemented
+
 - [x] **v0.1** — MCP `tools/call` interception, rule engine, policy-from-file, audit logging, circuit breaker, K8s manifests, Docker Compose, smoke tests
-- [ ] **v0.2** — JWKS identity validation, OPA/Rego policy engine, OTLP audit export
-- [ ] **v0.3** — Credential injection from Vault/ASM, outbound LLM API proxying
-- [ ] **v0.4** — Mutating admission webhook for automatic sidecar injection
-- [ ] **v0.5** — CRD controller (watch NullfieldPolicy + ToolRegistry CRDs natively)
-- [ ] **v1.0** — Transparent iptables-based proxy (Istio-style), production hardening
+- [x] **v0.2** — L2 identity-aware policy: JWKS validation, multi-provider support, `when:` conditions (identity type, provider, claims), session binding, replay detection
+- [x] **v0.2** — Prometheus `/metrics` endpoint, velocity anomaly detection, 3 runnable demo walkthroughs
+
+### Next
+
+- [ ] **v0.3** — OTLP trace/span export, tool-chain sequence detection (suspicious call patterns), claims drift detection (scope escalation mid-session)
+- [ ] **v0.3** — Webhook/Slack alerting for denials and anomalies, time-of-day rules
+- [ ] **v0.4** — Credential injection from Vault/ASM, outbound LLM API proxying with token budget tracking
+- [ ] **v0.5** — Mutating admission webhook for automatic sidecar injection
+- [ ] **v0.6** — CRD controller (watch NullfieldPolicy + ToolRegistry as native K8s resources)
+- [ ] **v0.7** — L3 tool governance: registration workflow, approval gates (`HOLD` action), tool lifecycle management, rug-pull detection (tool change after init)
+- [ ] **v0.8** — L4 agentic flow control: identity chaining, delegation depth limits, human-in-the-loop approval holds, call chain tracing
+- [ ] **v0.9** — Response inspection (detect system prompt leakage, PII in tool responses), cost attribution per identity/session
+- [ ] **v1.0** — Transparent iptables-based proxy (Istio-style), production hardening, ext_authz gRPC mode
+
+### Future
+
+- [ ] WASM filter compilation for Envoy (in-process, zero-sidecar)
+- [ ] OPA/Rego policy engine as alternative to first-match rules
+- [ ] Multi-cluster federation (shared policy, distributed audit)
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 See [docs/implementation-guide.md](docs/implementation-guide.md) for cluster adoption guide.
 See [docs/mesh-integration.md](docs/mesh-integration.md) for service mesh integration.
+See [docs/identity-policy.md](docs/identity-policy.md) for identity-aware policy configuration.
+See [docs/observability.md](docs/observability.md) for metrics and monitoring.
+See [demos/](demos/) for runnable walkthroughs.
