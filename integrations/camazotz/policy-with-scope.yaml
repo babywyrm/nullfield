@@ -1,0 +1,62 @@
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: camazotz-policy-with-scope
+spec:
+  rules:
+    # SCOPE — credential reads get arguments stripped and response redacted
+    - action: SCOPE
+      mcpMethod: tools/call
+      toolNames:
+        - cred_broker.read_credential
+      scope:
+        request:
+          stripArguments: [master_key, vault_password]
+          injectArguments:
+            read_only: "true"
+        response:
+          redactPatterns: ["password", "secret", "key", "token"]
+          redactReplacement: "[NULLFIELD-REDACTED]"
+      reason: "credential reads are scoped — dangerous args stripped, secrets redacted"
+
+    # SCOPE — error debug info gets sensitive patterns redacted
+    - action: SCOPE
+      mcpMethod: tools/call
+      toolNames:
+        - error.debug_info
+      scope:
+        response:
+          redactPatterns: ["password", "DATABASE_URL", "API_KEY"]
+          redactReplacement: "[REDACTED]"
+      reason: "debug info redacted for safety"
+
+    # Regular ALLOW for safe tools
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - cost.check_usage
+        - audit.list_actions
+        - tenant.list_tenants
+        - auth.issue_token
+      requireIdentity: true
+
+    # DENY high-risk
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames:
+        - secrets.leak_config
+        - egress.fetch_url
+        - supply.install_package
+
+    # Default allow for everything else (demo only)
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      requireIdentity: true
+
+  circuitBreaker:
+    maxToolCallsPerSession: 50
+    maxSessionDuration: 300s
+
+  audit:
+    logLevel: FULL

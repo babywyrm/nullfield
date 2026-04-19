@@ -26,8 +26,9 @@ import (
 
 // Handler is the main reverse proxy handler that intercepts MCP traffic.
 type Handler struct {
-	upstream  *httputil.ReverseProxy
-	engine    policy.Engine
+	upstream     *httputil.ReverseProxy
+	upstreamAddr string
+	engine       policy.Engine
 	auditor   audit.Emitter
 	verifier  identity.Verifier
 	integrity *identity.IntegrityChecker
@@ -56,8 +57,9 @@ type HandlerOpts struct {
 func NewHandler(opts HandlerOpts) *Handler {
 	proxy := httputil.NewSingleHostReverseProxy(opts.UpstreamURL)
 	return &Handler{
-		upstream:  proxy,
-		engine:    opts.Engine,
+		upstream:     proxy,
+		upstreamAddr: opts.UpstreamURL.Host,
+		engine:       opts.Engine,
 		auditor:   opts.Auditor,
 		verifier:  opts.Verifier,
 		integrity: opts.Integrity,
@@ -319,10 +321,20 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 	r.Body = io.NopCloser(bytes.NewReader(body))
 
 	if scopeResponseCfg != nil && len(scopeResponseCfg.RedactPatterns) > 0 {
-		rec := &responseRecorder{ResponseWriter: w, body: &bytes.Buffer{}}
-		h.upstream.ServeHTTP(rec, r)
+		resp, err := http.Post("http://"+h.upstreamAddr+r.URL.Path, "application/json", io.NopCloser(bytes.NewReader(body)))
+		if err != nil {
+			h.writeJSONRPCError(w, req.ID, ErrCodeInternal, "scope: upstream request failed")
+			return
+		}
+		defer resp.Body.Close()
 
-		redacted, count := scope.ModifyResponse(rec.body.Bytes(), scopeResponseCfg)
+		respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if err != nil {
+			h.writeJSONRPCError(w, req.ID, ErrCodeInternal, "scope: failed to read upstream response")
+			return
+		}
+
+		redacted, count := scope.ModifyResponse(respBody, scopeResponseCfg)
 		if count > 0 {
 			h.auditor.Emit(ctx, audit.Event{
 				Type:     audit.EventScopeModified,
@@ -332,8 +344,9 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 				Reason:   fmt.Sprintf("response: %d patterns redacted", count),
 			})
 		}
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(redacted)))
-		w.WriteHeader(rec.statusCode)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode)
 		w.Write(redacted)
 	} else {
 		h.upstream.ServeHTTP(w, r)
@@ -343,15 +356,21 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 // responseRecorder captures the upstream response for post-processing (SCOPE redaction).
 type responseRecorder struct {
 	http.ResponseWriter
-	statusCode int
-	body       *bytes.Buffer
+	statusCode    int
+	body          *bytes.Buffer
+	headerWritten bool
 }
 
 func (r *responseRecorder) WriteHeader(code int) {
 	r.statusCode = code
+	r.headerWritten = true
 }
 
 func (r *responseRecorder) Write(b []byte) (int, error) {
+	if !r.headerWritten {
+		r.statusCode = http.StatusOK
+		r.headerWritten = true
+	}
 	return r.body.Write(b)
 }
 
