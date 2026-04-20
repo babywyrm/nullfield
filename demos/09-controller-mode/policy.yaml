@@ -1,0 +1,52 @@
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: controller-demo-policy
+spec:
+  rules:
+    # Read-only tools — allowed freely
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - cost.check_usage
+        - audit.list_actions
+        - tenant.list_tenants
+      maxCallsPerMinute: 60
+
+    # Agent delegation requires human approval via controller hold
+    - action: HOLD
+      mcpMethod: tools/call
+      toolNames:
+        - delegation.invoke_agent
+        - config.update_settings
+      hold:
+        timeout: "5m"
+        onTimeout: DENY
+        notifyWebhook: true
+      reason: "requires human approval"
+
+    # LLM-backed tools are budget-limited (enforced centrally by controller)
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - llm.generate_summary
+        - llm.translate_text
+      budget:
+        perIdentity:
+          maxCallsPerHour: 10
+        perSession:
+          maxCallsPerHour: 5
+
+    # Default deny
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      reason: "no matching rule"
+
+  circuitBreaker:
+    maxToolCallsPerSession: 50
+    maxSessionDuration: 300s
+    onTrip: DENY
+
+  audit:
+    logLevel: FULL

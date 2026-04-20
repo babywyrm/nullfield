@@ -95,8 +95,8 @@ check "jira_get_issue: registered + allowed by policy, forwarded" "echo-server e
 echo ""
 echo "[non-JSON traffic — passed through as-is]"
 
-resp=$(curl -sf "$BASE" 2>&1 || true)
-check "GET / passed through (non-JSON-RPC)" "" "$resp"
+resp=$(curl -s -o /dev/null -w "%{http_code}" "$BASE" 2>&1 || true)
+check "GET / passed through (non-JSON-RPC, HTTP 200)" "200" "$resp"
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="

@@ -1,0 +1,41 @@
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: hold-demo
+  namespace: demo
+spec:
+  selector:
+    matchLabels:
+      app: demo-agent
+  rules:
+    # Read-only tools — pass through immediately
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - github_create_pr
+        - jira_get_issue
+      maxCallsPerMinute: 60
+
+    # Dangerous tool — park for human approval
+    - action: HOLD
+      mcpMethod: tools/call
+      toolNames:
+        - pagerduty_resolve
+      hold:
+        timeout: 2m
+        onTimeout: DENY
+      reason: "pagerduty_resolve requires human approval"
+
+    # Default deny
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      reason: "not permitted by hold-demo policy"
+
+  circuitBreaker:
+    maxToolCallsPerSession: 50
+    maxSessionDuration: 300s
+    onTrip: KILL_POD
+
+  audit:
+    logLevel: FULL

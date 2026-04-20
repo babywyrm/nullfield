@@ -108,49 +108,49 @@ Every layer is opt-in. The minimum deployment is the sidecar + a policy YAML. Ev
 ## Architecture
 
 ```text
-  MCP Client
-      │
-      │  POST /mcp (JSON-RPC)
-      ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Pod                                                            │
-│                                                                 │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  nullfield sidecar (:9090)                                │  │
-│  │                                                           │  │
-│  │  1. Identity ── verify JWT, extract type/claims           │  │
-│  │  2. Registry ── is this tool registered?                  │  │
-│  │  3. Integrity ── session binding, replay detection        │  │
-│  │  4. Circuit breaker ── session within limits?             │  │
-│  │  5. Policy ── first-match rule → action:                  │  │
-│  │     ├─ DENY ──── reject immediately                       │  │
-│  │     ├─ HOLD ──── park for human approval                  │  │
-│  │     ├─ BUDGET ── check quota, reject if exhausted         │  │
-│  │     ├─ SCOPE ─── modify request/response in transit       │  │
-│  │     └─ ALLOW ─── forward to upstream                      │  │
-│  │  6. Audit ── structured JSON event for every action       │  │
-│  └────────────────────────────┬──────────────────────────────┘  │
-│                               │                                 │
-│                               ▼                                 │
-│  ┌───────────────────────────────────────────┐  :9091 admin     │
-│  │  Your MCP Server (:8080)                  │  /healthz        │
-│  │  (camazotz, your app, etc.)               │  /readyz         │
-│  └───────────────────────────────────────────┘  /metrics        │
-│                                                                 │
-└─────────────────────────────────┬───────────────────────────────┘
-                                  │ gRPC (opt-in)
-                                  ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  nullfield-controller (deploy once per cluster, optional)       │
-│                                                                 │
-│  ┌─ Holds ──── centralized hold state machine                   │
-│  ├─ Budgets ── shared per-identity/session counters             │
-│  ├─ Events ─── aggregated audit event stream                    │
-│  ├─ Alerting ─ webhook/Slack dispatch with dedup                │
-│  └─ Admin ──── unified /admin API across all sidecars           │
-│                                                                 │
-│  :9092 gRPC   :9093 admin   :9091 health/metrics                │
-└─────────────────────────────────────────────────────────────────┘
+    MCP Client
+        │
+        │  POST /mcp (JSON-RPC)
+        ▼
+┌───────────────────────────────────────────────────────────────┐
+│  Pod                                                          │
+│                                                               │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │  nullfield sidecar (:9090)                              │  │
+│  │                                                         │  │
+│  │  1. Identity ── verify JWT, extract type/claims         │  │
+│  │  2. Registry ── is this tool registered?                │  │
+│  │  3. Integrity ── session binding, replay detection      │  │
+│  │  4. Circuit breaker ── session within limits?           │  │
+│  │  5. Policy ── first-match rule → action:                │  │
+│  │     ├─ DENY ──── reject immediately                     │  │
+│  │     ├─ HOLD ──── park for human approval                │  │
+│  │     ├─ BUDGET ── check quota, reject if exhausted       │  │
+│  │     ├─ SCOPE ─── modify request/response in transit     │  │
+│  │     └─ ALLOW ─── forward to upstream                    │  │
+│  │  6. Audit ── structured JSON event for every action     │  │
+│  └───────────────────────┬─────────────────────────────────┘  │
+│                          │                                    │
+│                          ▼                                    │
+│  ┌─────────────────────────────────────────┐  :9091 admin     │
+│  │  Your MCP Server (:8080)                │  /healthz        │
+│  │  (camazotz, your app, etc.)             │  /readyz         │
+│  └─────────────────────────────────────────┘  /metrics        │
+│                                                               │
+└──────────────────────────┬────────────────────────────────────┘
+                           │ gRPC (opt-in)
+                           ▼
+┌───────────────────────────────────────────────────────────────┐
+│  nullfield-controller (deploy once per cluster, optional)     │
+│                                                               │
+│  ┌─ Holds ──── centralized hold state machine                 │
+│  ├─ Budgets ── shared per-identity/session counters           │
+│  ├─ Events ─── aggregated audit event stream                  │
+│  ├─ Alerting ─ webhook/Slack dispatch with dedup              │
+│  └─ Admin ──── unified /admin API across all sidecars         │
+│                                                               │
+│  :9092 gRPC   :9093 admin   :9091 health/metrics              │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -247,7 +247,7 @@ All configuration via environment variables:
 | `NULLFIELD_CIRCUIT_MAX_CALLS` | `100` | Max tool calls per session before circuit opens |
 | `NULLFIELD_CIRCUIT_MAX_DURATION` | `5m` | Max session duration before circuit opens |
 | `NULLFIELD_AUDIT_LOG_LEVEL` | `FULL` | Audit verbosity: `FULL`, `SUMMARY`, `NONE` |
-| `NULLFIELD_CONTROLLER_ADDR` | _(empty)_ | Controller gRPC address (e.g. `nullfield-controller:50051`). Empty = standalone mode |
+| `NULLFIELD_CONTROLLER_ADDR` | _(empty)_ | Controller gRPC address (e.g. `nullfield-controller:9092`). Empty = standalone mode |
 | `NULLFIELD_AUDIT_ENDPOINT` | _(empty)_ | OTLP gRPC endpoint for audit events |
 
 ---

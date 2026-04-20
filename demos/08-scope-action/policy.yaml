@@ -1,0 +1,55 @@
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: scope-demo
+  namespace: demo
+spec:
+  selector:
+    matchLabels:
+      app: demo-agent
+  rules:
+    # Scoped tool — strip secret_key, inject read_only=true
+    - action: SCOPE
+      mcpMethod: tools/call
+      toolNames:
+        - pagerduty_resolve
+      scope:
+        request:
+          stripArguments:
+            - secret_key
+          injectArguments:
+            read_only: "true"
+
+    # Scoped tool — redact sensitive patterns in responses
+    - action: SCOPE
+      mcpMethod: tools/call
+      toolNames:
+        - jira_get_issue
+      scope:
+        response:
+          redactPatterns:
+            - password
+            - secret
+            - api_key
+          redactReplacement: "[REDACTED]"
+
+    # Pass-through — no modification
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - github_create_pr
+      maxCallsPerMinute: 60
+
+    # Default deny
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      reason: "not permitted by scope-demo policy"
+
+  circuitBreaker:
+    maxToolCallsPerSession: 50
+    maxSessionDuration: 300s
+    onTrip: KILL_POD
+
+  audit:
+    logLevel: FULL

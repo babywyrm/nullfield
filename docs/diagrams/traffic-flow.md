@@ -11,24 +11,24 @@ MCP Client (Cursor, Claude, curl)
     │
     │  POST http://localhost:9090/mcp
     ▼
-┌──────────────────┐
-│  nullfield:9090  │
-│  (proxy)         │
-│                  │
-│  ┌─ identity     │
-│  ├─ registry     │     :9091 /healthz /readyz
-│  ├─ circuit brk  │
-│  ├─ policy eval  │
-│  └─ audit emit   │
-└────────┬─────────┘
-         │  http://localhost:8080/mcp (or echo-server:8080 in compose)
-         ▼
-┌──────────────────┐
-│  MCP Server:8080 │
-│  (camazotz,      │
-│   echo-server,   │
-│   your app)      │
-└──────────────────┘
+┌────────────────────┐
+│  nullfield :9090   │
+│  (proxy)           │
+│                    │
+│  ┌─ identity       │
+│  ├─ registry       │     :9091 /healthz /readyz /metrics
+│  ├─ circuit brk    │
+│  ├─ policy eval    │
+│  └─ audit emit     │
+└─────────┬──────────┘
+          │  http://localhost:8080/mcp
+          ▼
+┌────────────────────┐
+│  MCP Server :8080  │
+│  (camazotz,        │
+│   echo-server,     │
+│   your app)        │
+└────────────────────┘
 ```
 
 ---
@@ -36,19 +36,19 @@ MCP Client (Cursor, Claude, curl)
 ## Kubernetes — Bare (no mesh)
 
 ```text
-                    ┌─────────────────────────────────────────┐
-                    │  Pod                                    │
-                    │                                        │
- Service:9090 ─────────► :9090 nullfield ──► :8080 App      │
-                    │       │                                │
-                    │       ├─ identity                      │
-                    │       ├─ registry                      │
-                    │       ├─ policy                        │
-                    │       ├─ circuit breaker               │
-                    │       └─ audit                         │
-                    │                                        │
-                    │  :9091 admin ◄── kubelet probes        │
-                    └─────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│  Pod                                            │
+│                                                 │
+│  Service :9090 ──► nullfield ──► App :8080      │
+│                       │                         │
+│                       ├─ identity               │
+│                       ├─ registry               │
+│                       ├─ policy                 │
+│                       ├─ circuit breaker        │
+│                       └─ audit                  │
+│                                                 │
+│  :9091 admin ◄── kubelet probes                 │
+└─────────────────────────────────────────────────┘
 ```
 
 ---
@@ -56,19 +56,19 @@ MCP Client (Cursor, Claude, curl)
 ## Kubernetes — Istio
 
 ```text
-                    ┌─────────────────────────────────────────────────────┐
-                    │  Pod                                                │
-                    │                                                     │
- Service:9090 ──► Envoy ──► :9090 nullfield ──► :8080 App               │
-                    │  │          │                                       │
-                    │  │ mTLS     ├─ identity                            │
-                    │  │ AuthzPol ├─ registry                            │
-                    │  │ metrics  ├─ policy                              │
-                    │  │          ├─ circuit breaker                     │
-                    │  │          └─ audit                               │
-                    │  │                                                  │
-                    │  │     :9091 admin ◄── kubelet (bypasses Envoy)    │
-                    └─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Pod                                                        │
+│                                                             │
+│  Service ──► Envoy ──► nullfield :9090 ──► App :8080        │
+│                 │            │                               │
+│                 │ mTLS       ├─ identity                     │
+│                 │ AuthzPol   ├─ registry                     │
+│                 │ metrics    ├─ policy                       │
+│                 │            ├─ circuit breaker               │
+│                 │            └─ audit                         │
+│                 │                                             │
+│                 │   :9091 admin ◄── kubelet (bypasses Envoy)  │
+└─────────────────────────────────────────────────────────────┘
 
 Envoy handles:  mTLS, AuthorizationPolicy, traffic metrics, retries
 nullfield handles: MCP tool enforcement, policy, registry, audit
@@ -79,18 +79,18 @@ nullfield handles: MCP tool enforcement, policy, registry, audit
 ## Kubernetes — Linkerd
 
 ```text
-                    ┌───────────────────────────────────────────────────────────┐
-                    │  Pod                                                      │
-                    │                                                           │
- Service:9090 ──► linkerd-proxy ──► :9090 nullfield ──► :8080 App             │
-                    │  │                  │                                     │
-                    │  │ mTLS             ├─ identity                          │
-                    │  │ Server/AuthZ     ├─ registry                          │
-                    │  │ golden metrics   ├─ policy                            │
-                    │  │                  └─ audit                             │
-                    │  │                                                        │
-                    │  │     :9091 admin ◄── kubelet (skip-inbound-ports)      │
-                    └───────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  Pod                                                            │
+│                                                                 │
+│  Service ──► linkerd-proxy ──► nullfield :9090 ──► App :8080    │
+│                    │                 │                           │
+│                    │ mTLS            ├─ identity                 │
+│                    │ Server/AuthZ    ├─ registry                 │
+│                    │ golden metrics  ├─ policy                   │
+│                    │                 └─ audit                    │
+│                    │                                             │
+│                    │   :9091 admin ◄── kubelet (skip-inbound)    │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -98,18 +98,18 @@ nullfield handles: MCP tool enforcement, policy, registry, audit
 ## Kubernetes — Cilium
 
 ```text
-                    ┌─────────────────────────────────────────┐
-                    │  Pod                                    │
-                    │                                        │
- Service:9090 ─────────► :9090 nullfield ──► :8080 App      │
-                    │       │                                │
-                    │       ├─ identity                      │
-                    │       ├─ registry                      │
-                    │       ├─ policy                        │
-                    │       └─ audit                         │
-                    │                                        │
-                    │  :9091 admin ◄── kubelet probes        │
-                    └─────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│  Pod                                            │
+│                                                 │
+│  Service :9090 ──► nullfield ──► App :8080      │
+│                       │                         │
+│                       ├─ identity               │
+│                       ├─ registry               │
+│                       ├─ policy                 │
+│                       └─ audit                  │
+│                                                 │
+│  :9091 admin ◄── kubelet probes                 │
+└─────────────────────────────────────────────────┘
 
 Cilium eBPF (kernel level, no sidecar):
   mTLS (WireGuard/SPIFFE), CiliumNetworkPolicy L7 rules, Hubble observability

@@ -56,18 +56,14 @@ curl -s -X POST http://localhost:9090/mcp \
 
 **What this catches:** Captured tokens being reused by an attacker or a compromised agent.
 
-### 3. Velocity spike (requires anomaly.enabled — see below)
+### 3. Velocity spike (requires anomaly config)
 
 When anomaly detection is enabled, nullfield tracks the rate of tool calls per identity. If the rate exceeds the threshold, an alert is emitted.
 
-**Policy config:**
+**Policy:** Use the included `demos/03-anomaly-detection/policy.yaml` which has anomaly + integrity already configured:
 
-```yaml
-anomaly:
-  enabled: true
-  velocity:
-    threshold: 5       # calls per minute per identity
-    alertAction: LOG   # LOG = alert but allow, DENY = block
+```bash
+export NULLFIELD_POLICY_PATH=demos/03-anomaly-detection/policy.yaml
 ```
 
 **How to trigger:**
@@ -105,10 +101,17 @@ kubectl -n camazotz logs -l app=brain-gateway -c nullfield | grep "tool.denied"
 ## Prerequisites
 
 - Complete Demo 02 first (generates the test keys and tokens)
-- nullfield running with the JWT demo policy (`demos/02-jwt-identity-tracking/policy.yaml`)
+- nullfield running with this demo's policy:
+
+```bash
+export NULLFIELD_POLICY_PATH=demos/03-anomaly-detection/policy.yaml
+export NULLFIELD_REGISTRY_PATH=examples/tools.yaml
+./bin/nullfield
+```
 
 ## Key files
 
-- `demos/02-jwt-identity-tracking/policy.yaml` — identity + integrity config
+- `demos/03-anomaly-detection/policy.yaml` — anomaly + integrity + velocity config
+- `demos/02-jwt-identity-tracking/policy.yaml` — identity-only config (no anomaly)
 - `docs/identity-policy.md` — full configuration guide
 - `docs/observability.md` — metrics and monitoring

@@ -8,7 +8,7 @@ services:
       - "9091:9091"
     environment:
       NULLFIELD_LISTEN_ADDR: ":9090"
-      NULLFIELD_UPSTREAM_ADDR: "compose-brain-gateway-1:8080"
+      NULLFIELD_UPSTREAM_ADDR: "brain-gateway:8080"
       NULLFIELD_ADMIN_ADDR: ":9091"
       NULLFIELD_POLICY_PATH: "/etc/nullfield/policy.yaml"
       NULLFIELD_REGISTRY_PATH: "/etc/nullfield/tools.yaml"
@@ -18,14 +18,24 @@ services:
     volumes:
       - ./policy.yaml:/etc/nullfield/policy.yaml:ro
       - ./tools.yaml:/etc/nullfield/tools.yaml:ro
-    networks:
-      - camazotz
+    depends_on:
+      brain-gateway:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:9091/healthz"]
       interval: 10s
       timeout: 3s
       retries: 3
 
-networks:
-  camazotz:
-    external: true
+  brain-gateway:
+    image: ghcr.io/babywyrm/camazotz:latest
+    expose:
+      - "8080"
+
+# To connect to an existing camazotz network instead of the default one,
+# run: docker network create camazotz
+# Then uncomment:
+# networks:
+#   default:
+#     name: camazotz
+#     external: true

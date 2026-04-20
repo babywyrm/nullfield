@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Requires: openssl, python3, pip install cryptography
+#
 # Generate test RSA keypair, JWKS, and signed JWTs for nullfield identity demos.
 # Usage: bash generate-test-jwt.sh
 #

@@ -24,17 +24,24 @@ HTTP Request arrives (:9090)
        ├─ 2. REGISTRY ──► Is the tool name in the registry?
        │   no? ──► Audit "tool.denied" ──► Return -32003 (not registered)
        │
-       ├─ 3. CIRCUIT BREAKER ──► Session within limits?
-       │   no? ──► Audit "circuit.tripped" ──► Return -32002 (circuit open)
-       │
-       ├─ 4. INTEGRITY (opt-in) ──► Session binding + replay detection
+       ├─ 3. INTEGRITY (opt-in) ──► Session binding + replay detection
        │   fail? ──► Audit "identity.failed" ──► Return -32001
        │
-       ├─ 5. POLICY ──► Evaluate rules top-to-bottom, first match wins
-       │   Rules can have when: conditions (identity type, provider, claims)
-       │   denied? ──► Audit "tool.denied" ──► Return -32000 (policy denied)
+       ├─ 4. CIRCUIT BREAKER ──► Session within limits?
+       │   no? ──► Audit "circuit.tripped" ──► Return -32002 (circuit open)
        │
-       └─ 6. FORWARD ──► Audit "tool.allowed" ──► Proxy to upstream
+       ├─ 5. POLICY ENGINE ──► Evaluate rules top-to-bottom, first match:
+       │   DENY → -32000 | HOLD → park | SCOPE → modify | ALLOW → continue
+       │
+       ├─ 6. BUDGET CHECK ──► If budget: block on matched rule
+       │   exhausted? ──► Return -32004
+       │
+       ├─ 7. VELOCITY CHECK ──► Anomaly detection (opt-in)
+       │   spike? ──► Log alert or Return -32004
+       │
+       ├─ 8. AUDIT ──► Emit "tool.allowed" event
+       │
+       └─ 9. FORWARD ──► Proxy to upstream (SCOPE response on return)
 ```
 
 ---
@@ -44,24 +51,22 @@ HTTP Request arrives (:9090)
 The gates are evaluated in order. Each gate is independent — a request must pass all of them to reach the upstream.
 
 ```text
-           ┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌────────────┐
-Request ──►│  REGISTRY    │────►│  CIRCUIT BRK │────►│  INTEGRITY   │────►│   POLICY   │──► Upstream
-           │              │     │              │     │  (opt-in)    │     │            │
-           │ Is tool name │     │ Session call │     │ Session bind │     │ First-match│
-           │ registered?  │     │ count + time │     │ + replay chk │     │ ALLOW/DENY │
-           │              │     │ within limit?│     │              │     │ + when:    │
-           └──────┬───────┘     └──────┬───────┘     └──────┬───────┘     └─────┬──────┘
-                  │ NO                 │ NO                  │ FAIL              │ NO MATCH
-                  ▼                    ▼                     ▼                   ▼
-              -32003               -32002                -32001              -32000
-           "not registered"    "circuit open"       "integrity fail"   "denied by policy"
+           ┌──────────┐  ┌──────────┐  ┌───────────┐  ┌───────────┐  ┌────────┐  ┌────────┐  ┌──────────┐
+Request ──►│ IDENTITY │─►│ REGISTRY │─►│ INTEGRITY │─►│ CIRCUIT   │─►│ POLICY │─►│ BUDGET │─►│ VELOCITY │─► Audit ─► Forward
+           └────┬─────┘  └────┬─────┘  └─────┬─────┘  └─────┬─────┘  └───┬────┘  └───┬────┘  └────┬─────┘
+                │ FAIL         │ NO           │ FAIL          │ NO          │ DENY      │ EXHAUSTED  │ SPIKE
+                ▼              ▼              ▼               ▼             ▼           ▼            ▼
+            -32001         -32003         -32001          -32002        -32000      -32004       -32004
 ```
 
 Why this order:
-1. **Registry first** — cheapest check. HashMap lookup. Rejects obviously wrong tool names before doing anything else.
-2. **Circuit breaker second** — protects the policy engine and upstream from runaway agents. If a session is already over limits, don't bother evaluating policy.
-3. **Integrity third** (opt-in) — session binding and replay detection. Only runs if `integrity.enabled: true`.
-4. **Policy last** — most expensive check. Rule iteration with when-condition evaluation. Only runs for registered tools within circuit and integrity limits.
+1. **Identity first** — must know who is calling before any other check.
+2. **Registry second** — cheapest check. HashMap lookup. Rejects unregistered tool names immediately.
+3. **Integrity third** (opt-in) — session binding and replay detection. Only runs if configured.
+4. **Circuit breaker fourth** — protects the policy engine and upstream from runaway agents.
+5. **Policy fifth** — most expensive check. Rule iteration with when-condition evaluation. Produces ALLOW/DENY/HOLD/SCOPE/BUDGET.
+6. **Budget sixth** — if the matched rule has a budget: block, enforce quotas.
+7. **Velocity seventh** (opt-in) — anomaly detection. Alerts or denies on rate spikes.
 
 ---
 

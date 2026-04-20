@@ -34,6 +34,8 @@ spec:
       mcpMethod: tools/call
       toolNames: ["*"]
 
+    # --- OUTBOUND rules (planned — not yet enforced by the policy engine) ---
+
     # Allow outbound to Anthropic with credential injection
     - action: ALLOW
       direction: OUTBOUND

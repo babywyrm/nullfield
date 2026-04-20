@@ -1,0 +1,40 @@
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: budget-demo
+  namespace: demo
+spec:
+  selector:
+    matchLabels:
+      app: demo-agent
+  rules:
+    # Budgeted tool — 3 calls per hour per identity
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - github_create_pr
+      budget:
+        perIdentity:
+          maxCallsPerHour: 3
+      maxCallsPerMinute: 60
+
+    # Unlimited read-only tool
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - jira_get_issue
+      maxCallsPerMinute: 60
+
+    # Default deny
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      reason: "not permitted by budget-demo policy"
+
+  circuitBreaker:
+    maxToolCallsPerSession: 50
+    maxSessionDuration: 300s
+    onTrip: KILL_POD
+
+  audit:
+    logLevel: FULL

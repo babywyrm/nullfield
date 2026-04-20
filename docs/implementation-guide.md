@@ -453,7 +453,7 @@ helm install nullfield deploy/helm/nullfield/ \
 ```
 
 This creates:
-- Controller Deployment + Service (`nullfield-controller:50051`)
+- Controller Deployment + Service (`nullfield-controller:9092`)
 - Per-target ConfigMaps (policy + registry from `files/<target>/`)
 - ServiceMonitor scraping both controller and sidecars
 - PrometheusRule with alert definitions
@@ -464,7 +464,7 @@ This creates:
 Set `NULLFIELD_CONTROLLER_ADDR` in your sidecar config:
 
 ```yaml
-NULLFIELD_CONTROLLER_ADDR: "nullfield-controller.nullfield.svc.cluster.local:50051"
+NULLFIELD_CONTROLLER_ADDR: "nullfield-controller.nullfield.svc.cluster.local:9092"
 ```
 
 On startup, the sidecar registers itself via `RegisterSidecar` and begins delegating HOLD and BUDGET decisions via gRPC.
