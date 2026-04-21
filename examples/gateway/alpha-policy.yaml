@@ -1,10 +1,18 @@
-rules:
-  - action: ALLOW
-    mcpMethod: tools/call
-    toolNames:
-      - "alpha.read_data"
-      - "alpha.list_items"
-  - action: DENY
-    mcpMethod: tools/call
-    toolNames: ["*"]
-    reason: "alpha: tool not in allow list"
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: alpha-policy
+spec:
+  selector:
+    matchLabels:
+      app: alpha
+  rules:
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - "alpha.read_data"
+        - "alpha.list_items"
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      reason: "alpha: tool not in allow list"

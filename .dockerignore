@@ -5,7 +5,8 @@
 *.test
 *.out
 bin/
-tests/
+tests/smoke.sh
+tests/*.log
 demos/
 docs/
 deploy/

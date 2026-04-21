@@ -28,12 +28,14 @@ services:
 
   echo-alpha:
     build:
-      context: tests/echo-server
+      context: .
+      dockerfile: tests/echo-server/Dockerfile
     environment:
       LISTEN_ADDR: ":8080"
 
   echo-beta:
     build:
-      context: tests/echo-server
+      context: .
+      dockerfile: tests/echo-server/Dockerfile
     environment:
       LISTEN_ADDR: ":8080"
