@@ -85,7 +85,7 @@ nullfield is lightweight by design. Three deployment patterns:
 
 **Controller** — one nullfield-controller pod per cluster, deployed alongside the sidecars. Handles stateful coordination that doesn't belong in individual sidecars: centralized holds, shared budget counters, webhook alerting, and a unified admin API. Sidecars connect to the controller via gRPC. Opt-in — sidecars work standalone without it.
 
-**Gateway** (planned) — one nullfield instance proxying multiple MCP servers. For teams that want centralized enforcement.
+**Gateway** — one nullfield instance proxying multiple MCP servers with per-upstream policy routing. Define routes by tool name prefix or explicit list. For teams that want centralized enforcement without N sidecars.
 
 ### What lives in the sidecar (per-pod)
 
@@ -238,17 +238,22 @@ All configuration via environment variables:
 | Variable | Default | Description |
 |---|---|---|
 | `NULLFIELD_LISTEN_ADDR` | `:9090` | Proxy listen address |
-| `NULLFIELD_UPSTREAM_ADDR` | `localhost:8080` | Application upstream address |
+| `NULLFIELD_UPSTREAM_ADDR` | `localhost:8080` | Application upstream address (sidecar mode) |
 | `NULLFIELD_ADMIN_ADDR` | `:9091` | Admin/health endpoint address |
 | `NULLFIELD_POLICY_PATH` | `/etc/nullfield/policy.yaml` | Path to NullfieldPolicy YAML |
 | `NULLFIELD_REGISTRY_PATH` | `/etc/nullfield/tools.yaml` | Path to ToolRegistry YAML |
+| `NULLFIELD_ROUTES_PATH` | _(empty)_ | Path to gateway routes config (gateway mode — mutually exclusive with `UPSTREAM_ADDR`) |
 | `NULLFIELD_IDENTITY_HEADER` | `Authorization` | Header to extract Bearer token from |
 | `NULLFIELD_JWKS_URL` | _(empty)_ | JWKS endpoint for token validation. Empty = noop verifier (dev mode) |
 | `NULLFIELD_CIRCUIT_MAX_CALLS` | `100` | Max tool calls per session before circuit opens |
 | `NULLFIELD_CIRCUIT_MAX_DURATION` | `5m` | Max session duration before circuit opens |
 | `NULLFIELD_AUDIT_LOG_LEVEL` | `FULL` | Audit verbosity: `FULL`, `SUMMARY`, `NONE` |
-| `NULLFIELD_CONTROLLER_ADDR` | _(empty)_ | Controller gRPC address (e.g. `nullfield-controller:9092`). Empty = standalone mode |
 | `NULLFIELD_AUDIT_ENDPOINT` | _(empty)_ | OTLP gRPC endpoint for audit events |
+| `NULLFIELD_CONTROLLER_ADDR` | _(empty)_ | Controller gRPC address. Empty = standalone mode |
+| `NULLFIELD_VAULT_ADDR` | _(empty)_ | HashiCorp Vault address for credential injection |
+| `NULLFIELD_VAULT_ROLE` | _(empty)_ | Vault role for K8s auth method |
+| `NULLFIELD_VAULT_AUTH_METHOD` | _(auto)_ | `token` or `kubernetes`. Auto-detected from `VAULT_TOKEN` presence |
+| `NULLFIELD_CREDENTIAL_CACHE_TTL` | `5m` | TTL for cached credentials from external providers |
 
 ---
 
@@ -317,11 +322,13 @@ nullfield returns standard JSON-RPC 2.0 errors with application-defined codes:
 
 | Code | Meaning |
 |---|---|
-| `-32000` | Policy denied the tool call |
-| `-32001` | Identity verification failed |
-| `-32002` | Circuit breaker open |
-| `-32003` | Tool not in registry |
-| `-32004` | Rate limit exceeded |
+| `-32000` | Policy denied the tool call (or HOLD denied/rejected) |
+| `-32001` | Identity verification or integrity check failed |
+| `-32002` | Circuit breaker open (session limit exceeded) |
+| `-32003` | Tool not in registry (or no route in gateway mode) |
+| `-32004` | Budget exhausted or velocity limit exceeded |
+| `-32005` | HOLD timed out without approval |
+| `-32006` | SCOPE could not safely modify the request |
 
 ---
 
@@ -330,21 +337,23 @@ nullfield returns standard JSON-RPC 2.0 errors with application-defined codes:
 ```
 nullfield/
 ├── cmd/
-│   ├── nullfield/              # Sidecar entrypoint
-│   └── nullfield-controller/   # Controller entrypoint
+│   ├── nullfield/              # Sidecar/gateway proxy entrypoint
+│   ├── nullfield-controller/   # Controller entrypoint
+│   └── nullfield-injector/     # Admission webhook entrypoint
 ├── pkg/
-│   ├── proxy/            # MCP JSON-RPC reverse proxy + handler
-│   ├── policy/           # Rule engine (first-match ALLOW/DENY)
-│   ├── identity/         # Token extraction + verification
-│   ├── audit/            # Structured audit event emitter
+│   ├── proxy/            # MCP JSON-RPC reverse proxy, gateway handler, router
+│   ├── policy/           # Rule engine (first-match ALLOW/DENY/HOLD/SCOPE/BUDGET)
+│   ├── identity/         # Token extraction + JWKS verification + integrity checks
+│   ├── audit/            # Structured audit event emitter (log, metrics, OTLP)
 │   ├── registry/         # Tool registry (file-backed, hot-reloadable)
 │   ├── circuit/          # Per-session circuit breaker
 │   ├── budget/           # Budget tracking (local + remote via controller)
-│   ├── hold/             # Hold state machine (local + remote via controller)
+│   ├── hold/             # Hold state machine + admin API (local + remote)
 │   ├── controller/       # Controller server (holds, budget, events, alerting)
 │   ├── scope/            # SCOPE action — request/response modification
 │   ├── anomaly/          # Velocity + sequence anomaly detection
-│   └── credentials/      # Secret provider interface (Vault/ASM/env)
+│   ├── credentials/      # Secret providers (Vault, K8s Secret, env) + TTL cache
+│   └── injector/         # Admission webhook handler + JSON patch builder
 ├── api/v1alpha1/
 │   ├── types.go                # CRD type definitions
 │   ├── controllerpb/           # gRPC generated code
@@ -359,8 +368,12 @@ nullfield/
 │   │   └── templates/    # Controller, sidecar, ServiceMonitor, PrometheusRule, Grafana CM
 │   ├── manifests/        # Raw K8s manifests (works on any distro)
 │   └── operations/       # Standalone observability resources
-├── examples/             # Example policy + tool registry
-├── demos/                # Runnable walkthroughs (basic, JWT, anomaly)
+├── examples/
+│   ├── gateway/          # Gateway mode example (alpha + beta policy/registry)
+│   ├── gateway-routes.yaml
+│   ├── policy.yaml       # Example sidecar policy
+│   └── tools.yaml        # Example tool registry
+├── demos/                # 9 runnable walkthroughs (01-basic through 09-controller)
 ├── tests/
 │   ├── echo-server/      # Echo MCP server for testing
 │   └── smoke.sh          # 12-point smoke test
@@ -371,11 +384,14 @@ nullfield/
 │   ├── implementation-guide.md
 │   ├── mesh-integration.md
 │   ├── observability.md
+│   ├── quickstart.md
 │   └── diagrams/
 ├── Dockerfile
 ├── Dockerfile.controller
+├── Dockerfile.injector
 ├── Makefile
 ├── docker-compose.yaml
+├── docker-compose-gateway.yaml
 ├── CHANGELOG.md
 ├── LICENSE
 └── README.md
