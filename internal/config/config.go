@@ -32,6 +32,8 @@ type Config struct {
 	TLSCertFile string
 	TLSKeyFile  string
 
+	RoutesPath string
+
 	ControllerAddr string
 }
 
@@ -51,6 +53,7 @@ func Load() (*Config, error) {
 		VaultAuthMethod:     envOr("NULLFIELD_VAULT_AUTH_METHOD", ""),
 		TLSCertFile:         envOr("NULLFIELD_TLS_CERT", ""),
 		TLSKeyFile:          envOr("NULLFIELD_TLS_KEY", ""),
+		RoutesPath:          envOr("NULLFIELD_ROUTES_PATH", ""),
 		ControllerAddr:      envOr("NULLFIELD_CONTROLLER_ADDR", ""),
 	}
 
@@ -72,8 +75,8 @@ func Load() (*Config, error) {
 	}
 	c.CredentialCacheTTL = credTTL
 
-	if c.UpstreamAddr == "" {
-		return nil, fmt.Errorf("NULLFIELD_UPSTREAM_ADDR is required")
+	if c.UpstreamAddr == "" && c.RoutesPath == "" {
+		return nil, fmt.Errorf("NULLFIELD_UPSTREAM_ADDR or NULLFIELD_ROUTES_PATH is required")
 	}
 
 	return c, nil

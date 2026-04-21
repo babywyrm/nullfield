@@ -1,0 +1,10 @@
+rules:
+  - action: ALLOW
+    mcpMethod: tools/call
+    toolNames:
+      - "alpha.read_data"
+      - "alpha.list_items"
+  - action: DENY
+    mcpMethod: tools/call
+    toolNames: ["*"]
+    reason: "alpha: tool not in allow list"

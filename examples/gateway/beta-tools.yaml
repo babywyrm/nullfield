@@ -1,0 +1,9 @@
+apiVersion: nullfield/v1alpha1
+kind: ToolRegistry
+metadata:
+  name: beta-tools
+tools:
+  - name: beta.query
+    description: Query the beta service
+  - name: beta.submit
+    description: Submit data to the beta service

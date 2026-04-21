@@ -1,0 +1,39 @@
+services:
+  nullfield-gateway:
+    build: .
+    ports:
+      - "9090:9090"
+      - "9091:9091"
+    environment:
+      NULLFIELD_LISTEN_ADDR: ":9090"
+      NULLFIELD_ADMIN_ADDR: ":9091"
+      NULLFIELD_ROUTES_PATH: "/etc/nullfield/routes.yaml"
+      NULLFIELD_CIRCUIT_MAX_CALLS: "100"
+      NULLFIELD_CIRCUIT_MAX_DURATION: "5m"
+      NULLFIELD_AUDIT_LOG_LEVEL: "FULL"
+    volumes:
+      - ./examples/gateway-routes.yaml:/etc/nullfield/routes.yaml:ro
+      - ./examples/gateway/alpha-policy.yaml:/etc/nullfield/routes/alpha-policy.yaml:ro
+      - ./examples/gateway/alpha-tools.yaml:/etc/nullfield/routes/alpha-tools.yaml:ro
+      - ./examples/gateway/beta-policy.yaml:/etc/nullfield/routes/beta-policy.yaml:ro
+      - ./examples/gateway/beta-tools.yaml:/etc/nullfield/routes/beta-tools.yaml:ro
+    depends_on:
+      - echo-alpha
+      - echo-beta
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9091/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  echo-alpha:
+    build:
+      context: tests/echo-server
+    environment:
+      LISTEN_ADDR: ":8080"
+
+  echo-beta:
+    build:
+      context: tests/echo-server
+    environment:
+      LISTEN_ADDR: ":8080"

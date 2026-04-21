@@ -38,10 +38,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	upstream, err := url.Parse("http://" + cfg.UpstreamAddr)
-	if err != nil {
-		logger.Error("invalid upstream address", "addr", cfg.UpstreamAddr, "error", err)
-		os.Exit(1)
+	var upstream *url.URL
+	if cfg.UpstreamAddr != "" {
+		upstream, err = url.Parse("http://" + cfg.UpstreamAddr)
+		if err != nil {
+			logger.Error("invalid upstream address", "addr", cfg.UpstreamAddr, "error", err)
+			os.Exit(1)
+		}
 	}
 
 	var ctrlClient *controller.Client
@@ -230,20 +233,55 @@ func main() {
 		}
 	}
 
-	handler := proxy.NewHandler(proxy.HandlerOpts{
-		UpstreamURL:   upstream,
-		Engine:        engine,
-		Auditor:       auditor,
-		Verifier:      verifier,
-		Integrity:     integrityChecker,
-		Velocity:      velocityTracker,
-		Budgets:       budgetTracker,
-		Holds:         holdManager,
-		Registry:      reg,
-		Breaker:       breaker,
-		Credentials:   credProvider,
-		Logger:        logger,
-	})
+	// Build handler — gateway mode (multi-upstream) or sidecar mode (single upstream).
+	var httpHandler http.Handler
+	if cfg.RoutesPath != "" {
+		gwCfg, err := proxy.LoadGatewayConfig(cfg.RoutesPath)
+		if err != nil {
+			logger.Error("failed to load gateway routes", "path", cfg.RoutesPath, "error", err)
+			os.Exit(1)
+		}
+		var routes []*proxy.Route
+		for _, rc := range gwCfg.Gateway.Routes {
+			route, err := proxy.BuildRoute(rc)
+			if err != nil {
+				logger.Error("failed to build route", "name", rc.Name, "error", err)
+				os.Exit(1)
+			}
+			routes = append(routes, route)
+			logger.Info("gateway route loaded", "name", rc.Name, "upstream", rc.Upstream,
+				"prefix", rc.ToolPrefix, "tools", len(route.Registry.All()))
+		}
+		router := proxy.NewRouter(routes)
+		httpHandler = proxy.NewGatewayHandler(proxy.GatewayHandlerOpts{
+			Router:      router,
+			Auditor:     auditor,
+			Verifier:    verifier,
+			Integrity:   integrityChecker,
+			Velocity:    velocityTracker,
+			Budgets:     budgetTracker,
+			Holds:       holdManager,
+			Breaker:     breaker,
+			Credentials: credProvider,
+			Logger:      logger,
+		})
+		logger.Info("gateway mode enabled", "routes", len(routes))
+	} else {
+		httpHandler = proxy.NewHandler(proxy.HandlerOpts{
+			UpstreamURL:   upstream,
+			Engine:        engine,
+			Auditor:       auditor,
+			Verifier:      verifier,
+			Integrity:     integrityChecker,
+			Velocity:      velocityTracker,
+			Budgets:       budgetTracker,
+			Holds:         holdManager,
+			Registry:      reg,
+			Breaker:       breaker,
+			Credentials:   credProvider,
+			Logger:        logger,
+		})
+	}
 
 	if ctrlClient != nil {
 		go func() {
@@ -285,7 +323,7 @@ func main() {
 
 	proxyServer := &http.Server{
 		Addr:         cfg.ListenAddr,
-		Handler:      handler,
+		Handler:      httpHandler,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: writeTimeout,
 		IdleTimeout:  120 * time.Second,
@@ -304,7 +342,11 @@ func main() {
 	}()
 
 	go func() {
-		logger.Info("nullfield proxy starting", "addr", cfg.ListenAddr, "upstream", cfg.UpstreamAddr)
+		if cfg.RoutesPath != "" {
+			logger.Info("nullfield gateway starting", "addr", cfg.ListenAddr, "routes", cfg.RoutesPath)
+		} else {
+			logger.Info("nullfield proxy starting", "addr", cfg.ListenAddr, "upstream", cfg.UpstreamAddr)
+		}
 		if err := proxyServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("proxy server error", "error", err)
 		}

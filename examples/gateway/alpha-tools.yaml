@@ -1,0 +1,11 @@
+apiVersion: nullfield/v1alpha1
+kind: ToolRegistry
+metadata:
+  name: alpha-tools
+tools:
+  - name: alpha.read_data
+    description: Read data from the alpha service
+  - name: alpha.list_items
+    description: List items in the alpha service
+  - name: alpha.delete_item
+    description: Delete an item (registered but policy-denied)

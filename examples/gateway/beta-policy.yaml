@@ -1,0 +1,10 @@
+rules:
+  - action: ALLOW
+    mcpMethod: tools/call
+    toolNames:
+      - "beta.query"
+      - "beta.submit"
+  - action: DENY
+    mcpMethod: tools/call
+    toolNames: ["*"]
+    reason: "beta: tool not in allow list"

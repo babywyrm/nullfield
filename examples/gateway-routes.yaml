@@ -1,0 +1,12 @@
+gateway:
+  routes:
+    - name: alpha
+      upstream: "echo-alpha:8080"
+      toolPrefix: "alpha."
+      policyFile: /etc/nullfield/routes/alpha-policy.yaml
+      registryFile: /etc/nullfield/routes/alpha-tools.yaml
+    - name: beta
+      upstream: "echo-beta:8080"
+      toolPrefix: "beta."
+      policyFile: /etc/nullfield/routes/beta-policy.yaml
+      registryFile: /etc/nullfield/routes/beta-tools.yaml
