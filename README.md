@@ -394,12 +394,12 @@ nullfield/
 - [x] **v0.4** — SCOPE action: request argument stripping/injection, response pattern redaction, full audit trail of modifications
 - [x] **v0.5** — OTLP trace export, tool-chain sequence detection (8 tests), claims drift detection (8 tests), observability stack (Grafana dashboard, ServiceMonitor, 5 alert rules)
 - [x] **v0.6** — Controller pod (centralized holds, shared budgets, webhook alerting, admin dashboard), universal Helm chart with per-target config, Grafana dashboard ConfigMap
+- [x] **v0.7** — Credential injection from Vault/K8s Secrets with TTL cache, wired into SCOPE rules (9 tests)
+- [x] **v0.7** — Gateway mode: single nullfield instance proxying multiple MCP servers with per-upstream policy routing and per-route registry (5 tests)
+- [x] **v0.7** — Mutating admission webhook for automatic sidecar injection via `nullfield.io/inject` annotation (9 tests)
 
 ### Next
 
-- [ ] **v0.7** — Mutating admission webhook for automatic sidecar injection
-- [ ] **v0.7** — Credential injection from Vault/ASM, outbound LLM API proxying
-- [ ] **v0.7** — Gateway mode: single nullfield instance proxying multiple MCP servers with per-upstream policy routing
 - [ ] **v0.8** — CRD controller (watch NullfieldPolicy + ToolRegistry as native K8s resources)
 - [ ] **v0.9** — L3 tool governance: registration workflow, tool lifecycle, rug-pull detection
 - [ ] **v0.9** — L4 agentic flow control: identity chaining, delegation depth limits, human-in-the-loop

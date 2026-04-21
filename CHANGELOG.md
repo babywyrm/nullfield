@@ -6,6 +6,26 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **v0.7: Credential Injection, Gateway Mode, Auto-Injection Webhook**
+  - Credential injection — Vault (HTTP API, K8s auth or token auth), K8s Secret, and env providers
+  - MultiProvider router — `from: "vault"`, `from: "k8s"`, `from: "env"` in SCOPE rules
+  - TTL cache (default 5 min) wraps external providers, configurable via `NULLFIELD_CREDENTIAL_CACHE_TTL`
+  - `injectCredentials` on SCOPE request config — fetch secrets at request time, inject as tool args
+  - Credential fetch failures fail closed (deny the request)
+  - Gateway mode — single nullfield instance proxies multiple MCP servers
+  - Per-route policy engine and tool registry, shared identity verification
+  - Tool routing by prefix match (`github.*`) or exact tool name list
+  - `NULLFIELD_ROUTES_PATH` config, mutually exclusive with `NULLFIELD_UPSTREAM_ADDR`
+  - `docker-compose-gateway.yaml` with 2-upstream example
+  - Mutating admission webhook (`nullfield-injector`) for automatic sidecar injection
+  - Annotation-driven: `nullfield.io/inject: "true"` to opt in
+  - Auto-detects upstream port from first container, override with `nullfield.io/upstream-port`
+  - Per-pod policy/registry via `nullfield.io/policy` and `nullfield.io/registry` annotations
+  - Idempotent — skips pods with existing nullfield container or `nullfield.io/status: injected`
+  - Hardened sidecar: nonroot UID 65534, read-only rootfs, all capabilities dropped
+  - Zero k8s.io/api dependency — uses minimal admission types and JSON Patch (RFC 6902)
+  - `Dockerfile.injector` — distroless container image
+  - 23 new unit tests across credential, router, and injector packages
 - **v0.6: Controller + Universal Helm Chart**
   - nullfield-controller — standalone control plane pod for stateful coordination
   - Centralized holds — all sidecars delegate HOLD decisions to the controller via gRPC
