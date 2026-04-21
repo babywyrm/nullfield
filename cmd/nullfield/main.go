@@ -18,6 +18,7 @@ import (
 	"github.com/babywyrm/nullfield/pkg/budget"
 	"github.com/babywyrm/nullfield/pkg/circuit"
 	"github.com/babywyrm/nullfield/pkg/controller"
+	"github.com/babywyrm/nullfield/pkg/credentials"
 	"github.com/babywyrm/nullfield/pkg/hold"
 	"github.com/babywyrm/nullfield/pkg/identity"
 	"github.com/babywyrm/nullfield/pkg/policy"
@@ -209,18 +210,39 @@ func main() {
 		}
 	}
 
+	// Credential providers — always register env; vault and k8s are opt-in.
+	credProvider := credentials.NewMultiProvider()
+	credProvider.Register("env", &credentials.EnvProvider{})
+	credProvider.Register("static", &credentials.StaticProvider{Secrets: map[string]string{}})
+
+	if cfg.VaultAddr != "" {
+		vp, err := credentials.NewVaultProvider(credentials.VaultConfig{
+			Addr:       cfg.VaultAddr,
+			Role:       cfg.VaultRole,
+			Token:      os.Getenv("VAULT_TOKEN"),
+			AuthMethod: cfg.VaultAuthMethod,
+		})
+		if err != nil {
+			logger.Warn("vault provider init failed, vault credentials disabled", "error", err)
+		} else {
+			credProvider.Register("vault", credentials.NewCachedProvider(vp, cfg.CredentialCacheTTL))
+			logger.Info("vault credential provider enabled", "addr", cfg.VaultAddr)
+		}
+	}
+
 	handler := proxy.NewHandler(proxy.HandlerOpts{
-		UpstreamURL: upstream,
-		Engine:      engine,
-		Auditor:     auditor,
-		Verifier:    verifier,
-		Integrity:   integrityChecker,
-		Velocity:    velocityTracker,
-		Budgets:     budgetTracker,
-		Holds:       holdManager,
-		Registry:    reg,
-		Breaker:     breaker,
-		Logger:      logger,
+		UpstreamURL:   upstream,
+		Engine:        engine,
+		Auditor:       auditor,
+		Verifier:      verifier,
+		Integrity:     integrityChecker,
+		Velocity:      velocityTracker,
+		Budgets:       budgetTracker,
+		Holds:         holdManager,
+		Registry:      reg,
+		Breaker:       breaker,
+		Credentials:   credProvider,
+		Logger:        logger,
 	})
 
 	if ctrlClient != nil {

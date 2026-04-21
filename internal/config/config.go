@@ -24,8 +24,10 @@ type Config struct {
 	CircuitMaxCalls int
 	CircuitMaxDuration time.Duration
 
-	VaultAddr string
-	VaultRole string
+	VaultAddr       string
+	VaultRole       string
+	VaultAuthMethod string
+	CredentialCacheTTL time.Duration
 
 	TLSCertFile string
 	TLSKeyFile  string
@@ -46,6 +48,7 @@ func Load() (*Config, error) {
 		IdentityJWKSURL:     envOr("NULLFIELD_JWKS_URL", ""),
 		VaultAddr:           envOr("NULLFIELD_VAULT_ADDR", ""),
 		VaultRole:           envOr("NULLFIELD_VAULT_ROLE", ""),
+		VaultAuthMethod:     envOr("NULLFIELD_VAULT_AUTH_METHOD", ""),
 		TLSCertFile:         envOr("NULLFIELD_TLS_CERT", ""),
 		TLSKeyFile:          envOr("NULLFIELD_TLS_KEY", ""),
 		ControllerAddr:      envOr("NULLFIELD_CONTROLLER_ADDR", ""),
@@ -62,6 +65,12 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid NULLFIELD_CIRCUIT_MAX_DURATION: %w", err)
 	}
 	c.CircuitMaxDuration = maxDur
+
+	credTTL, err := time.ParseDuration(envOr("NULLFIELD_CREDENTIAL_CACHE_TTL", "5m"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid NULLFIELD_CREDENTIAL_CACHE_TTL: %w", err)
+	}
+	c.CredentialCacheTTL = credTTL
 
 	if c.UpstreamAddr == "" {
 		return nil, fmt.Errorf("NULLFIELD_UPSTREAM_ADDR is required")

@@ -17,6 +17,7 @@ import (
 	"github.com/babywyrm/nullfield/pkg/audit"
 	"github.com/babywyrm/nullfield/pkg/budget"
 	"github.com/babywyrm/nullfield/pkg/circuit"
+	"github.com/babywyrm/nullfield/pkg/credentials"
 	"github.com/babywyrm/nullfield/pkg/hold"
 	"github.com/babywyrm/nullfield/pkg/identity"
 	"github.com/babywyrm/nullfield/pkg/policy"
@@ -29,15 +30,16 @@ type Handler struct {
 	upstream     *httputil.ReverseProxy
 	upstreamAddr string
 	engine       policy.Engine
-	auditor   audit.Emitter
-	verifier  identity.Verifier
-	integrity *identity.IntegrityChecker
-	velocity  *anomaly.VelocityTracker
-	budgets   *budget.Tracker
-	holds     *hold.Manager
-	registry  *registry.Registry
-	breaker   *circuit.Breaker
-	logger    *slog.Logger
+	auditor     audit.Emitter
+	verifier    identity.Verifier
+	integrity   *identity.IntegrityChecker
+	velocity    *anomaly.VelocityTracker
+	budgets     *budget.Tracker
+	holds       *hold.Manager
+	registry    *registry.Registry
+	breaker     *circuit.Breaker
+	credentials *credentials.MultiProvider
+	logger      *slog.Logger
 }
 
 type HandlerOpts struct {
@@ -51,6 +53,7 @@ type HandlerOpts struct {
 	Holds       *hold.Manager
 	Registry    *registry.Registry
 	Breaker     *circuit.Breaker
+	Credentials *credentials.MultiProvider
 	Logger      *slog.Logger
 }
 
@@ -60,15 +63,16 @@ func NewHandler(opts HandlerOpts) *Handler {
 		upstream:     proxy,
 		upstreamAddr: opts.UpstreamURL.Host,
 		engine:       opts.Engine,
-		auditor:   opts.Auditor,
-		verifier:  opts.Verifier,
-		integrity: opts.Integrity,
-		velocity:  opts.Velocity,
-		budgets:   opts.Budgets,
-		holds:     opts.Holds,
-		registry:  opts.Registry,
-		breaker:   opts.Breaker,
-		logger:    opts.Logger,
+		auditor:     opts.Auditor,
+		verifier:    opts.Verifier,
+		integrity:   opts.Integrity,
+		velocity:    opts.Velocity,
+		budgets:     opts.Budgets,
+		holds:       opts.Holds,
+		registry:    opts.Registry,
+		breaker:     opts.Breaker,
+		credentials: opts.Credentials,
+		logger:      opts.Logger,
 	}
 }
 
@@ -238,6 +242,26 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 		if scopeCfg.Request != nil {
 			var modifiedArgs map[string]any
 			modifiedArgs, mods = scope.ModifyRequest(tc.Arguments, scopeCfg.Request)
+
+			// Credential injection — resolve external secrets and inject as arguments.
+			if h.credentials != nil && len(scopeCfg.Request.InjectCredentials) > 0 {
+				for _, cred := range scopeCfg.Request.InjectCredentials {
+					val, err := h.credentials.FetchFrom(ctx, cred.From, cred.SecretRef)
+					if err != nil {
+						h.logger.WarnContext(ctx, "credential fetch failed",
+							"from", cred.From, "ref", cred.SecretRef, "error", err)
+						h.writeJSONRPCError(w, req.ID, ErrCodeScopeViolation, "scope: credential injection failed")
+						return
+					}
+					key := cred.InjectAs
+					if key == "" {
+						key = cred.SecretRef
+					}
+					modifiedArgs[key] = val
+					mods.InjectedArgs = append(mods.InjectedArgs, key)
+				}
+			}
+
 			tc.Arguments = modifiedArgs
 
 			newBody, err := scope.RebuildRequestBody(body, modifiedArgs)

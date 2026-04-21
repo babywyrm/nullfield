@@ -119,8 +119,9 @@ type ScopeConfig struct {
 }
 
 type ScopeRequestConfig struct {
-	StripArguments  []string       `json:"stripArguments,omitempty" yaml:"stripArguments,omitempty"`
-	InjectArguments map[string]any `json:"injectArguments,omitempty" yaml:"injectArguments,omitempty"`
+	StripArguments    []string         `json:"stripArguments,omitempty" yaml:"stripArguments,omitempty"`
+	InjectArguments   map[string]any   `json:"injectArguments,omitempty" yaml:"injectArguments,omitempty"`
+	InjectCredentials []CredentialRef  `json:"injectCredentials,omitempty" yaml:"injectCredentials,omitempty"`
 }
 
 type ScopeResponseConfig struct {
@@ -171,6 +172,7 @@ type Rule struct {
 type CredentialRef struct {
 	SecretRef string `json:"secretRef" yaml:"secretRef"`
 	From      string `json:"from" yaml:"from"`
+	InjectAs  string `json:"injectAs,omitempty" yaml:"injectAs,omitempty"`
 }
 
 type ParamRule struct {
