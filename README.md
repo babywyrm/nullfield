@@ -414,9 +414,9 @@ nullfield/
 - [x] **v0.7** — Gateway mode: single nullfield instance proxying multiple MCP servers with per-upstream policy routing and per-route registry (5 tests)
 - [x] **v0.7** — Mutating admission webhook for automatic sidecar injection via `nullfield.io/inject` annotation (9 tests)
 
-### Next
+- [x] **v0.8** — CRD controller: NullfieldPolicy + ToolRegistry as native K8s Custom Resources, synced to ConfigMaps (5 tests)
 
-- [ ] **v0.8** — CRD controller (watch NullfieldPolicy + ToolRegistry as native K8s resources)
+### Next
 - [ ] **v0.9** — L3 tool governance: registration workflow, tool lifecycle, rug-pull detection
 - [ ] **v0.9** — L4 agentic flow control: identity chaining, delegation depth limits, human-in-the-loop
 - [ ] **v0.9** — Response inspection (detect system prompt leakage, PII in tool responses), cost attribution per identity/session

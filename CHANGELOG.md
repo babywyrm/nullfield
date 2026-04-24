@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] — 2026-04-23
+
+### Added
+
+- **CRD controller** — NullfieldPolicy and ToolRegistry as native K8s Custom Resources
+  - `deploy/crds/nullfieldpolicy-crd.yaml` — NullfieldPolicy CRD (`nfp` shortname)
+  - `deploy/crds/toolregistry-crd.yaml` — ToolRegistry CRD (`nftr` shortname)
+  - `pkg/crdwatcher/` — lightweight watcher, no client-go dependency
+  - Polls CRDs on configurable interval (default 30s), syncs to ConfigMaps
+  - ConfigMaps named `nullfield-policy-{name}` and `nullfield-registry-{name}`
+  - Managed-by labels for GitOps identification
+  - Opt-in via `NULLFIELD_CRD_WATCH=true` on the controller
+  - `examples/crd/` — example NullfieldPolicy and ToolRegistry CRs
+  - 5 unit tests (create, update, empty list, API error)
+
+### Usage
+
+```bash
+kubectl apply -f deploy/crds/
+kubectl apply -f examples/crd/policy-example.yaml
+# Controller syncs to ConfigMap: nullfield-policy-camazotz-policy
+```
+
+---
+
 ## [0.7.0] — 2026-04-20
 
 ### Added
