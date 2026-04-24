@@ -1,0 +1,43 @@
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: camazotz-policy
+  namespace: camazotz
+spec:
+  selector:
+    matchLabels:
+      app: brain-gateway
+  rules:
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - "cost.check_usage"
+        - "audit.list_actions"
+        - "attribution.submit_action"
+      when:
+        identity: human
+
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - "config.ask_agent"
+      budget:
+        perIdentity:
+          maxCallsPerHour: 20
+        perSession:
+          maxCallsPerHour: 10
+
+    - action: HOLD
+      mcpMethod: tools/call
+      toolNames:
+        - "delegation.invoke_agent"
+      when:
+        identity: agent
+      hold:
+        timeout: "5m"
+        onTimeout: DENY
+
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      reason: "no matching rule"

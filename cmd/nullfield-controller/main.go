@@ -16,6 +16,7 @@ import (
 
 	pb "github.com/babywyrm/nullfield/api/v1alpha1/controllerpb"
 	"github.com/babywyrm/nullfield/pkg/controller"
+	"github.com/babywyrm/nullfield/pkg/crdwatcher"
 )
 
 func main() {
@@ -53,6 +54,29 @@ func main() {
 			}
 		}
 	}()
+
+	// --- CRD watcher (opt-in via NULLFIELD_CRD_WATCH=true) ---
+	if envOr("NULLFIELD_CRD_WATCH", "") == "true" {
+		crdWatchNS := envOr("NULLFIELD_CRD_WATCH_NAMESPACE", "")
+		intervalStr := envOr("NULLFIELD_CRD_WATCH_INTERVAL", "30s")
+		interval, err := time.ParseDuration(intervalStr)
+		if err != nil {
+			interval = 30 * time.Second
+		}
+
+		watcher, err := crdwatcher.New(crdwatcher.Config{
+			Namespace:    crdWatchNS,
+			SyncInterval: interval,
+		}, logger)
+		if err != nil {
+			logger.Warn("CRD watcher init failed, CRD sync disabled", "error", err)
+		} else {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			go watcher.Run(ctx, interval)
+			logger.Info("CRD watcher enabled", "namespace", crdWatchNS, "interval", interval)
+		}
+	}
 
 	// --- gRPC server ---
 	lis, err := net.Listen("tcp", grpcAddr)

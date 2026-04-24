@@ -1,0 +1,21 @@
+apiVersion: nullfield.io/v1alpha1
+kind: ToolRegistry
+metadata:
+  name: camazotz-tools
+  namespace: camazotz
+tools:
+  - name: cost.check_usage
+    description: Check team cost and usage data
+    maxCallsPerMinute: 30
+  - name: audit.list_actions
+    description: List recent audit actions
+    maxCallsPerMinute: 20
+  - name: attribution.submit_action
+    description: Submit an attributed action
+    maxCallsPerMinute: 10
+  - name: config.ask_agent
+    description: Ask the AI agent a configuration question
+    maxCallsPerMinute: 5
+  - name: delegation.invoke_agent
+    description: Invoke another agent for delegation
+    maxCallsPerMinute: 2

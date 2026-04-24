@@ -1,0 +1,64 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: nullfieldpolicies.nullfield.io
+spec:
+  group: nullfield.io
+  names:
+    kind: NullfieldPolicy
+    listKind: NullfieldPolicyList
+    plural: nullfieldpolicies
+    singular: nullfieldpolicy
+    shortNames:
+      - nfp
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                selector:
+                  type: object
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                identity:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                integrity:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                anomaly:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                circuitBreaker:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                audit:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                rules:
+                  type: array
+                  items:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+              required:
+                - rules
+      additionalPrinterColumns:
+        - name: Rules
+          type: integer
+          jsonPath: .spec.rules
+          description: Number of policy rules
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
