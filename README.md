@@ -436,3 +436,8 @@ See [docs/mesh-integration.md](docs/mesh-integration.md) for service mesh integr
 See [docs/identity-policy.md](docs/identity-policy.md) for identity-aware policy configuration.
 See [docs/observability.md](docs/observability.md) for metrics and monitoring.
 See [demos/](demos/) for runnable walkthroughs.
+
+## Documentation Hub
+
+For ecosystem architecture, walkthroughs, and cross-project guides:
+**[agentic-sec](https://github.com/babywyrm/agentic-sec)** — the central documentation for camazotz + nullfield + mcpnuke.
