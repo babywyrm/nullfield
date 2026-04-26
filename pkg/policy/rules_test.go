@@ -128,3 +128,186 @@ func TestRuleEngine_NoWhenBlockBackwardCompat(t *testing.T) {
 		t.Errorf("expected nil identity to match rule without when block, got: %s", d.Reason)
 	}
 }
+
+
+// --- Per-rule identity / delegation guards (2026-04-26 spec) ----------------
+
+func TestActChainDepth(t *testing.T) {
+	cases := []struct {
+		name   string
+		claims map[string]any
+		want   int
+	}{
+		{"no act claim", map[string]any{"sub": "alice"}, 0},
+		{"one act", map[string]any{"sub": "agent-a", "act": map[string]any{"sub": "alice"}}, 1},
+		{"two acts", map[string]any{
+			"sub": "agent-b",
+			"act": map[string]any{
+				"sub": "agent-a",
+				"act": map[string]any{"sub": "alice"},
+			},
+		}, 2},
+		{"act not an object is ignored", map[string]any{"act": "not-an-object"}, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := actChainDepth(c.claims); got != c.want {
+				t.Errorf("depth = %d, want %d", got, c.want)
+			}
+		})
+	}
+}
+
+func TestRequireActChain_BlocksMissingAct(t *testing.T) {
+	engine := NewRuleEngine([]v1alpha1.Rule{
+		{
+			Action:    v1alpha1.ActionAllow,
+			MCPMethod: "tools/call",
+			ToolNames: []string{"t"},
+			Identity:  &v1alpha1.RuleIdentityGuard{RequireActChain: true},
+		},
+		{Action: v1alpha1.ActionDeny, MCPMethod: "tools/call", ToolNames: []string{"*"}},
+	})
+
+	// Direct user — no act claim. Guard fails, falls through to DENY.
+	direct := &identity.Identity{Subject: "alice", Claims: map[string]any{"sub": "alice"}}
+	d := engine.Evaluate(context.Background(), Request{Method: "tools/call", ToolName: "t", Identity: direct})
+	if d.Allowed {
+		t.Errorf("expected DENY for token without act chain, got ALLOW")
+	}
+
+	// Delegated call with one `act` hop — guard passes.
+	delegated := &identity.Identity{
+		Subject: "agent-a",
+		Claims: map[string]any{
+			"sub": "agent-a",
+			"act": map[string]any{"sub": "alice"},
+		},
+	}
+	d = engine.Evaluate(context.Background(), Request{Method: "tools/call", ToolName: "t", Identity: delegated})
+	if !d.Allowed {
+		t.Errorf("expected ALLOW for token with act chain, got DENY: %s", d.Reason)
+	}
+}
+
+func TestAudienceMustNarrow_RejectsWidening(t *testing.T) {
+	engine := NewRuleEngine([]v1alpha1.Rule{
+		{
+			Action:    v1alpha1.ActionAllow,
+			MCPMethod: "tools/call",
+			ToolNames: []string{"t"},
+			Identity:  &v1alpha1.RuleIdentityGuard{AudienceMustNarrow: true},
+		},
+		{Action: v1alpha1.ActionDeny, MCPMethod: "tools/call", ToolNames: []string{"*"}},
+	})
+
+	// Narrowing: parent has {a, b}, child has {a}. Guard passes.
+	narrow := &identity.Identity{
+		Subject: "agent-a",
+		Claims: map[string]any{
+			"sub": "agent-a",
+			"aud": []any{"a"},
+			"act": map[string]any{"sub": "alice", "aud": []any{"a", "b"}},
+		},
+	}
+	d := engine.Evaluate(context.Background(), Request{Method: "tools/call", ToolName: "t", Identity: narrow})
+	if !d.Allowed {
+		t.Errorf("expected narrowing aud to pass, got DENY: %s", d.Reason)
+	}
+
+	// Widening: parent has {a}, child has {a, c}. Guard fails, default DENY fires.
+	wide := &identity.Identity{
+		Subject: "agent-a",
+		Claims: map[string]any{
+			"sub": "agent-a",
+			"aud": []any{"a", "c"},
+			"act": map[string]any{"sub": "alice", "aud": []any{"a"}},
+		},
+	}
+	d = engine.Evaluate(context.Background(), Request{Method: "tools/call", ToolName: "t", Identity: wide})
+	if d.Allowed {
+		t.Errorf("expected widening aud to be DENIED, got ALLOW")
+	}
+
+	// No act chain — narrow-ness is vacuously true, guard passes.
+	noAct := &identity.Identity{
+		Subject: "alice",
+		Claims: map[string]any{"sub": "alice", "aud": []any{"whatever"}},
+	}
+	d = engine.Evaluate(context.Background(), Request{Method: "tools/call", ToolName: "t", Identity: noAct})
+	if !d.Allowed {
+		t.Errorf("expected direct caller (no act) to pass AudienceMustNarrow, got DENY")
+	}
+}
+
+func TestDelegationMaxDepth_RejectsDeepChains(t *testing.T) {
+	engine := NewRuleEngine([]v1alpha1.Rule{
+		{
+			Action:     v1alpha1.ActionAllow,
+			MCPMethod:  "tools/call",
+			ToolNames:  []string{"t"},
+			Delegation: &v1alpha1.RuleDelegationGuard{MaxDepth: 2},
+		},
+		{Action: v1alpha1.ActionDeny, MCPMethod: "tools/call", ToolNames: []string{"*"}},
+	})
+
+	// Depth 1 — passes.
+	d1 := &identity.Identity{Subject: "a", Claims: map[string]any{
+		"sub": "a",
+		"act": map[string]any{"sub": "alice"},
+	}}
+	if !engine.Evaluate(context.Background(), Request{Method: "tools/call", ToolName: "t", Identity: d1}).Allowed {
+		t.Errorf("depth 1 should pass maxDepth=2")
+	}
+
+	// Depth 2 — passes (boundary).
+	d2 := &identity.Identity{Subject: "b", Claims: map[string]any{
+		"sub": "b",
+		"act": map[string]any{"sub": "a", "act": map[string]any{"sub": "alice"}},
+	}}
+	if !engine.Evaluate(context.Background(), Request{Method: "tools/call", ToolName: "t", Identity: d2}).Allowed {
+		t.Errorf("depth 2 should pass maxDepth=2 (<=)")
+	}
+
+	// Depth 3 — blocked, default DENY fires.
+	d3 := &identity.Identity{Subject: "c", Claims: map[string]any{
+		"sub": "c",
+		"act": map[string]any{
+			"sub": "b",
+			"act": map[string]any{"sub": "a", "act": map[string]any{"sub": "alice"}},
+		},
+	}}
+	if engine.Evaluate(context.Background(), Request{Method: "tools/call", ToolName: "t", Identity: d3}).Allowed {
+		t.Errorf("depth 3 should be denied by maxDepth=2")
+	}
+}
+
+func TestGuards_NoGuardsIsPass(t *testing.T) {
+	// Back-compat: a rule with no Identity/Delegation guard block behaves
+	// exactly as before.
+	engine := NewRuleEngine([]v1alpha1.Rule{
+		{Action: v1alpha1.ActionAllow, MCPMethod: "tools/call", ToolNames: []string{"t"}},
+	})
+	d := engine.Evaluate(context.Background(), Request{Method: "tools/call", ToolName: "t"})
+	if !d.Allowed {
+		t.Errorf("rule with no guards should allow the call, got DENY: %s", d.Reason)
+	}
+}
+
+func TestGuards_RequireIdentityFiresBeforeGuards(t *testing.T) {
+	// If requireIdentity is set and identity is missing, the existing fast
+	// path returns DENY — we must not regress that behavior.
+	engine := NewRuleEngine([]v1alpha1.Rule{
+		{
+			Action:          v1alpha1.ActionAllow,
+			MCPMethod:       "tools/call",
+			ToolNames:       []string{"t"},
+			RequireIdentity: true,
+			Identity:        &v1alpha1.RuleIdentityGuard{RequireActChain: true},
+		},
+	})
+	d := engine.Evaluate(context.Background(), Request{Method: "tools/call", ToolName: "t", Identity: nil})
+	if d.Allowed {
+		t.Error("expected DENY when requireIdentity true and identity nil")
+	}
+}

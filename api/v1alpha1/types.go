@@ -152,21 +152,53 @@ const (
 )
 
 type Rule struct {
-	Action          Action          `json:"action" yaml:"action"`
-	MCPMethod       string          `json:"mcpMethod,omitempty" yaml:"mcpMethod,omitempty"`
-	ToolNames       []string        `json:"toolNames,omitempty" yaml:"toolNames,omitempty"`
-	Direction       Direction       `json:"direction,omitempty" yaml:"direction,omitempty"`
-	Destination     string          `json:"destination,omitempty" yaml:"destination,omitempty"`
-	RequireIdentity bool            `json:"requireIdentity,omitempty" yaml:"requireIdentity,omitempty"`
-	MaxCallsPerMin  int             `json:"maxCallsPerMinute,omitempty" yaml:"maxCallsPerMinute,omitempty"`
-	CELExpression   string          `json:"celExpression,omitempty" yaml:"celExpression,omitempty"`
-	InjectCred      *CredentialRef  `json:"injectCredential,omitempty" yaml:"injectCredential,omitempty"`
-	ParamRules      []ParamRule     `json:"paramRules,omitempty" yaml:"paramRules,omitempty"`
-	When            *WhenCondition  `json:"when,omitempty" yaml:"when,omitempty"`
-	Hold            *HoldConfig     `json:"hold,omitempty" yaml:"hold,omitempty"`
-	Scope           *ScopeConfig    `json:"scope,omitempty" yaml:"scope,omitempty"`
-	Budget          *BudgetConfig   `json:"budget,omitempty" yaml:"budget,omitempty"`
-	Reason          string          `json:"reason,omitempty" yaml:"reason,omitempty"`
+	Action          Action               `json:"action" yaml:"action"`
+	MCPMethod       string               `json:"mcpMethod,omitempty" yaml:"mcpMethod,omitempty"`
+	ToolNames       []string             `json:"toolNames,omitempty" yaml:"toolNames,omitempty"`
+	Direction       Direction            `json:"direction,omitempty" yaml:"direction,omitempty"`
+	Destination     string               `json:"destination,omitempty" yaml:"destination,omitempty"`
+	RequireIdentity bool                 `json:"requireIdentity,omitempty" yaml:"requireIdentity,omitempty"`
+	MaxCallsPerMin  int                  `json:"maxCallsPerMinute,omitempty" yaml:"maxCallsPerMinute,omitempty"`
+	CELExpression   string               `json:"celExpression,omitempty" yaml:"celExpression,omitempty"`
+	InjectCred      *CredentialRef       `json:"injectCredential,omitempty" yaml:"injectCredential,omitempty"`
+	ParamRules      []ParamRule          `json:"paramRules,omitempty" yaml:"paramRules,omitempty"`
+	When            *WhenCondition       `json:"when,omitempty" yaml:"when,omitempty"`
+	Hold            *HoldConfig          `json:"hold,omitempty" yaml:"hold,omitempty"`
+	Scope           *ScopeConfig         `json:"scope,omitempty" yaml:"scope,omitempty"`
+	Budget          *BudgetConfig        `json:"budget,omitempty" yaml:"budget,omitempty"`
+	Identity        *RuleIdentityGuard   `json:"identity,omitempty" yaml:"identity,omitempty"`
+	Delegation      *RuleDelegationGuard `json:"delegation,omitempty" yaml:"delegation,omitempty"`
+	Reason          string               `json:"reason,omitempty" yaml:"reason,omitempty"`
+}
+
+// RuleIdentityGuard adds identity-shape guards evaluated alongside the rule's
+// main match (method/tool/when). All guards must pass for the rule's action
+// to fire. Absent guards are treated as pass (backward compatible).
+//
+// These implement primitives from the 2026-04-26 per-lane policy templates
+// spec. Applied per-rule so different rules in the same policy can enforce
+// different depths / audience behaviors (e.g. ALLOW at depth<=2, HOLD at
+// depth=3, DENY past that).
+type RuleIdentityGuard struct {
+	// RequireActChain requires an RFC 8693 `act` claim to be present on the
+	// caller's token (depth >= 1). Rejects callers presenting a parent token
+	// directly on a flow that is supposed to be delegated.
+	RequireActChain bool `json:"requireActChain,omitempty" yaml:"requireActChain,omitempty"`
+
+	// AudienceMustNarrow enforces RFC 8707 narrowing: the current token's
+	// `aud` claim must be a subset of the immediate parent's `aud` claim
+	// (extracted from the act chain). Rejects audience widening.
+	AudienceMustNarrow bool `json:"audienceMustNarrow,omitempty" yaml:"audienceMustNarrow,omitempty"`
+}
+
+// RuleDelegationGuard adds delegation-chain-shape guards.
+type RuleDelegationGuard struct {
+	// MaxDepth is the maximum allowed act-chain depth. A direct caller (no
+	// `act` claim) has depth 0, one agent has depth 1, etc. A rule fires
+	// only if the actual chain depth is <= MaxDepth.
+	//
+	// Zero / omitted means "no limit" (backward compatible).
+	MaxDepth int `json:"maxDepth,omitempty" yaml:"maxDepth,omitempty"`
 }
 
 type CredentialRef struct {
