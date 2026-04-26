@@ -1,0 +1,79 @@
+# Lane 3 — Machine Identity
+#
+# A non-human principal (bot, CI job, daemon) authenticates with a machine
+# credential — SPIFFE ID, X.509, or short-lived cert issued by Teleport tbot.
+# Default action from the Identity Flow Framework: SCOPE + workload-id audit.
+#
+# Key defenses on this lane:
+#   - integrity.bindToSession   (catch cert reuse across sessions)
+#   - integrity.detectReplay    (catch the cert_replay_lab attack)
+#   - tight budget per workload id
+
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: lane-3-machine-starter
+  labels:
+    nullfield.io/lane: "machine"
+    nullfield.io/transport: "A"
+spec:
+  selector:
+    matchLabels:
+      nullfield.io/lane: "machine"
+
+  # Machine identity relies on integrity guards — binding to session and
+  # replay detection — more than on a specific OIDC provider.
+  integrity:
+    enabled: true
+    bindToSession: true
+    detectReplay: true
+
+  # Optional: add a SPIFFE / Teleport / cert-based identity provider here.
+  identity:
+    enabled: true
+    providers:
+      - name: teleport
+        issuer: "https://teleport.example.com"
+        jwksUri: "https://teleport.example.com/.well-known/jwks.json"
+        audiences: ["mcp.internal"]
+        clockSkew: "10s"
+    validation:
+      requireSignature: true
+      requireExpiry: true
+      maxLifetime: "1h"
+
+  rules:
+    - action: ALLOW
+      mcpMethod: tools/list
+
+    # Machine callers are allowed narrow, auditable tool surfaces.
+    # Narrow this list aggressively — bots should only touch what they
+    # are explicitly expected to touch.
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - status.check
+        - healthcheck.ping
+        - metrics.report
+      requireIdentity: true
+      maxCallsPerMinute: 120
+      reason: "bot read-only observability"
+
+    # Writes: scoped and audited. Strip credential-ish args.
+    - action: SCOPE
+      mcpMethod: tools/call
+      requireIdentity: true
+      scope:
+        request:
+          stripArguments: ["password", "api_key", "secret"]
+      budget:
+        perIdentity:
+          maxCallsPerHour: 100
+        onExhausted: DENY
+
+    # Everything else from a bot is denied by default.
+    - action: DENY
+      reason: "Lane 3 default: machine callers must explicitly allowlist tools"
+
+  audit:
+    logLevel: "FULL"

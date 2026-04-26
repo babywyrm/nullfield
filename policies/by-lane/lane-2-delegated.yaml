@@ -1,0 +1,85 @@
+# Lane 2 — Human → Agent (Delegated)
+#
+# A human delegates to an agent, which calls MCP on the human's behalf with a
+# down-scoped token. Default action from the Identity Flow Framework:
+# SCOPE + audit, with audience narrowing enforced.
+#
+# This template uses primitives from
+# nullfield/docs/specs/2026-04-26-per-lane-policy-templates.md:
+#   - identity.requireActChain  (RFC 8693 `act` claim required)
+#   - identity.audienceMustNarrow  (RFC 8707 downscoping)
+#
+# Until those primitives are implemented in the engine, the rules that use
+# them will validate as unknown fields but be ignored at runtime. Activate
+# by upgrading to a nullfield build that supports them.
+
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: lane-2-delegated-starter
+  labels:
+    nullfield.io/lane: "delegated"
+    nullfield.io/transport: "A"
+spec:
+  selector:
+    matchLabels:
+      nullfield.io/lane: "delegated"
+
+  # Zitadel (or any OIDC provider that supports RFC 8693 token-exchange)
+  # is the canonical Lane 2 identity layer.
+  identity:
+    enabled: true
+    providers:
+      - name: zitadel
+        issuer: "http://zitadel:8080"
+        jwksUri: "http://zitadel:8080/oauth/v2/keys"
+        audiences: ["api://your-mcp"]
+    validation:
+      requireSignature: true
+      requireExpiry: true
+      requireAudience: true
+
+  rules:
+    - action: ALLOW
+      mcpMethod: tools/list
+
+    - action: ALLOW
+      mcpMethod: initialize
+
+    # Delegated agent calls: require the RFC 8693 `act` claim so we can
+    # prove the human delegated to this agent, and require the downstream
+    # token's audience to narrow from the parent (RFC 8707).
+    #
+    # SCOPE strips known credential fields from arguments before forwarding
+    # and redacts token-shaped values from responses on the way back.
+    - action: SCOPE
+      mcpMethod: tools/call
+      requireIdentity: true
+      identity:
+        requireActChain: true
+        audienceMustNarrow: true
+      scope:
+        request:
+          stripArguments:
+            - password
+            - api_key
+            - secret
+            - token
+        response:
+          redactPatterns:
+            - 'sk-[A-Za-z0-9]{20,}'
+            - 'Bearer [A-Za-z0-9._-]{20,}'
+            - 'eyJ[A-Za-z0-9._-]{20,}'
+          redactReplacement: "[REDACTED]"
+      maxCallsPerMinute: 30
+      budget:
+        perIdentity:
+          maxCallsPerHour: 200
+        onExhausted: DENY
+
+    # Default deny — catches agents without a proper act chain.
+    - action: DENY
+      reason: "Lane 2 default: delegated calls require act chain + audience narrow"
+
+  audit:
+    logLevel: "FULL"

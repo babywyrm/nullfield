@@ -1,0 +1,84 @@
+# Lane 4 — Agent → Agent (Delegation Chain)
+#
+# Multi-hop delegation. Agent A calls Agent B calls Agent C. Identity
+# dilutes at each hop unless the `act` chain is enforced and its depth is
+# bounded. Default action from the Identity Flow Framework: HOLD past
+# depth=2, DENY past depth=3.
+#
+# This is the lane the `delegation_depth_lab` and `delegation_chain_lab`
+# camazotz labs exercise. Without enforcement, Agent C can act with the
+# full authority of the human who delegated to Agent A — the lab's
+# classic "identity dilution" finding.
+#
+# Three primitives from
+# nullfield/docs/specs/2026-04-26-per-lane-policy-templates.md power this:
+#   - identity.requireActChain   (every hop must prove delegation chain)
+#   - delegation.maxDepth        (reject past N hops)
+#   - identity.audienceMustNarrow (each hop must narrow audience)
+
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: lane-4-chain-starter
+  labels:
+    nullfield.io/lane: "chain"
+    nullfield.io/transport: "A"
+spec:
+  selector:
+    matchLabels:
+      nullfield.io/lane: "chain"
+
+  identity:
+    enabled: true
+    providers:
+      - name: zitadel
+        issuer: "http://zitadel:8080"
+        jwksUri: "http://zitadel:8080/oauth/v2/keys"
+        audiences: ["api://your-mcp"]
+    validation:
+      requireSignature: true
+      requireExpiry: true
+      requireAudience: true
+
+  # Chain integrity: every hop must carry a valid act claim.
+  integrity:
+    enabled: true
+    chainValidation: true
+
+  rules:
+    - action: ALLOW
+      mcpMethod: tools/list
+
+    # Depth 0–2: allow with act-chain + audience narrow enforced.
+    - action: ALLOW
+      mcpMethod: tools/call
+      requireIdentity: true
+      identity:
+        requireActChain: true
+        audienceMustNarrow: true
+      delegation:
+        maxDepth: 2
+      maxCallsPerMinute: 30
+      reason: "shallow delegation — approved with guard rails"
+
+    # Depth 3: park for human approval. The chain is deep enough that
+    # the original principal's intent is no longer clear.
+    - action: HOLD
+      mcpMethod: tools/call
+      requireIdentity: true
+      identity:
+        requireActChain: true
+      delegation:
+        maxDepth: 3
+      hold:
+        timeout: "10m"
+        onTimeout: "DENY"
+      reason: "3-hop chain needs human approval"
+
+    # Depth > 3 (or missing act chain): hard deny.
+    - action: DENY
+      mcpMethod: tools/call
+      reason: "Lane 4 default: chain too deep or act chain missing"
+
+  audit:
+    logLevel: "FULL"

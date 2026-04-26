@@ -2,6 +2,9 @@ apiVersion: nullfield.io/v1alpha1
 kind: NullfieldPolicy
 metadata:
   name: identity-aware
+  labels:
+    nullfield.io/lane: "human-direct"
+    nullfield.io/transport: "A"
 spec:
   # Opt-in: enable JWT validation with one or more identity providers.
   # Remove this section entirely to use nullfield without identity validation.

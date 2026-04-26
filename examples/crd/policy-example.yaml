@@ -3,6 +3,9 @@ kind: NullfieldPolicy
 metadata:
   name: camazotz-policy
   namespace: camazotz
+  labels:
+    nullfield.io/lane: "delegated"
+    nullfield.io/transport: "A"
 spec:
   selector:
     matchLabels:

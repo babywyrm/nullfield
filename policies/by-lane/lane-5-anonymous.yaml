@@ -1,0 +1,50 @@
+# Lane 5 — Anonymous
+#
+# No authenticated principal. Public discovery endpoints, health checks,
+# MCP initialize, and read-only metadata.
+# Default action from the Identity Flow Framework: DENY (allowlist only).
+#
+# This is a tight policy by design. Anything not explicitly named on the
+# ALLOW list is denied. No identity, no budget per-identity (there is no
+# identity), only a per-source-IP rate limit via maxCallsPerMinute.
+
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: lane-5-anonymous-starter
+  labels:
+    nullfield.io/lane: "anonymous"
+    # Anonymous has no transport notion by design (pre-auth).
+spec:
+  selector:
+    matchLabels:
+      nullfield.io/lane: "anonymous"
+
+  rules:
+    # Protocol discovery — the minimum surface a curious client needs.
+    - action: ALLOW
+      mcpMethod: initialize
+      maxCallsPerMinute: 20
+      reason: "MCP handshake is public"
+
+    - action: ALLOW
+      mcpMethod: tools/list
+      maxCallsPerMinute: 20
+      reason: "tools/list reveals names only — content comes from tools/call"
+
+    # Explicitly allow a narrow list of safe read-only tools. Anything
+    # that mutates state, reads secrets, or touches credentials must not
+    # be on this list.
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - healthcheck.ping
+        - server.info
+      maxCallsPerMinute: 30
+
+    # Everything else: DENY.
+    - action: DENY
+      reason: "Lane 5 default: anonymous callers may only hit the allowlisted surface"
+
+  audit:
+    logLevel: "FULL"

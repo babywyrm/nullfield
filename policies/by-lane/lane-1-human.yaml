@@ -1,0 +1,64 @@
+# Lane 1 — Human Direct
+#
+# A human authenticates directly to the resource. No agent in the path.
+# Default action from the Identity Flow Framework: ALLOW + audit.
+#
+# Vocabulary source: camazotz/frontend/lane_taxonomy.py::LANES (schema v1).
+# Framework doc: agentic-sec/docs/identity-flows.md
+#
+# This is a STARTING POINT. Narrow the tool list, providers, and budget
+# to your deployment before applying to production.
+
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: lane-1-human-starter
+  labels:
+    nullfield.io/lane: "human-direct"
+    nullfield.io/transport: "A"
+spec:
+  selector:
+    matchLabels:
+      nullfield.io/lane: "human-direct"
+
+  # Humans on direct flows must present a real OIDC + PKCE bearer.
+  # No agent, no token exchange — just a validated bearer.
+  identity:
+    enabled: true
+    providers:
+      - name: primary-oidc
+        issuer: "https://idp.example.com"
+        jwksUri: "https://idp.example.com/.well-known/jwks.json"
+        audiences: ["api://your-mcp"]
+        clockSkew: "30s"
+    validation:
+      requireSignature: true
+      requireExpiry: true
+      requireAudience: true
+
+  rules:
+    # Allow tools/list and MCP protocol chatter without gating.
+    - action: ALLOW
+      mcpMethod: tools/list
+      reason: "protocol discovery is always allowed for authenticated humans"
+
+    - action: ALLOW
+      mcpMethod: initialize
+
+    # Allow every tools/call from an authenticated human with a per-user budget.
+    - action: ALLOW
+      mcpMethod: tools/call
+      requireIdentity: true
+      maxCallsPerMinute: 60
+      budget:
+        perIdentity:
+          maxCallsPerHour: 500
+          maxTokensPerDay: 2_000_000
+        onExhausted: DENY
+
+    # Default deny for unauthenticated callers.
+    - action: DENY
+      reason: "Lane 1 default: humans must authenticate"
+
+  audit:
+    logLevel: "FULL"
