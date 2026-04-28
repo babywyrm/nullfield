@@ -199,3 +199,156 @@ func TestSyncPolicies_APIError(t *testing.T) {
 	watcher.syncPolicies(context.Background())
 	// Should log warning but not panic
 }
+
+
+// --- Sidecar bridge tests (2026-04-27) -------------------------------------
+//
+// These verify the active-policy bridge: pick a NullfieldPolicy by label and
+// write it to a target ConfigMap key the sidecar mounts.
+
+func TestSyncActivePolicy_PicksLabeledAndWrites(t *testing.T) {
+	var mu sync.Mutex
+	var posted map[string]any
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/apis/nullfield.io/v1alpha1/namespaces/default/nullfieldpolicies" {
+			json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						// Wrong label — should be ignored.
+						"metadata": map[string]any{
+							"name":      "decoy",
+							"namespace": "default",
+							"labels":    map[string]any{"nullfield.io/active-for": "other-sidecar"},
+						},
+						"spec": map[string]any{"rules": []map[string]any{{"action": "ALLOW"}}},
+					},
+					{
+						// Match.
+						"metadata": map[string]any{
+							"name":      "lane-4-chain-starter",
+							"namespace": "default",
+							"labels":    map[string]any{"nullfield.io/active-for": "brain-gateway"},
+						},
+						"spec": map[string]any{
+							"rules": []map[string]any{
+								{"action": "DENY", "mcpMethod": "tools/call",
+									"delegation": map[string]any{"maxDepth": 2}},
+							},
+						},
+					},
+				},
+			})
+			return
+		}
+		if r.Method == http.MethodGet &&
+			r.URL.Path == "/api/v1/namespaces/default/configmaps/nullfield-active-policy" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPost &&
+			r.URL.Path == "/api/v1/namespaces/default/configmaps" {
+			body, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			json.Unmarshal(body, &posted)
+			mu.Unlock()
+			w.WriteHeader(http.StatusCreated)
+			w.Write(body)
+			return
+		}
+		// Registries + per-policy sync paths: return empty.
+		json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+	})
+
+	w := testWatcher(handler)
+	w.activeTargetCM = "nullfield-active-policy"
+	w.activeTargetCMKey = "policy.yaml"
+	w.activeTargetLabel = "brain-gateway"
+
+	w.syncActivePolicy(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	if posted == nil {
+		t.Fatal("expected ConfigMap POST, got none")
+	}
+	meta, _ := posted["metadata"].(map[string]any)
+	if name, _ := meta["name"].(string); name != "nullfield-active-policy" {
+		t.Errorf("wrong target ConfigMap name: %v", name)
+	}
+	labels, _ := meta["labels"].(map[string]any)
+	if src, _ := labels["nullfield.io/active-source"].(string); src != "lane-4-chain-starter" {
+		t.Errorf("active-source label should name the picked policy, got %v", src)
+	}
+	data, _ := posted["data"].(map[string]any)
+	yamlBlob, _ := data["policy.yaml"].(string)
+	if yamlBlob == "" {
+		t.Fatal("policy.yaml key must be populated")
+	}
+	if !contains(yamlBlob, "lane-4-chain-starter") {
+		t.Errorf("policy.yaml should embed the picked policy name; got: %s", yamlBlob[:min(120, len(yamlBlob))])
+	}
+	if !contains(yamlBlob, "maxDepth") {
+		t.Error("policy.yaml should round-trip the new delegation.maxDepth primitive")
+	}
+}
+
+func TestSyncActivePolicy_NoOpWhenDisabled(t *testing.T) {
+	called := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	})
+	w := testWatcher(handler)
+	// Defaults: activeTargetCM and activeTargetLabel both empty.
+	w.syncActivePolicy(context.Background())
+	if called {
+		t.Error("syncActivePolicy must not call the API when the bridge is disabled")
+	}
+}
+
+func TestSyncActivePolicy_NoMatchDoesNotClobber(t *testing.T) {
+	var posted bool
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/apis/nullfield.io/v1alpha1/namespaces/default/nullfieldpolicies" {
+			json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"metadata": map[string]any{
+							"name":   "wrong-label",
+							"labels": map[string]any{"nullfield.io/active-for": "other"},
+						},
+						"spec": map[string]any{"rules": []any{}},
+					},
+				},
+			})
+			return
+		}
+		if r.Method == http.MethodPost || r.Method == http.MethodPut {
+			posted = true
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	w := testWatcher(handler)
+	w.activeTargetCM = "nullfield-active-policy"
+	w.activeTargetCMKey = "policy.yaml"
+	w.activeTargetLabel = "brain-gateway"
+
+	w.syncActivePolicy(context.Background())
+	if posted {
+		t.Error("must not write the target ConfigMap when no policy matches the label")
+	}
+}
+
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || (len(s) > 0 && stringContains(s, sub)))
+}
+
+func stringContains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}

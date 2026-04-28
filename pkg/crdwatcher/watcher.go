@@ -30,15 +30,42 @@ type Watcher struct {
 	client    *http.Client
 	logger    *slog.Logger
 
+	// Optional sidecar-bridge fields. When ActiveTargetCM and
+	// ActiveTargetLabel are both set, the watcher additionally syncs the
+	// FIRST NullfieldPolicy carrying label `nullfield.io/active-for=<value>`
+	// into <ActiveTargetCM>:<ActiveTargetCMKey> as a single policy.yaml.
+	// This is what lets the per-policy CRDs in the cluster actually drive
+	// a sidecar that mounts a single policy file.
+	activeTargetCM    string
+	activeTargetCMKey string
+	activeTargetLabel string
+
 	mu             sync.Mutex
 	lastPolicyRV   string
 	lastRegistryRV string
+	lastActiveSig  string
 }
 
 // Config for the watcher.
 type Config struct {
 	Namespace    string
 	SyncInterval time.Duration
+
+	// ActiveTargetCM names a ConfigMap into which a single matching
+	// NullfieldPolicy should be aggregated for a sidecar to consume.
+	// Empty disables the bridge (default behaviour: per-policy ConfigMaps
+	// only).
+	ActiveTargetCM string
+
+	// ActiveTargetCMKey is the data key inside ActiveTargetCM (typically
+	// "policy.yaml" — the path the sidecar mounts as
+	// /etc/nullfield/policy.yaml). Defaults to "policy.yaml".
+	ActiveTargetCMKey string
+
+	// ActiveTargetLabel is the value that selects which NullfieldPolicy
+	// becomes the active one. The watcher picks the first CRD with
+	// metadata.labels["nullfield.io/active-for"] == ActiveTargetLabel.
+	ActiveTargetLabel string
 }
 
 // New creates a watcher using in-cluster credentials.
@@ -63,6 +90,11 @@ func New(cfg Config, logger *slog.Logger) (*Watcher, error) {
 		ns = strings.TrimSpace(string(nsBytes))
 	}
 
+	cmKey := cfg.ActiveTargetCMKey
+	if cmKey == "" {
+		cmKey = "policy.yaml"
+	}
+
 	return &Watcher{
 		apiBase:   fmt.Sprintf("https://%s:%s", host, port),
 		token:     strings.TrimSpace(string(token)),
@@ -73,7 +105,10 @@ func New(cfg Config, logger *slog.Logger) (*Watcher, error) {
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 			},
 		},
-		logger: logger,
+		logger:            logger,
+		activeTargetCM:    cfg.ActiveTargetCM,
+		activeTargetCMKey: cmKey,
+		activeTargetLabel: cfg.ActiveTargetLabel,
 	}, nil
 }
 
@@ -100,6 +135,113 @@ func (w *Watcher) Run(ctx context.Context, interval time.Duration) {
 func (w *Watcher) sync(ctx context.Context) {
 	w.syncPolicies(ctx)
 	w.syncRegistries(ctx)
+	w.syncActivePolicy(ctx)
+}
+
+// syncActivePolicy is the sidecar-bridge: pick the first NullfieldPolicy in
+// the watched namespace carrying nullfield.io/active-for=<configured-label>
+// and write its rendered YAML to the configured target ConfigMap key. The
+// sidecar (mounting that ConfigMap) hot-reloads when the file content
+// changes.
+//
+// No-ops when ActiveTargetCM or ActiveTargetLabel is empty (default).
+func (w *Watcher) syncActivePolicy(ctx context.Context) {
+	if w.activeTargetCM == "" || w.activeTargetLabel == "" {
+		return
+	}
+
+	policies, err := w.listCRD(ctx, "nullfieldpolicies")
+	if err != nil {
+		w.logger.Warn("active-policy sync: failed to list policies", "error", err)
+		return
+	}
+
+	items, _ := policies["items"].([]any)
+	var picked map[string]any
+	var pickedName string
+	for _, item := range items {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		meta, _ := obj["metadata"].(map[string]any)
+		labels, _ := meta["labels"].(map[string]any)
+		if labels == nil {
+			continue
+		}
+		if v, _ := labels["nullfield.io/active-for"].(string); v == w.activeTargetLabel {
+			picked = obj
+			pickedName, _ = meta["name"].(string)
+			break
+		}
+	}
+
+	if picked == nil {
+		// Tolerate "no match" — common during initial sync or label edits.
+		// Don't write anything (would clobber a working ConfigMap).
+		w.logger.Debug("active-policy sync: no NullfieldPolicy with label",
+			"label", "nullfield.io/active-for="+w.activeTargetLabel)
+		return
+	}
+
+	pickedSpec, _ := picked["spec"].(map[string]any)
+	if pickedSpec == nil {
+		w.logger.Warn("active-policy sync: picked policy has no spec", "name", pickedName)
+		return
+	}
+
+	policyYAML, err := yaml.Marshal(map[string]any{
+		"apiVersion": "nullfield.io/v1alpha1",
+		"kind":       "NullfieldPolicy",
+		"metadata": map[string]any{
+			"name":      pickedName,
+			"namespace": w.namespace,
+		},
+		"spec": pickedSpec,
+	})
+	if err != nil {
+		w.logger.Warn("active-policy sync: failed to marshal", "name", pickedName, "error", err)
+		return
+	}
+
+	// Cheap change-detection so we don't churn the ConfigMap (and trigger
+	// pointless sidecar reloads) when nothing changed.
+	w.mu.Lock()
+	prev := w.lastActiveSig
+	w.mu.Unlock()
+	sig := pickedName + ":" + fmt.Sprint(len(policyYAML)) + ":" + string(policyYAML[:min(64, len(policyYAML))])
+	if sig == prev {
+		return
+	}
+
+	if err := w.upsertConfigMap(ctx, w.namespace, w.activeTargetCM,
+		map[string]string{w.activeTargetCMKey: string(policyYAML)},
+		map[string]string{
+			"nullfield.io/managed-by":    "crd-controller",
+			"nullfield.io/active-source": pickedName,
+			"nullfield.io/sidecar-for":   w.activeTargetLabel,
+		},
+	); err != nil {
+		w.logger.Warn("active-policy sync: failed to write ConfigMap",
+			"configmap", w.activeTargetCM, "key", w.activeTargetCMKey, "error", err)
+		return
+	}
+
+	w.mu.Lock()
+	w.lastActiveSig = sig
+	w.mu.Unlock()
+	w.logger.Info("active-policy sync: bridged NullfieldPolicy to sidecar ConfigMap",
+		"policy", pickedName,
+		"configmap", w.activeTargetCM,
+		"key", w.activeTargetCMKey,
+		"label", w.activeTargetLabel)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (w *Watcher) syncPolicies(ctx context.Context) {

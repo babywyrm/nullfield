@@ -65,8 +65,11 @@ func main() {
 		}
 
 		watcher, err := crdwatcher.New(crdwatcher.Config{
-			Namespace:    crdWatchNS,
-			SyncInterval: interval,
+			Namespace:         crdWatchNS,
+			SyncInterval:      interval,
+			ActiveTargetCM:    envOr("NULLFIELD_ACTIVE_TARGET_CM", ""),
+			ActiveTargetCMKey: envOr("NULLFIELD_ACTIVE_TARGET_KEY", "policy.yaml"),
+			ActiveTargetLabel: envOr("NULLFIELD_ACTIVE_TARGET_LABEL", ""),
 		}, logger)
 		if err != nil {
 			logger.Warn("CRD watcher init failed, CRD sync disabled", "error", err)
