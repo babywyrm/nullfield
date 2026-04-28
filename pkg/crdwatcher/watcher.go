@@ -287,8 +287,9 @@ func (w *Watcher) syncPolicies(ctx context.Context) {
 		if err := w.upsertConfigMap(ctx, ns, cmName, map[string]string{
 			"policy.yaml": string(policyYAML),
 		}, map[string]string{
-			"nullfield.io/managed-by": "crd-controller",
-			"nullfield.io/source":     fmt.Sprintf("NullfieldPolicy/%s", name),
+			"nullfield.io/managed-by":  "crd-controller",
+			"nullfield.io/source-kind": "NullfieldPolicy",
+			"nullfield.io/source-name": name,
 		}); err != nil {
 			w.logger.Warn("failed to sync policy ConfigMap", "name", cmName, "error", err)
 		} else {
@@ -336,8 +337,9 @@ func (w *Watcher) syncRegistries(ctx context.Context) {
 		if err := w.upsertConfigMap(ctx, ns, cmName, map[string]string{
 			"tools.yaml": string(registryYAML),
 		}, map[string]string{
-			"nullfield.io/managed-by": "crd-controller",
-			"nullfield.io/source":     fmt.Sprintf("ToolRegistry/%s", name),
+			"nullfield.io/managed-by":  "crd-controller",
+			"nullfield.io/source-kind": "ToolRegistry",
+			"nullfield.io/source-name": name,
 		}); err != nil {
 			w.logger.Warn("failed to sync registry ConfigMap", "name", cmName, "error", err)
 		} else {
