@@ -44,6 +44,27 @@ metadata:
     nullfield.io/transport: "A"
 ```
 
+### Transport codes
+
+The `nullfield.io/transport` label takes one of five values, defined in
+the canonical taxonomy at
+[camazotz `frontend/lane_taxonomy.py`](https://github.com/babywyrm/camazotz/blob/main/frontend/lane_taxonomy.py).
+Use the code that matches the wire / process surface your workload
+actually uses:
+
+| Code | Meaning | When to use |
+|------|---------|-------------|
+| `A` | MCP JSON-RPC | Workload talks MCP — the most common case |
+| `B` | Direct wire API (REST / gRPC / GraphQL) | Workload calls a non-MCP HTTP service |
+| `C` | In-process SDK / library | Workload imports a Python/TS library that does the call |
+| `D` | Subprocess / native binary | Workload spawns `kubectl`/`terraform`/etc. |
+| `E` | Native LLM function-calling (non-MCP) | Workload uses OpenAI tools / Anthropic tool_use / Gemini |
+
+Codes `D` and `E` were added 2026-04-28; see
+[camazotz ADR 0001](https://github.com/babywyrm/camazotz/blob/main/docs/adr/0001-five-transport-taxonomy.md)
+for the decision record. Existing policies tagged `A`/`B`/`C` remain
+valid — `nullfield` accepts any string for the transport label.
+
 ## What's Enforced Today vs Spec'd
 
 The templates reference three primitives from
