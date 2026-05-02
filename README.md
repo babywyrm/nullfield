@@ -99,7 +99,7 @@ nullfield is lightweight by design. Three deployment patterns:
 - ServiceMonitor — tells Prometheus to scrape nullfield sidecars and controller
 - Grafana dashboard — pre-built visibility into tool calls, denials, budgets
 - Alertmanager rules — fire on anomalies, budget exhaustion, identity failures
-- CRD definitions — when using native K8s policy resources (planned)
+- CRD definitions + watcher — `NullfieldPolicy` and `ToolRegistry` as native K8s Custom Resources, synced to ConfigMaps by `pkg/crdwatcher` (shipped in v0.8; opt-in via `NULLFIELD_CRD_WATCH=true` on the controller; default poll interval `30s`, override with `NULLFIELD_CRD_WATCH_INTERVAL`)
 
 Every layer is opt-in. The minimum deployment is the sidecar + a policy YAML. Everything else bolts on.
 
@@ -294,6 +294,37 @@ spec:
 
 See `examples/policy.yaml` for a full example.
 
+### Per-rule guard primitives
+
+Rules can carry identity and delegation guards that fire after the match predicates. They short-circuit the rule (continuing the loop so a later, looser rule may still fire) when the caller's claims do not satisfy them:
+
+```yaml
+rules:
+  - action: ALLOW
+    toolNames: ["agent.invoke_subagent"]
+    identity:
+      requireActChain: true       # RFC 8693 — `act` claim must be present
+      audienceMustNarrow: true    # RFC 8707 — child `aud` must be a subset of parent `aud`
+    delegation:
+      maxDepth: 3                 # bound act-chain depth (0 = no limit)
+```
+
+Implementation lives in `pkg/policy/rules.go` (`evaluateIdentityGuards`, `evaluateDelegationGuards`).
+
+### Per-lane policy templates
+
+`policies/by-lane/` ships starter `NullfieldPolicy` files — one per agentic-identity lane — for fast adoption:
+
+| File | Lane | Default action |
+|------|------|----------------|
+| `lane-1-human.yaml` | Human Direct (1) | ALLOW + audit |
+| `lane-2-delegated.yaml` | Human → Agent (2) | SCOPE + audit |
+| `lane-3-machine.yaml` | Machine Identity (3) | SCOPE + audit |
+| `lane-4-chain.yaml` | Agent → Agent (4) | HOLD past depth=2, DENY past depth=3 |
+| `lane-5-anonymous.yaml` | Anonymous (5) | DENY (allowlist only) |
+
+Each template carries a `nullfield.io/transport: <A-E>` selector tied to the five-transport taxonomy (A=MCP JSON-RPC, B=direct wire API, C=in-process SDK, D=subprocess, E=native LLM function-calling) defined in [camazotz ADR 0001](https://github.com/babywyrm/camazotz/blob/main/docs/adr/0001-five-transport-taxonomy.md). See `policies/by-lane/README.md` for full details.
+
 ---
 
 ## Tool Registry (ToolRegistry)
@@ -360,7 +391,7 @@ nullfield/
 │   └── proto/                  # Proto definitions (controller.proto)
 ├── internal/config/      # Environment-based configuration
 ├── integrations/
-│   └── camazotz/         # Camazotz vulnerable MCP server (57 tools, tiered policy)
+│   └── camazotz/         # Camazotz vulnerable MCP server (35 labs / 86 tools live; tiered policy ships a 57-tool starter allowlist)
 ├── meshes/               # Service mesh overlays (Istio, Linkerd, Cilium)
 ├── deploy/
 │   ├── helm/nullfield/   # Universal Helm chart (sidecar + controller + observability)
@@ -414,11 +445,13 @@ nullfield/
 - [x] **v0.7** — Gateway mode: single nullfield instance proxying multiple MCP servers with per-upstream policy routing and per-route registry (5 tests)
 - [x] **v0.7** — Mutating admission webhook for automatic sidecar injection via `nullfield.io/inject` annotation (9 tests)
 
-- [x] **v0.8** — CRD controller: NullfieldPolicy + ToolRegistry as native K8s Custom Resources, synced to ConfigMaps (5 tests)
+- [x] **v0.8** — CRD controller: NullfieldPolicy + ToolRegistry as native K8s Custom Resources, synced to ConfigMaps via `pkg/crdwatcher` (default poll `30s`, opt-in via `NULLFIELD_CRD_WATCH=true`, 5 tests)
+- [x] **v0.8** — Per-rule guard primitives: `identity.requireActChain` (RFC 8693), `identity.audienceMustNarrow` (RFC 8707), `delegation.maxDepth` — enforced in `pkg/policy/rules.go`
+- [x] **v0.8** — Five lane policy templates in `policies/by-lane/` (human / delegated / machine / chain / anonymous)
 
 ### Next
 - [ ] **v0.9** — L3 tool governance: registration workflow, tool lifecycle, rug-pull detection
-- [ ] **v0.9** — L4 agentic flow control: identity chaining, delegation depth limits, human-in-the-loop
+- [ ] **v0.9** — L4 agentic flow control: extend depth/act-chain primitives with HITL prompts and per-tenant policy chaining
 - [ ] **v0.9** — Response inspection (detect system prompt leakage, PII in tool responses), cost attribution per identity/session
 - [ ] **v1.0** — Transparent iptables-based proxy (Istio-style), production hardening, ext_authz gRPC mode
 

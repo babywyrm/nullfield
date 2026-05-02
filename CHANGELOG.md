@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Camazotz K8s reference integration** — `brain-gateway-policed` Service exposes a nullfield-enforced entry point alongside the bypass path
+  - NodePort `:30090` → sidecar listen `:9090` (policy enforcement on)
+  - NodePort `:31591` → sidecar admin `:9091` (status, holds, metrics)
+  - Default `:30080` remains the direct-to-`brain-gateway` bypass for comparison
+  - Manifest in camazotz: `kube/brain-gateway-policed.yaml`
+  - Smoke verification: `make smoke-k8s-policed` (`scripts/smoke_test.py --target k8s --require-policed`)
+  - Live behavior on NUC: unauthenticated MCP requests via `:30090` return JSON-RPC `-32001 identity verification failed`; `:30080` returns 200
+- **Per-rule guard primitives enforced** — `identity.requireActChain` (RFC 8693), `identity.audienceMustNarrow` (RFC 8707), and `delegation.maxDepth` are evaluated in `pkg/policy/rules.go` (`evaluateIdentityGuards`, `evaluateDelegationGuards`); failing guards short-circuit the rule and continue the match loop
+- **Per-lane policy templates** — `policies/by-lane/lane-{1..5}-{name}.yaml` ship as starter `NullfieldPolicy` per agentic-identity lane; transport label `A`-`E` follows [camazotz ADR 0001](https://github.com/babywyrm/camazotz/blob/main/docs/adr/0001-five-transport-taxonomy.md)
+
+### Documentation
+
+- README marks the CRD bridge shipped (was "planned"), cites ADR 0001 for the five-transport taxonomy, and adds a per-lane templates table
+- `docs/mesh-integration.md` adds a "K8s sidecar mode (camazotz reference)" section
+- `docs/quickstart.md` references the camazotz `:30090` policed entry point as the canonical K8s sidecar smoke target
+- `integrations/camazotz/README.md` refreshed to 35 lab modules / 86 tools (verified live), adds the policed `:30090` invocation, and updates the L4 delegation row to reflect `requireActChain` + `maxDepth` enforcement
+- `policies/by-lane/README.md` confirms the three primitives are enforced as of 2026-05-01
+
+---
+
 ## [0.8.0] — 2026-04-23
 
 ### Added
