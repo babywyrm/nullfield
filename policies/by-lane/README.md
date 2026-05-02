@@ -65,7 +65,7 @@ Codes `D` and `E` were added 2026-04-28; see
 for the decision record. Existing policies tagged `A`/`B`/`C` remain
 valid — `nullfield` accepts any string for the transport label.
 
-## What's Enforced Today vs Spec'd
+## What's Enforced Today
 
 The templates reference three primitives from
 [`docs/specs/2026-04-26-per-lane-policy-templates.md`](../docs/specs/2026-04-26-per-lane-policy-templates.md):
@@ -74,12 +74,24 @@ The templates reference three primitives from
 - `rules[].delegation.maxDepth` — bound the act-chain depth
 - `rules[].identity.audienceMustNarrow` — RFC 8707 downscoping
 
-These fields are **declared in the templates but not yet enforced by the
-runtime engine** as of 2026-04-26. Upgrading to a nullfield build that
-implements them activates enforcement automatically — no policy change
-required. Until then, the surrounding rules (action, `requireIdentity`,
-`maxCallsPerMinute`, `budget`) are fully enforced and meaningful on their
-own.
+**As of 2026-05-01, all three are enforced by the runtime engine.**
+Implementation lives in `pkg/policy/rules.go`:
+
+- `evaluateIdentityGuards` (rule loop wired at `rules.go` line 38) checks
+  `RequireActChain` against `actChainDepth(claims)` and rejects with
+  `"act chain required (RFC 8693) but missing on token"` when the chain
+  is empty; it walks the parent `act` claim and rejects when
+  `AudienceMustNarrow` is set and the child `aud` is not a subset.
+- `evaluateDelegationGuards` checks `MaxDepth` (with `0 = no limit` as
+  the backward-compatible default) and rejects with
+  `"act chain depth N exceeds maxDepth M"` when exceeded.
+
+Failing guards short-circuit the rule and continue the match loop, so a
+later, looser rule can still fire. Coverage: `pkg/policy/rules_test.go`
+exercises all three primitives (8 hits across the three field names).
+
+The surrounding rules (action, `requireIdentity`, `maxCallsPerMinute`,
+`budget`) are fully enforced as well.
 
 ## Composition
 
