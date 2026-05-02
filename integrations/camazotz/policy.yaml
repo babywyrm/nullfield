@@ -36,6 +36,18 @@ spec:
         - tenant.recall_memory
         - tenant.list_tenants
         - error.debug_info
+        # +11 from 2026-05-02 sync against live tools/list:
+        - bot_identity_theft.check_session_binding
+        - budget_tuning.get_traffic_pattern
+        - budget_tuning.simulate
+        - cert_replay.check_replay_detection
+        - cert_replay.get_expired_cert
+        - delegation_depth.inspect_chain
+        - function_calling.show_tool_schema
+        - policy_authoring.get_attack_chain
+        - policy_authoring.get_hint
+        - subprocess.list_allowlist
+        - teleport_role_escalation.get_current_roles
       requireIdentity: true
       maxCallsPerMinute: 60
 
@@ -68,6 +80,15 @@ spec:
         - revocation.revoke_principal
         - tenant.store_memory
         - error.trigger_crash
+        # +8 from 2026-05-02 sync against live tools/list:
+        - budget_tuning.submit_budget
+        - delegation_depth.access_resource
+        - delegation_depth.delegate
+        - delegation_depth.start_chain
+        - function_calling.invoke
+        - response_inspection.call_leaky_tool
+        - response_inspection.submit_redaction
+        - sdk.write_cache
       requireIdentity: true
       maxCallsPerMinute: 20
 
@@ -85,6 +106,16 @@ spec:
         - supply.install_package
         - tool.mutate_behavior
         - hallucination.execute_plan
+        # +9 from 2026-05-02 sync against live tools/list:
+        - bot_identity_theft.read_tbot_secret
+        - bot_identity_theft.replay_identity
+        - cert_replay.replay_cert
+        - policy_authoring.submit_policy
+        - sdk.get_cached_token
+        - sdk.invoke_as_cached
+        - subprocess.invoke_worker
+        - teleport_role_escalation.privileged_operation
+        - teleport_role_escalation.request_role
 
     # --- Default deny: anything not explicitly listed above ---
     - action: DENY

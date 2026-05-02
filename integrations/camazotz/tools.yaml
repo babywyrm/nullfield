@@ -2,6 +2,13 @@ apiVersion: nullfield.io/v1alpha1
 kind: ToolRegistry
 metadata:
   name: camazotz-tools
+# Provenance: this registry covers all 85 tools exposed by camazotz's
+# tools/list endpoint as of 2026-05-02 (35 lab modules). Refresh against a
+# live deployment with:
+#   bash integrations/camazotz/sync-tools.sh http://<host>:8080/mcp
+# The script diffs the live tool list against this file and prints the
+# additions / removals — re-categorize new entries by hand into the right
+# tier below before committing.
 tools:
   # --- Read-only / safe tools (audit, list, check operations) ---
   - name: attribution.read_audit
@@ -54,6 +61,29 @@ tools:
     description: List tenants
   - name: error.debug_info
     description: Get debug information
+  # +11 from 2026-05-02 sync against live tools/list:
+  - name: bot_identity_theft.check_session_binding
+    description: Check whether a tbot identity is bound to a session
+  - name: budget_tuning.get_traffic_pattern
+    description: Read current traffic pattern for budget tuning
+  - name: budget_tuning.simulate
+    description: Simulate a budget without applying it
+  - name: cert_replay.check_replay_detection
+    description: Check whether replay detection is enabled
+  - name: cert_replay.get_expired_cert
+    description: Read an expired certificate (for inspection)
+  - name: delegation_depth.inspect_chain
+    description: Inspect the current delegation chain depth
+  - name: function_calling.show_tool_schema
+    description: Show the schema of a callable tool (Transport E)
+  - name: policy_authoring.get_attack_chain
+    description: Read the attack chain that motivated a candidate policy
+  - name: policy_authoring.get_hint
+    description: Read a tuning hint
+  - name: subprocess.list_allowlist
+    description: List the subprocess allowlist (Transport D)
+  - name: teleport_role_escalation.get_current_roles
+    description: Read currently-assigned Teleport roles
 
   # --- Write / action tools (modify state, trigger flows) ---
   - name: attribution.submit_action
@@ -106,6 +136,23 @@ tools:
     description: Store tenant memory
   - name: error.trigger_crash
     description: Trigger an error crash
+  # +8 from 2026-05-02 sync against live tools/list:
+  - name: budget_tuning.submit_budget
+    description: Submit a new budget for the calling identity
+  - name: delegation_depth.access_resource
+    description: Access the terminal resource at the current delegation depth
+  - name: delegation_depth.delegate
+    description: Delegate to another agent (extends the act chain)
+  - name: delegation_depth.start_chain
+    description: Start a new delegation chain
+  - name: function_calling.invoke
+    description: Invoke a tool via native LLM function-calling (Transport E)
+  - name: response_inspection.call_leaky_tool
+    description: Call a known-leaky tool to surface response-side issues
+  - name: response_inspection.submit_redaction
+    description: Submit a redaction rule for response inspection
+  - name: sdk.write_cache
+    description: Write to the SDK token cache (Transport C)
 
   # --- High-risk tools (exfil, SSRF, supply chain, shadow) ---
   - name: egress.fetch_url
@@ -122,3 +169,22 @@ tools:
     description: Mutate tool behavior (rug pull)
   - name: hallucination.execute_plan
     description: Execute an LLM-generated plan
+  # +9 from 2026-05-02 sync against live tools/list:
+  - name: bot_identity_theft.read_tbot_secret
+    description: Read tbot identity secret (credential exfiltration)
+  - name: bot_identity_theft.replay_identity
+    description: Replay a captured tbot identity against another service
+  - name: cert_replay.replay_cert
+    description: Replay an expired certificate (replay attack)
+  - name: policy_authoring.submit_policy
+    description: Submit a new policy (policy mutation)
+  - name: sdk.get_cached_token
+    description: Read a cached bearer token from the SDK cache (credential exposure)
+  - name: sdk.invoke_as_cached
+    description: Invoke as the cached identity (token replay via SDK, Transport C)
+  - name: subprocess.invoke_worker
+    description: Spawn a subprocess worker (arbitrary code path, Transport D)
+  - name: teleport_role_escalation.privileged_operation
+    description: Perform an operation that requires an escalated role
+  - name: teleport_role_escalation.request_role
+    description: Request escalation to a higher-privilege Teleport role

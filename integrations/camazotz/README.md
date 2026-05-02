@@ -1,8 +1,8 @@
 # Camazotz Integration
 
-Test nullfield against [camazotz](https://github.com/babywyrm/camazotz), a vulnerable-by-design MCP security training platform with **35 lab modules and 86 tools** (verified live against the reference K3s deployment) mapped to OWASP MCP Top 10 and the MCP Red Team Playbook.
+Test nullfield against [camazotz](https://github.com/babywyrm/camazotz), a vulnerable-by-design MCP security training platform with **35 lab modules** mapped to OWASP MCP Top 10 and the MCP Red Team Playbook.
 
-The bundled `policy.yaml` and `tools.yaml` ship a 57-tool starter allowlist (25 read-only + 25 write-action + 7 high-risk denied); the remaining tools fall under registry default-deny and need explicit registration before they pass the gate.
+The bundled `policy.yaml` and `tools.yaml` cover all **85 tools** exposed by camazotz's `tools/list` (verified 2026-05-02 against the reference K3s deployment with [`sync-tools.sh`](sync-tools.sh)). 36 read-only tools land in tier 1 (ALLOW, 60 calls/min), 33 write/action tools in tier 2 (ALLOW, 20 calls/min), and 16 high-risk tools in tier 3 (DENY). Anything not on this list falls under the trailing `*` default-deny rule.
 
 ## Prerequisites
 
@@ -23,13 +23,14 @@ nullfield proxies on `:9090`, camazotz is on `:8080`. Point your MCP client at `
 
 ## Policy Tiers
 
-The policy uses three tiers:
+The policy uses three tiers, covering all 85 live tools (verified
+in-sync 2026-05-02):
 
 | Tier | Action | Tools | Rate limit | Rationale |
 |------|--------|-------|------------|-----------|
-| 1 | ALLOW | 25 read-only tools (list, check, read, recall) | 60/min | Safe operations — no state mutation |
-| 2 | ALLOW | 25 write/action tools (send, issue, invoke, store) | 20/min | State-changing but not inherently dangerous |
-| 3 | DENY | 7 high-risk tools | blocked | SSRF, exfiltration, supply chain, rug pull, prompt injection, shadow webhook, unvalidated plan execution |
+| 1 | ALLOW | 36 read-only tools (list, check, read, recall, inspect, get, show, simulate) | 60/min | Safe operations — no state mutation, no credential exposure |
+| 2 | ALLOW | 33 write/action tools (send, issue, invoke, store, submit, delegate, access) | 20/min | State-changing but not inherently dangerous |
+| 3 | DENY | 16 high-risk tools | blocked | SSRF, exfiltration, supply chain, rug pull, prompt injection, shadow webhook, unvalidated plan execution, identity replay, role escalation, subprocess execution, policy mutation |
 
 ### Tier 3 (blocked) tools
 
@@ -42,6 +43,34 @@ The policy uses three tiers:
 | `supply.install_package` | Malicious supply chain install | MCP04 |
 | `tool.mutate_behavior` | Rug pull / tool drift | MCP03 |
 | `hallucination.execute_plan` | Destructive LLM-generated plan | MCP-T10 |
+| `bot_identity_theft.read_tbot_secret` | tbot credential exfiltration | MCP-T04 |
+| `bot_identity_theft.replay_identity` | Bot identity replay across services | MCP-T04 |
+| `cert_replay.replay_cert` | Expired-certificate replay | MCP-T04 |
+| `policy_authoring.submit_policy` | Policy mutation (LLM rewriting its own gate) | MCP-T03 |
+| `sdk.get_cached_token` | SDK token-cache exposure (Transport C) | MCP01 |
+| `sdk.invoke_as_cached` | SDK token replay (Transport C) | MCP-T04 |
+| `subprocess.invoke_worker` | Subprocess execution (Transport D) | MCP-T10 |
+| `teleport_role_escalation.privileged_operation` | Action requiring escalated role | MCP-T05 |
+| `teleport_role_escalation.request_role` | Self-escalation to higher-privilege Teleport role | MCP-T05 |
+
+### Re-syncing against your deployment
+
+If you fork camazotz, add new lab modules, or run a downstream version,
+re-derive the registry by pointing the sync script at any MCP endpoint:
+
+```bash
+bash integrations/camazotz/sync-tools.sh http://localhost:8080/mcp
+# or:  ./sync-tools.sh http://<node>:30080/mcp
+# or:  ./sync-tools.sh https://camazotz.example.com/mcp
+```
+
+Exits 0 if the bundled registry already covers every live tool. Otherwise
+prints `added` (tools the deployment has but the registry does not — these
+are silently default-denied today, triage them into tier 1 / 2 / 3) and
+`removed` (tools the registry has but the deployment no longer exposes —
+likely renamed). Tier placement is left to the operator on purpose:
+silently appending unknowns to ALLOW would defeat the bundle's whole
+point.
 
 ## Test
 
@@ -49,7 +78,7 @@ The policy uses three tiers:
 bash integrations/camazotz/test.sh
 ```
 
-Expected: tier 1+2 tools forwarded to camazotz, tier 3 tools blocked, unregistered tools rejected, full audit trail.
+Expected: tier 1+2 tools forwarded to camazotz, tier 3 tools blocked, unregistered tools rejected, full audit trail. The bundled registry now covers every live tool, so "unregistered tools rejected" only fires for tools added in your fork — re-run [`sync-tools.sh`](sync-tools.sh) and re-tier them before testing.
 
 ## Canonical K8s integration: `:30090` policed Service
 

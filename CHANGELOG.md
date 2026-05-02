@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Full camazotz tool coverage in starter bundle** — `integrations/camazotz/tools.yaml` and `policy.yaml` now register all 85 tools exposed by camazotz `tools/list` (was 57 of 85, with 28 silently default-denied). The 28 newly-tiered tools split as +11 read-only (tier 1), +8 write/action (tier 2), +9 high-risk (tier 3). High-risk additions cover bot-identity replay (`bot_identity_theft.read_tbot_secret`, `replay_identity`), cert replay (`cert_replay.replay_cert`), policy mutation (`policy_authoring.submit_policy`), SDK token-cache exposure (`sdk.get_cached_token`, `sdk.invoke_as_cached`), subprocess execution (`subprocess.invoke_worker`, Transport D), and Teleport role escalation (`teleport_role_escalation.{request_role,privileged_operation}`)
+- **`integrations/camazotz/sync-tools.sh`** — portable diff-only sync script. Takes any MCP endpoint URL (Compose, K3s NodePort, EKS/GKE ingress, port-forward), fetches `tools/list`, and prints `added` / `removed` against the local registry. Exits 0 if in sync, 1 if drift. Does not auto-modify files — tier placement stays a human judgment
 - **Camazotz K8s reference integration** — `brain-gateway-policed` Service exposes a nullfield-enforced entry point alongside the bypass path
   - NodePort `:30090` → sidecar listen `:9090` (policy enforcement on)
   - NodePort `:31591` → sidecar admin `:9091` (status, holds, metrics)
