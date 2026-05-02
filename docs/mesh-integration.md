@@ -303,6 +303,65 @@ kubectl apply -k meshes/cilium/
 
 ---
 
+## K8s sidecar mode (camazotz reference)
+
+The camazotz repo ships a reference deployment that runs nullfield as a sidecar in front of `brain-gateway` and exposes both the unenforced and enforced paths side-by-side, so you can A/B the same MCP traffic against the policy.
+
+### Services
+
+The manifest [`kube/brain-gateway-policed.yaml`](https://github.com/babywyrm/camazotz/blob/main/kube/brain-gateway-policed.yaml) layers a second `Service` over the existing `brain-gateway` pods:
+
+| Endpoint | NodePort | Pod port | What it hits | Policy enforcement |
+|----------|----------|----------|--------------|--------------------|
+| `:30080` (default `brain-gateway`) | 30080 | 8080 (`brain-gateway` container) | upstream directly | **bypass** — no nullfield in the path |
+| `:30090` (`brain-gateway-policed`) | 30090 | 9090 (nullfield sidecar) | nullfield → `brain-gateway` `:8080` | **enforced** — full policy + identity + audit |
+| `:31591` (`brain-gateway-policed`) | 31591 | 9091 (nullfield admin) | nullfield admin API | n/a — `/healthz`, `/readyz`, `/metrics`, `/admin/holds` |
+
+```text
+Client ──┬──► :30080 ──► brain-gateway :8080                    (bypass; no policy)
+         │
+         └──► :30090 ──► nullfield :9090 ──► brain-gateway :8080 (policed)
+                              │
+                          :31591 ──► nullfield :9091 admin
+```
+
+### Why a separate Service?
+
+The default `brain-gateway` `Service` targets pod port `8080` directly so existing kosmos / camazotz tooling and the Streamlit operator UI keep working unmodified. The policed `Service` reuses the same pod selector but targets pod port `9090` — the nullfield sidecar's listen address. Both flow into the same pod; only the path through the pod differs.
+
+This pattern lets you:
+
+- Run smoke tests against `:30080` to confirm the application still works
+- Run the same smoke tests against `:30090` to confirm the policy is firing
+- Hit `:31591/admin/holds` while a request is parked, without exposing admin to the application path
+
+### Verifying enforcement
+
+The canonical verification target is `make smoke-k8s-policed` in the camazotz repo, which runs `scripts/smoke_test.py --target k8s --require-policed`. It probes both endpoints and asserts the enforcement asymmetry.
+
+Live behavior on a single-node K3s NUC (with no client token):
+
+```text
+$ curl -s -X POST http://192.168.1.85:30080/mcp -d '{"jsonrpc":"2.0",...}'
+HTTP/1.1 200 OK
+{...result...}
+
+$ curl -s -X POST http://192.168.1.85:30090/mcp -d '{"jsonrpc":"2.0",...}'
+{"jsonrpc":"2.0","error":{"code":-32001,"message":"identity verification failed"},...}
+```
+
+Code `-32001` is nullfield's identity check; the bypass returns the upstream response unchanged. That's the contract `make smoke-k8s-policed` enforces.
+
+### When to use this profile
+
+- Validating new policy bundles against a real MCP attack surface (camazotz exposes 35 lab modules / 86 tools today)
+- CI / lab smoke gates: `make smoke-k8s-policed` is the canonical "did the sidecar actually engage" probe
+- Demos where a side-by-side bypass-vs-policed comparison is more illustrative than a single enforced path
+
+This profile is independent of the mesh choice above. You can layer Istio, Linkerd, or Cilium on top — the policed `Service` keeps targeting nullfield regardless.
+
+---
+
 ## Choosing a Profile
 
 | If your cluster runs... | Use profile... | Sidecars | Notes |

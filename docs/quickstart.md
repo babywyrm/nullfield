@@ -108,6 +108,10 @@ helm install nullfield deploy/helm/nullfield \
   --set controller.enabled=true
 ```
 
+### K8s sidecar quick demo (camazotz reference)
+
+If you want a fully wired example to point real MCP traffic at, deploy the camazotz reference stack. It exposes two `NodePort` Services over the same `brain-gateway` pod: `:30080` is the bypass (direct to the app, no policy) and `:30090` is the policed path (through the nullfield sidecar listening on `:9090`). The sidecar admin port is exposed at `:31591` for `/healthz`, `/metrics`, and `/admin/holds`. The manifest is [`kube/brain-gateway-policed.yaml`](https://github.com/babywyrm/camazotz/blob/main/kube/brain-gateway-policed.yaml) in the camazotz repo, and the canonical verification target is `make smoke-k8s-policed` (which runs `scripts/smoke_test.py --target k8s --require-policed`). Unauthenticated requests to `:30090` return JSON-RPC error `-32001 identity verification failed`; the same request to `:30080` returns 200 — that asymmetry is the proof the sidecar is in the path. See [Mesh Integration → K8s sidecar mode (camazotz reference)](mesh-integration.md#k8s-sidecar-mode-camazotz-reference) for the traffic-flow diagram and ports table.
+
 ---
 
 ## Phase 6: Production Hardening
