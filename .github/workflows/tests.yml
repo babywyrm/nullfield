@@ -1,0 +1,132 @@
+name: Tests
+
+# Per-repo CI for nullfield. Runs `go test ./...` on every push and PR,
+# plus a YAML lint that confirms the bundled lane policies and the
+# camazotz integration policy parse against the v1alpha1 schema (catches
+# silent schema drift before the CRD bridge fails to apply).
+#
+# Cross-repo coherence (lab count, transport taxonomy, integration tool
+# count) lives in agentic-sec's `cross-repo-coherence` workflow; we
+# notify it via repository_dispatch on a successful main build.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go-test:
+    name: go test (Go ${{ matrix.go-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ['1.24', '1.25']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+
+      - name: Build
+        run: make build
+
+      - name: Test (verbose)
+        run: go test -v -race ./...
+
+  policy-yaml-lint:
+    name: Lint shipped policy YAMLs and tool registry consistency
+    runs-on: ubuntu-latest
+    needs: go-test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python (for YAML parsing only)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Parse every shipped policy YAML
+        run: |
+          set -eu
+          for f in \
+            policies/by-lane/lane-1-human.yaml \
+            policies/by-lane/lane-2-delegated.yaml \
+            policies/by-lane/lane-3-machine.yaml \
+            policies/by-lane/lane-4-chain.yaml \
+            policies/by-lane/lane-5-anonymous.yaml \
+            integrations/camazotz/policy.yaml \
+            integrations/camazotz/policy-with-budget.yaml \
+            integrations/camazotz/policy-with-hold.yaml \
+            integrations/camazotz/policy-with-scope.yaml \
+            integrations/camazotz/tools.yaml; do
+            echo "  parsing $f"
+            python3 - "$f" <<'PY'
+          import sys, yaml
+          d = yaml.safe_load(open(sys.argv[1]))
+          assert d.get("apiVersion") == "nullfield.io/v1alpha1", \
+              f"{sys.argv[1]}: bad apiVersion {d.get('apiVersion')!r}"
+          assert d.get("kind") in ("NullfieldPolicy", "ToolRegistry"), \
+              f"{sys.argv[1]}: unexpected kind {d.get('kind')!r}"
+          PY
+          done
+          echo "OK — every shipped YAML parses against the v1alpha1 envelope"
+
+      - name: Verify camazotz tools.yaml is in sync with bundled policy
+        run: |
+          python3 - <<'PY'
+          import sys, yaml
+          tools = yaml.safe_load(open("integrations/camazotz/tools.yaml"))
+          policy = yaml.safe_load(open("integrations/camazotz/policy.yaml"))
+
+          registered = {t["name"] for t in tools.get("tools", [])}
+          enumerated = set()
+          for rule in policy["spec"]["rules"]:
+              names = rule.get("toolNames", []) or []
+              if names == ["*"]:
+                  continue
+              enumerated.update(names)
+
+          extra_in_policy = sorted(enumerated - registered)
+          extra_in_registry = sorted(registered - enumerated)
+
+          print(f"tools.yaml registered: {len(registered)}")
+          print(f"policy.yaml enumerated: {len(enumerated)}")
+
+          ok = True
+          if extra_in_policy:
+              print(f"::error::policy.yaml names tools missing from tools.yaml: {extra_in_policy}")
+              ok = False
+          if extra_in_registry:
+              print(f"::error::tools.yaml registers tools missing from policy.yaml tiers: {extra_in_registry}")
+              ok = False
+          sys.exit(0 if ok else 1)
+          PY
+
+  notify-coherence:
+    name: Notify ecosystem coherence workflow
+    runs-on: ubuntu-latest
+    needs: [go-test, policy-yaml-lint]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Trigger agentic-sec coherence run
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.ECOSYSTEM_DISPATCH_TOKEN || secrets.GITHUB_TOKEN }}
+          repository: babywyrm/agentic-sec
+          event-type: ecosystem-changed
+          client-payload: '{"source": "nullfield", "sha": "${{ github.sha }}"}'
+        continue-on-error: true
