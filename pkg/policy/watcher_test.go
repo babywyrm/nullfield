@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -67,9 +68,9 @@ func TestHotLoader_DetectsChange(t *testing.T) {
 		t.Fatalf("LoadInitial failed: %v", err)
 	}
 
-	reloaded := false
+	reloaded := atomic.Bool{}
 	loader.OnReload(func(e Engine) {
-		reloaded = true
+		reloaded.Store(true)
 	})
 
 	os.WriteFile(path, []byte(updatedPolicy), 0644)
@@ -79,7 +80,7 @@ func TestHotLoader_DetectsChange(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	close(stop)
 
-	if !reloaded {
+	if !reloaded.Load() {
 		t.Fatal("expected reload callback to fire")
 	}
 
