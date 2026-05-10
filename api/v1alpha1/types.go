@@ -122,6 +122,10 @@ type ScopeRequestConfig struct {
 	StripArguments    []string         `json:"stripArguments,omitempty" yaml:"stripArguments,omitempty"`
 	InjectArguments   map[string]any   `json:"injectArguments,omitempty" yaml:"injectArguments,omitempty"`
 	InjectCredentials []CredentialRef  `json:"injectCredentials,omitempty" yaml:"injectCredentials,omitempty"`
+	// BlockRedirects strips URL-typed arguments that contain redirect parameters
+	// (url=, uri=, redirect=, location=, target=) before forwarding to the tool.
+	// Prevents AI governance gate bypass via open redirect (MCP-T41).
+	BlockRedirects    bool             `json:"blockRedirects,omitempty" yaml:"blockRedirects,omitempty"`
 }
 
 type ScopeResponseConfig struct {

@@ -8,6 +8,20 @@ import (
 	v1alpha1 "github.com/babywyrm/nullfield/api/v1alpha1"
 )
 
+// _redirectArgNames is the set of argument names that commonly carry URLs
+// which may be used in open-redirect or SSRF patterns (MCP-T41).
+var _redirectArgNames = map[string]bool{
+	"url": true, "uri": true, "redirect": true,
+	"location": true, "target": true, "cdn_url": true,
+	"war_url": true, "webhook_url": true, "callback_url": true,
+}
+
+// _isRedirectLike returns true when the string value looks like an HTTP URL
+// that could carry a redirect destination.
+func _isRedirectLike(v string) bool {
+	return strings.HasPrefix(v, "http://") || strings.HasPrefix(v, "https://")
+}
+
 // Modifications tracks what was changed for the audit trail.
 type Modifications struct {
 	StrippedArgs []string `json:"stripped,omitempty"`
@@ -38,6 +52,19 @@ func ModifyRequest(args map[string]any, cfg *v1alpha1.ScopeRequestConfig) (map[s
 	for key, val := range cfg.InjectArguments {
 		result[key] = val
 		mods.InjectedArgs = append(mods.InjectedArgs, key)
+	}
+
+	// blockRedirects: strip URL-typed args carrying redirect-prone values.
+	// Defends against MCP-T41 (AI governance gate bypass via open redirect).
+	if cfg.BlockRedirects {
+		for k, v := range result {
+			if _redirectArgNames[strings.ToLower(k)] {
+				if s, ok := v.(string); ok && _isRedirectLike(s) {
+					delete(result, k)
+					mods.StrippedArgs = append(mods.StrippedArgs, k)
+				}
+			}
+		}
 	}
 
 	return result, mods
