@@ -20,6 +20,7 @@ import (
 	"github.com/babywyrm/nullfield/pkg/credentials"
 	"github.com/babywyrm/nullfield/pkg/hold"
 	"github.com/babywyrm/nullfield/pkg/identity"
+	"github.com/babywyrm/nullfield/pkg/inspection"
 	"github.com/babywyrm/nullfield/pkg/policy"
 	"github.com/babywyrm/nullfield/pkg/registry"
 	"github.com/babywyrm/nullfield/pkg/scope"
@@ -39,6 +40,7 @@ type Handler struct {
 	registry    *registry.Registry
 	breaker     *circuit.Breaker
 	credentials *credentials.MultiProvider
+	inspector   *inspection.Inspector
 	logger      *slog.Logger
 }
 
@@ -54,6 +56,7 @@ type HandlerOpts struct {
 	Registry    *registry.Registry
 	Breaker     *circuit.Breaker
 	Credentials *credentials.MultiProvider
+	Inspector   *inspection.Inspector
 	Logger      *slog.Logger
 }
 
@@ -72,6 +75,7 @@ func NewHandler(opts HandlerOpts) *Handler {
 		registry:    opts.Registry,
 		breaker:     opts.Breaker,
 		credentials: opts.Credentials,
+		inspector:   opts.Inspector,
 		logger:      opts.Logger,
 	}
 }
@@ -344,36 +348,118 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 
 	r.Body = io.NopCloser(bytes.NewReader(body))
 
-	if scopeResponseCfg != nil && len(scopeResponseCfg.RedactPatterns) > 0 {
+	needsIntercept := (scopeResponseCfg != nil && len(scopeResponseCfg.RedactPatterns) > 0) ||
+		h.needsInspection(decision)
+
+	if needsIntercept {
 		resp, err := http.Post("http://"+h.upstreamAddr+r.URL.Path, "application/json", io.NopCloser(bytes.NewReader(body)))
 		if err != nil {
-			h.writeJSONRPCError(w, req.ID, ErrCodeInternal, "scope: upstream request failed")
+			h.writeJSONRPCError(w, req.ID, ErrCodeInternal, "upstream request failed")
 			return
 		}
 		defer resp.Body.Close()
 
 		respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		if err != nil {
-			h.writeJSONRPCError(w, req.ID, ErrCodeInternal, "scope: failed to read upstream response")
+			h.writeJSONRPCError(w, req.ID, ErrCodeInternal, "failed to read upstream response")
 			return
 		}
 
-		redacted, count := scope.ModifyResponse(respBody, scopeResponseCfg)
-		if count > 0 {
-			h.auditor.Emit(ctx, audit.Event{
-				Type:     audit.EventScopeModified,
-				Method:   req.Method,
-				ToolName: tc.Name,
-				Identity: id.Subject,
-				Reason:   fmt.Sprintf("response: %d patterns redacted", count),
-			})
+		if scopeResponseCfg != nil && len(scopeResponseCfg.RedactPatterns) > 0 {
+			var count int
+			respBody, count = scope.ModifyResponse(respBody, scopeResponseCfg)
+			if count > 0 {
+				h.auditor.Emit(ctx, audit.Event{
+					Type:     audit.EventScopeModified,
+					Method:   req.Method,
+					ToolName: tc.Name,
+					Identity: id.Subject,
+					Reason:   fmt.Sprintf("response: %d patterns redacted", count),
+				})
+			}
+		}
+
+		if blocked, respBody2 := h.inspectResponse(ctx, req, tc, id, decision, respBody); blocked {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write(respBody2)
+			return
+		} else if respBody2 != nil {
+			respBody = respBody2
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(resp.StatusCode)
-		w.Write(redacted)
+		w.Write(respBody)
 	} else {
 		h.upstream.ServeHTTP(w, r)
+	}
+}
+
+func (h *Handler) needsInspection(decision policy.Decision) bool {
+	if h.inspector == nil {
+		return false
+	}
+	if decision.MatchedRule == nil || decision.MatchedRule.Inspection == nil {
+		return false
+	}
+	return decision.MatchedRule.Inspection.Enabled
+}
+
+func (h *Handler) inspectResponse(
+	ctx context.Context,
+	req *JSONRPCRequest,
+	tc *ToolsCallParams,
+	id *identity.Identity,
+	decision policy.Decision,
+	respBody []byte,
+) (blocked bool, result []byte) {
+	if h.inspector == nil || decision.MatchedRule == nil || decision.MatchedRule.Inspection == nil {
+		return false, nil
+	}
+	icfg := decision.MatchedRule.Inspection
+	if !icfg.Enabled {
+		return false, nil
+	}
+
+	findings := h.inspector.Inspect(string(respBody))
+	if len(findings) == 0 {
+		return false, nil
+	}
+
+	h.auditor.Emit(ctx, audit.Event{
+		Type:     audit.EventInspectionFinding,
+		Method:   req.Method,
+		ToolName: tc.Name,
+		Identity: id.Subject,
+		Reason:   fmt.Sprintf("%d findings: %s", len(findings), inspection.Summarize(findings)),
+	})
+
+	action := icfg.OnFinding
+	if action == "" {
+		action = "REDACT"
+	}
+
+	switch action {
+	case "DENY":
+		errResp := NewErrorResponse(req.ID, ErrCodeInspectionBlock,
+			fmt.Sprintf("response blocked: %d sensitive findings detected", len(findings)))
+		b, _ := json.Marshal(errResp)
+		return true, b
+	case "REDACT":
+		redacted, count := h.inspector.Redact(string(respBody), "[REDACTED]")
+		if count > 0 {
+			h.auditor.Emit(ctx, audit.Event{
+				Type:     audit.EventInspectionRedact,
+				Method:   req.Method,
+				ToolName: tc.Name,
+				Identity: id.Subject,
+				Reason:   fmt.Sprintf("redacted %d sensitive patterns", count),
+			})
+		}
+		return false, []byte(redacted)
+	default:
+		return false, nil
 	}
 }
 

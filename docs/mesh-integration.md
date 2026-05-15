@@ -354,7 +354,7 @@ Code `-32001` is nullfield's identity check; the bypass returns the upstream res
 
 ### When to use this profile
 
-- Validating new policy bundles against a real MCP attack surface (camazotz exposes 35 lab modules / 86 tools today)
+- Validating new policy bundles against a real MCP attack surface (camazotz exposes 52 lab modules / 86 tools today)
 - CI / lab smoke gates: `make smoke-k8s-policed` is the canonical "did the sidecar actually engage" probe
 - Demos where a side-by-side bypass-vs-policed comparison is more illustrative than a single enforced path
 

@@ -360,6 +360,7 @@ nullfield returns standard JSON-RPC 2.0 errors with application-defined codes:
 | `-32004` | Budget exhausted or velocity limit exceeded |
 | `-32005` | HOLD timed out without approval |
 | `-32006` | SCOPE could not safely modify the request |
+| `-32007` | Response inspection policy violation (finding triggered DENY) |
 
 ---
 
@@ -391,7 +392,7 @@ nullfield/
 │   └── proto/                  # Proto definitions (controller.proto)
 ├── internal/config/      # Environment-based configuration
 ├── integrations/
-│   └── camazotz/         # Camazotz vulnerable MCP server (35 labs / 86 tools live; tiered policy ships a 57-tool starter allowlist)
+│   └── camazotz/         # Camazotz vulnerable MCP server (52 labs / 86 tools live; tiered policy ships a 57-tool starter allowlist)
 ├── meshes/               # Service mesh overlays (Istio, Linkerd, Cilium)
 ├── deploy/
 │   ├── helm/nullfield/   # Universal Helm chart (sidecar + controller + observability)
@@ -449,10 +450,11 @@ nullfield/
 - [x] **v0.8** — Per-rule guard primitives: `identity.requireActChain` (RFC 8693), `identity.audienceMustNarrow` (RFC 8707), `delegation.maxDepth` — enforced in `pkg/policy/rules.go`
 - [x] **v0.8** — Five lane policy templates in `policies/by-lane/` (human / delegated / machine / chain / anonymous)
 
+- [x] **v0.9** — L3 tool governance: tool lifecycle tracking + rug-pull detection via `pkg/registry/lifecycle.go` (Reconcile, DriftReport, LifecycleTracker, ComputeHash — 14 tests)
+- [x] **v0.9** — Response inspection: findings detected in upstream responses, per-rule `onFinding: DENY/REDACT/AUDIT`, new `InspectionConfig` type, error code `-32007`, audit events `inspection.finding` + `inspection.redact` (6 tests)
+- [x] **v0.9** — Cost attribution: `GetUsageReport` per identity/session with `CostConfig`/`CostRate`, `GetToolCost` helper, sorted by highest cost (6 tests)
+
 ### Next
-- [ ] **v0.9** — L3 tool governance: registration workflow, tool lifecycle, rug-pull detection
-- [ ] **v0.9** — L4 agentic flow control: extend depth/act-chain primitives with HITL prompts and per-tenant policy chaining
-- [ ] **v0.9** — Response inspection (detect system prompt leakage, PII in tool responses), cost attribution per identity/session
 - [ ] **v1.0** — Transparent iptables-based proxy (Istio-style), production hardening, ext_authz gRPC mode
 
 ### Future

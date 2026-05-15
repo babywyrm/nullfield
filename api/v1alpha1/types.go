@@ -172,7 +172,20 @@ type Rule struct {
 	Budget          *BudgetConfig        `json:"budget,omitempty" yaml:"budget,omitempty"`
 	Identity        *RuleIdentityGuard   `json:"identity,omitempty" yaml:"identity,omitempty"`
 	Delegation      *RuleDelegationGuard `json:"delegation,omitempty" yaml:"delegation,omitempty"`
+	Inspection      *InspectionConfig    `json:"inspection,omitempty" yaml:"inspection,omitempty"`
 	Reason          string               `json:"reason,omitempty" yaml:"reason,omitempty"`
+}
+
+// InspectionConfig controls response content inspection for a rule.
+// When attached to an ALLOW or SCOPE rule, nullfield inspects the upstream
+// response before returning it to the caller.
+type InspectionConfig struct {
+	Enabled           bool   `json:"enabled" yaml:"enabled"`
+	DetectCredentials bool   `json:"detectCredentials,omitempty" yaml:"detectCredentials,omitempty"`
+	DetectPII         bool   `json:"detectPII,omitempty" yaml:"detectPII,omitempty"`
+	DetectPromptLeak  bool   `json:"detectPromptLeak,omitempty" yaml:"detectPromptLeak,omitempty"`
+	DetectPaths       bool   `json:"detectPaths,omitempty" yaml:"detectPaths,omitempty"`
+	OnFinding         string `json:"onFinding,omitempty" yaml:"onFinding,omitempty"`
 }
 
 // RuleIdentityGuard adds identity-shape guards evaluated alongside the rule's

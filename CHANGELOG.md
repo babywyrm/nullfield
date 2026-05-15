@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Tool lifecycle + rug-pull detection** — `pkg/registry/lifecycle.go` implements continuous tool-set reconciliation against upstream `tools/list`. `LifecycleTracker` stores a `ComputeHash` of the registered tool set at init; `Reconcile` diffs periodically and emits a `DriftReport` when tools appear, disappear, or mutate schema post-startup. Detects MCP-T03 rug-pull attacks (tool behavior/definition changes after the session is established). 14 unit tests
+- **Response inspection in handler pipeline** — inspection findings detected in upstream MCP responses (system prompt leakage, PII, sensitive patterns). Configurable per-rule via `onFinding:` with three actions: `DENY` (reject the response with `-32007`), `REDACT` (strip the finding and forward), `AUDIT` (log and forward unchanged). New `InspectionConfig` type in `api/v1alpha1/types.go`. New audit event types: `inspection.finding`, `inspection.redact`. New JSON-RPC error code `-32007` (inspection policy violation). 6 unit tests
+- **Cost attribution** — `GetUsageReport` aggregates tool-call cost per identity and per session using `CostConfig` / `CostRate` definitions in policy. `GetToolCost` helper returns the cost of a single call. Reports sorted by highest cost first. 6 unit tests
+
 - **Full camazotz tool coverage in starter bundle** — `integrations/camazotz/tools.yaml` and `policy.yaml` now register all 85 tools exposed by camazotz `tools/list` (was 57 of 85, with 28 silently default-denied). The 28 newly-tiered tools split as +11 read-only (tier 1), +8 write/action (tier 2), +9 high-risk (tier 3). High-risk additions cover bot-identity replay (`bot_identity_theft.read_tbot_secret`, `replay_identity`), cert replay (`cert_replay.replay_cert`), policy mutation (`policy_authoring.submit_policy`), SDK token-cache exposure (`sdk.get_cached_token`, `sdk.invoke_as_cached`), subprocess execution (`subprocess.invoke_worker`, Transport D), and Teleport role escalation (`teleport_role_escalation.{request_role,privileged_operation}`)
 - **`integrations/camazotz/sync-tools.sh`** — portable diff-only sync script. Takes any MCP endpoint URL (Compose, K3s NodePort, EKS/GKE ingress, port-forward), fetches `tools/list`, and prints `added` / `removed` against the local registry. Exits 0 if in sync, 1 if drift. Does not auto-modify files — tier placement stays a human judgment
 - **Camazotz K8s reference integration** — `brain-gateway-policed` Service exposes a nullfield-enforced entry point alongside the bypass path
@@ -23,7 +27,7 @@ All notable changes to this project will be documented in this file.
 - README marks the CRD bridge shipped (was "planned"), cites ADR 0001 for the five-transport taxonomy, and adds a per-lane templates table
 - `docs/mesh-integration.md` adds a "K8s sidecar mode (camazotz reference)" section
 - `docs/quickstart.md` references the camazotz `:30090` policed entry point as the canonical K8s sidecar smoke target
-- `integrations/camazotz/README.md` refreshed to 35 lab modules / 86 tools (verified live), adds the policed `:30090` invocation, and updates the L4 delegation row to reflect `requireActChain` + `maxDepth` enforcement
+- `integrations/camazotz/README.md` refreshed to 52 lab modules / 86 tools (verified live), adds the policed `:30090` invocation, and updates the L4 delegation row to reflect `requireActChain` + `maxDepth` enforcement
 - `policies/by-lane/README.md` confirms the three primitives are enforced as of 2026-05-01
 
 ---

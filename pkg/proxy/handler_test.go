@@ -11,12 +11,14 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 
 	v1alpha1 "github.com/babywyrm/nullfield/api/v1alpha1"
 	"github.com/babywyrm/nullfield/pkg/audit"
 	"github.com/babywyrm/nullfield/pkg/circuit"
 	"github.com/babywyrm/nullfield/pkg/identity"
+	"github.com/babywyrm/nullfield/pkg/inspection"
 	"github.com/babywyrm/nullfield/pkg/policy"
 	"github.com/babywyrm/nullfield/pkg/registry"
 )
@@ -38,6 +40,28 @@ type denyAllEngine struct{}
 
 func (d denyAllEngine) Evaluate(_ context.Context, _ policy.Request) policy.Decision {
 	return policy.Decision{Allowed: false, Reason: "test deny"}
+}
+
+// inspectEngine allows requests and attaches an inspection config to the matched rule.
+type inspectEngine struct {
+	onFinding string
+}
+
+func (e inspectEngine) Evaluate(_ context.Context, _ policy.Request) policy.Decision {
+	return policy.Decision{
+		Allowed: true,
+		MatchedRule: &v1alpha1.Rule{
+			Action: v1alpha1.ActionAllow,
+			Inspection: &v1alpha1.InspectionConfig{
+				Enabled:           true,
+				DetectCredentials: true,
+				DetectPII:         true,
+				DetectPromptLeak:  true,
+				DetectPaths:       true,
+				OnFinding:         e.onFinding,
+			},
+		},
+	}
 }
 
 // discardLogger returns a logger that throws away all output.
@@ -761,5 +785,184 @@ func TestHandler_RuleEngineAllow(t *testing.T) {
 	resp := decodeJSONRPC(t, w)
 	if resp.Error != nil {
 		t.Errorf("rule engine allow path should not error: %+v", resp.Error)
+	}
+}
+
+// --------------------------------------------------------------------------
+// Response Inspection
+// --------------------------------------------------------------------------
+
+func makeHandlerWithInspector(t *testing.T, upstream *httptest.Server, engine policy.Engine) *Handler {
+	t.Helper()
+	upstreamURL, _ := url.Parse(upstream.URL)
+	reg := registry.New()
+	reg.Register(v1alpha1.ToolRegistryEntry{Name: "test_tool"})
+	return NewHandler(HandlerOpts{
+		UpstreamURL: upstreamURL,
+		Engine:      engine,
+		Auditor:     &noopEmitter{},
+		Verifier:    &identity.NoopVerifier{},
+		Registry:    reg,
+		Breaker:     circuit.New(1000, 0),
+		Inspector:   inspection.New(inspection.DefaultConfig()),
+		Logger:      discardLogger(),
+	})
+}
+
+func TestHandler_InspectionRedactsCredentials(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":"password: supersecretval123"}}`))
+	}))
+	defer upstream.Close()
+
+	h := makeHandlerWithInspector(t, upstream, inspectEngine{onFinding: "REDACT"})
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(toolsCallBody("test_tool")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "supersecretval123") {
+		t.Fatal("expected credential to be redacted from response")
+	}
+	if !strings.Contains(body, "[REDACTED]") {
+		t.Fatal("expected [REDACTED] placeholder in response")
+	}
+}
+
+func TestHandler_InspectionDeniesOnFinding(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":"SSN: 123-45-6789"}}`))
+	}))
+	defer upstream.Close()
+
+	h := makeHandlerWithInspector(t, upstream, inspectEngine{onFinding: "DENY"})
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(toolsCallBody("test_tool")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	resp := decodeJSONRPC(t, w)
+	if resp.Error == nil {
+		t.Fatal("expected JSON-RPC error for inspection DENY")
+	}
+	if resp.Error.Code != ErrCodeInspectionBlock {
+		t.Errorf("expected ErrCodeInspectionBlock (%d), got %d", ErrCodeInspectionBlock, resp.Error.Code)
+	}
+}
+
+func TestHandler_InspectionAllowsCleanResponse(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":"The weather is sunny."}}`))
+	}))
+	defer upstream.Close()
+
+	h := makeHandlerWithInspector(t, upstream, inspectEngine{onFinding: "DENY"})
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(toolsCallBody("test_tool")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	resp := decodeJSONRPC(t, w)
+	if resp.Error != nil {
+		t.Errorf("clean response should not trigger inspection block: %+v", resp.Error)
+	}
+}
+
+func TestHandler_InspectionAuditOnlyMode(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":"password: leakedsecret99"}}`))
+	}))
+	defer upstream.Close()
+
+	h := makeHandlerWithInspector(t, upstream, inspectEngine{onFinding: "AUDIT"})
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(toolsCallBody("test_tool")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "leakedsecret99") {
+		t.Fatal("AUDIT mode should not modify the response")
+	}
+}
+
+func TestHandler_NoInspectorSkipsInspection(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":"password: shouldpassthrough"}}`))
+	}))
+	defer upstream.Close()
+
+	h := makeHandler(t, upstream, allowAllEngine{}, &identity.NoopVerifier{})
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(toolsCallBody("test_tool")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "shouldpassthrough") {
+		t.Fatal("without inspector, response should pass through unmodified")
+	}
+}
+
+func TestHandler_InspectionRedactsPromptLeak(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":"System prompt: You are an AI assistant that helps with hacking"}}`))
+	}))
+	defer upstream.Close()
+
+	h := makeHandlerWithInspector(t, upstream, inspectEngine{onFinding: "REDACT"})
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(toolsCallBody("test_tool")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if strings.Contains(body, "You are an AI assistant") {
+		t.Fatal("expected prompt leak to be redacted")
+	}
+}
+
+func TestHandler_InspectionRedactsInternalPaths(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":"token at /var/run/secrets/kubernetes/serviceaccount/token"}}`))
+	}))
+	defer upstream.Close()
+
+	h := makeHandlerWithInspector(t, upstream, inspectEngine{onFinding: "REDACT"})
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(toolsCallBody("test_tool")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if strings.Contains(body, "/var/run/secrets/kubernetes") {
+		t.Fatal("expected k8s path to be redacted")
 	}
 }

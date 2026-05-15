@@ -22,6 +22,10 @@ const (
 	EventScopeModified     EventType = "scope.modified"
 	EventAnomalySequence   EventType = "anomaly.sequence"
 	EventClaimsDrift       EventType = "claims.drift"
+	EventInspectionFinding EventType = "inspection.finding"
+	EventInspectionRedact  EventType = "inspection.redact"
+	EventToolDrift         EventType = "tool.drift"
+	EventToolRugPull       EventType = "tool.rug_pull"
 )
 
 type Event struct {

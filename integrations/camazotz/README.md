@@ -1,6 +1,6 @@
 # Camazotz Integration
 
-Test nullfield against [camazotz](https://github.com/babywyrm/camazotz), a vulnerable-by-design MCP security training platform with **35 lab modules** mapped to OWASP MCP Top 10 and the MCP Red Team Playbook.
+Test nullfield against [camazotz](https://github.com/babywyrm/camazotz), a vulnerable-by-design MCP security training platform with **52 lab modules** mapped to OWASP MCP Top 10 and the MCP Red Team Playbook.
 
 The bundled `policy.yaml` and `tools.yaml` cover all **85 tools** exposed by camazotz's `tools/list` (verified 2026-05-02 against the reference K3s deployment with [`sync-tools.sh`](sync-tools.sh)). 36 read-only tools land in tier 1 (ALLOW, 60 calls/min), 33 write/action tools in tier 2 (ALLOW, 20 calls/min), and 16 high-risk tools in tier 3 (DENY). Anything not on this list falls under the trailing `*` default-deny rule.
 
@@ -99,7 +99,7 @@ make smoke-k8s-policed
 
 Live behavior on the reference NUC: an unauthenticated MCP request to `:30090` returns JSON-RPC error `-32001 identity verification failed`; the same request to `:30080` returns 200. That asymmetry is the integration test.
 
-Use `:30090` whenever you want to exercise nullfield in front of the full 35 / 86 attack surface; keep `:30080` around for "is the upstream still healthy?" debugging and for demos that contrast the two paths.
+Use `:30090` whenever you want to exercise nullfield in front of the full 52 / 86 attack surface; keep `:30080` around for "is the upstream still healthy?" debugging and for demos that contrast the two paths.
 
 ### Lane templates
 

@@ -88,5 +88,6 @@ const (
 	ErrCodeToolUnknown    = -32003
 	ErrCodeRateLimited    = -32004
 	ErrCodeHoldTimeout    = -32005
-	ErrCodeScopeViolation = -32006
+	ErrCodeScopeViolation  = -32006
+	ErrCodeInspectionBlock = -32007
 )
