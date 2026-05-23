@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+_No unreleased changes._
+
+---
+
+## [0.9.0] — 2026-05-22
+
 ### Added
 
 - **Tool lifecycle + rug-pull detection** — `pkg/registry/lifecycle.go` implements continuous tool-set reconciliation against upstream `tools/list`. `LifecycleTracker` stores a `ComputeHash` of the registered tool set at init; `Reconcile` diffs periodically and emits a `DriftReport` when tools appear, disappear, or mutate schema post-startup. Detects MCP-T03 rug-pull attacks (tool behavior/definition changes after the session is established). 14 unit tests
