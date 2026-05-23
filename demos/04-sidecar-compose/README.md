@@ -281,5 +281,5 @@ docker compose down
 ## Next steps
 
 - [Demo 05 — Sidecar on Kubernetes](../05-sidecar-kubernetes/) — deploy to any K8s cluster with ConfigMap-based policy
-- Demo 06 — HOLD mode (human-in-the-loop approval) — coming soon
-- Demo 07 — Budget enforcement (token/cost limits per session) — coming soon
+- [Demo 06 — Hold Action](../06-hold-action/) — human-in-the-loop approval gates
+- [Demo 07 — Budget Action](../07-budget-action/) — per-identity and per-session call quotas

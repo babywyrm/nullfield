@@ -20,6 +20,9 @@ Runnable walkthroughs showing how to configure and test nullfield features. Each
 | 07 | [Budget Action](07-budget-action/) | Per-identity and per-session call quotas |
 | 08 | [Scope Action](08-scope-action/) | Request/response modification, argument stripping, redaction |
 | 09 | [Controller Mode](09-controller-mode/) | Centralized holds, shared budgets, unified admin API |
+| 10 | [CRD Policy Management](10-crd-policy/) | Kubernetes custom resources, GitOps policy apply, controller sync |
+| 11 | [Hot Policy Reload](11-hot-reload/) | Live policy updates without restart, ConfigMap reload |
+| 12 | [Response Inspection](12-response-inspection/) | Credential/PII/prompt detection and redaction in tool responses |
 
 Demos 01–03 run against a local binary. Demos 04+ deploy nullfield as a containerized sidecar.
 
