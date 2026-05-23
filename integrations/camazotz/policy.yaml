@@ -11,43 +11,63 @@ spec:
     - action: ALLOW
       mcpMethod: tools/call
       toolNames:
+        - agent_http_bypass.get_access_log
+        - agent_http_bypass.get_rejected_log
         - attribution.read_audit
         - attribution.verify_context
         - audit.list_actions
         - auth.issue_token
-        - comms.list_sent
-        - config.read_system_prompt
-        - cost.check_usage
-        - cred_broker.list_vaults
-        - delegation.read_chain
-        - downgrade.check_pattern
-        - downgrade.list_capabilities
-        - error.validate_input
-        - hallucination.list_filesystem
-        - notification.check_inbox
-        - oauth.list_connections
-        - rbac.list_agents
-        - rbac.check_membership
-        - revocation.use_token
-        - shadow.list_webhooks
-        - temporal.get_config
-        - temporal.check_permission
-        - temporal.get_status
-        - tenant.recall_memory
-        - tenant.list_tenants
-        - error.debug_info
-        # +11 from 2026-05-02 sync against live tools/list:
         - bot_identity_theft.check_session_binding
         - budget_tuning.get_traffic_pattern
         - budget_tuning.simulate
         - cert_replay.check_replay_detection
         - cert_replay.get_expired_cert
+        - chain.get_service_manifest
+        - chain.inspect_audit_log
+        - chain.read_audit_log
+        - code_review.get_report
+        - code_review.get_shell_log
+        - comms.list_sent
+        - config.read_system_prompt
+        - cost.check_usage
+        - cred_broker.list_vaults
+        - delegation.read_chain
         - delegation_depth.inspect_chain
+        - downgrade.check_pattern
+        - downgrade.list_capabilities
+        - dpop.get_service_info
+        - error.debug_info
+        - error.validate_input
+        - exec.list_approved
         - function_calling.show_tool_schema
+        - gateway.list_resources
+        - hallucination.list_filesystem
+        - langchain_tool.list_registered
+        - llmchain.inspect_context
+        - notification.check_inbox
+        - oauth.list_connections
+        - platform.get_service_config
         - policy_authoring.get_attack_chain
         - policy_authoring.get_hint
+        - preauth.inspect_session
+        - rag.get_synthesis_log
+        - ratelimit.check_budget
+        - rbac.check_membership
+        - rbac.list_agents
+        - revocation.use_token
+        - schema.list_surface
+        - sdk.initialize_session
+        - sdk.inspect_cache
+        - shadow.list_webhooks
+        - shellwrap.list_commands
+        - subchain.read_env_inheritance
         - subprocess.list_allowlist
         - teleport_role_escalation.get_current_roles
+        - temporal.check_permission
+        - temporal.get_config
+        - temporal.get_status
+        - tenant.list_tenants
+        - tenant.recall_memory
       requireIdentity: true
       maxCallsPerMinute: 60
 
@@ -59,63 +79,93 @@ spec:
         - audit.perform_action
         - auth.access_protected
         - auth.access_service_b
+        - budget_tuning.submit_budget
+        - chain.call_downstream
+        - chain.delegate_task
+        - chain.load_agent
+        - code_review.run_checks
+        - code_review.submit_pr
         - comms.send_message
-        - config.update_system_prompt
         - config.ask_agent
+        - config.update_system_prompt
         - context.injectable_summary
         - cost.invoke_llm
         - cost.reset_usage
-        - cred_broker.read_credential
         - cred_broker.configure_sidecar
+        - cred_broker.read_credential
         - delegation.invoke_agent
-        - downgrade.authenticate
-        - notification.subscribe
-        - notification.trigger_event
-        - oauth.exchange_token
-        - oauth.call_downstream
-        - rbac.trigger_agent
-        - relay.store_context
-        - relay.execute_with_context
-        - revocation.issue_token
-        - revocation.revoke_principal
-        - tenant.store_memory
-        - error.trigger_crash
-        # +8 from 2026-05-02 sync against live tools/list:
-        - budget_tuning.submit_budget
         - delegation_depth.access_resource
         - delegation_depth.delegate
         - delegation_depth.start_chain
+        - downgrade.authenticate
+        - dpop.access_resource
+        - dpop.request_access
+        - dpop.sign_proof
+        - error.trigger_crash
+        - exec.run_query
         - function_calling.invoke
+        - gateway.fetch_content
+        - langchain_tool.invoke
+        - langchain_tool.register
+        - llmchain.call_with_context
+        - llmchain.register_function
+        - notification.subscribe
+        - notification.trigger_event
+        - oauth.call_downstream
+        - oauth.exchange_token
+        - platform.ask_assistant
+        - preauth.complete_auth
+        - preauth.start_session
+        - rag.query
+        - rag.synthesize
+        - ratelimit.authenticated_call
+        - rbac.trigger_agent
+        - relay.execute_with_context
+        - relay.store_context
         - response_inspection.call_leaky_tool
         - response_inspection.submit_redaction
+        - revocation.issue_token
+        - revocation.revoke_principal
+        - sdk.invoke_action
         - sdk.write_cache
+        - subchain.run_task
+        - tenant.store_memory
       requireIdentity: true
       maxCallsPerMinute: 20
 
     # --- TIER 3: High-risk tools — DENY ---
-    # These are the dangerous ones: SSRF, exfiltration, supply chain,
-    # secret leaks, rug pull, unvalidated plan execution.
+    # SSRF, exfiltration, supply chain, secret leaks, rug pull,
+    # unvalidated plan execution, shell exec, DoS, KB poisoning.
     # nullfield blocks them before they reach camazotz.
     - action: DENY
       mcpMethod: tools/call
       toolNames:
-        - egress.fetch_url
-        - indirect.fetch_and_summarize
-        - secrets.leak_config
-        - shadow.register_webhook
-        - supply.install_package
-        - tool.mutate_behavior
-        - hallucination.execute_plan
-        # +9 from 2026-05-02 sync against live tools/list:
+        - agent_http_bypass.call_direct
         - bot_identity_theft.read_tbot_secret
         - bot_identity_theft.replay_identity
         - cert_replay.replay_cert
+        - egress.fetch_url
+        - gateway.register_asset
+        - hallucination.execute_plan
+        - indirect.fetch_and_summarize
+        - platform.execute_privileged_op
+        - platform.mint_token
         - policy_authoring.submit_policy
+        - rag.add_document
+        - ratelimit.flood_calls
+        - schema.extract_credentials
+        - schema.probe_error
+        - secrets.leak_config
+        - shadow.register_webhook
+        - shellwrap.exec
+        - subchain.spawn_agent
+        - subprocess.invoke_worker
+        - supply.install_package
         - sdk.get_cached_token
         - sdk.invoke_as_cached
-        - subprocess.invoke_worker
         - teleport_role_escalation.privileged_operation
         - teleport_role_escalation.request_role
+        - tool.mutate_behavior
 
     # --- Default deny: anything not explicitly listed above ---
     - action: DENY

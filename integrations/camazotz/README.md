@@ -2,7 +2,7 @@
 
 Test nullfield against [camazotz](https://github.com/babywyrm/camazotz), a vulnerable-by-design MCP security training platform with **52 lab modules** mapped to OWASP MCP Top 10 and the MCP Red Team Playbook.
 
-The bundled `policy.yaml` and `tools.yaml` cover all **85 tools** exposed by camazotz's `tools/list` (verified 2026-05-02 against the reference K3s deployment with [`sync-tools.sh`](sync-tools.sh)). 36 read-only tools land in tier 1 (ALLOW, 60 calls/min), 33 write/action tools in tier 2 (ALLOW, 20 calls/min), and 16 high-risk tools in tier 3 (DENY). Anything not on this list falls under the trailing `*` default-deny rule.
+The bundled `policy.yaml` and `tools.yaml` cover all **138 tools** exposed by camazotz's `tools/list` (verified 2026-05-23 against the local Docker Compose deployment with [`sync-tools.sh`](sync-tools.sh)). 57 read-only tools land in tier 1 (ALLOW, 60 calls/min), 55 write/action tools in tier 2 (ALLOW, 20 calls/min), and 26 high-risk tools in tier 3 (DENY). Anything not on this list falls under the trailing `*` default-deny rule.
 
 ## Prerequisites
 
@@ -23,35 +23,45 @@ nullfield proxies on `:9090`, camazotz is on `:8080`. Point your MCP client at `
 
 ## Policy Tiers
 
-The policy uses three tiers, covering all 85 live tools (verified
-in-sync 2026-05-02):
+The policy uses three tiers, covering all 138 live tools (verified
+in-sync 2026-05-23):
 
 | Tier | Action | Tools | Rate limit | Rationale |
 |------|--------|-------|------------|-----------|
-| 1 | ALLOW | 36 read-only tools (list, check, read, recall, inspect, get, show, simulate) | 60/min | Safe operations — no state mutation, no credential exposure |
-| 2 | ALLOW | 33 write/action tools (send, issue, invoke, store, submit, delegate, access) | 20/min | State-changing but not inherently dangerous |
-| 3 | DENY | 16 high-risk tools | blocked | SSRF, exfiltration, supply chain, rug pull, prompt injection, shadow webhook, unvalidated plan execution, identity replay, role escalation, subprocess execution, policy mutation |
+| 1 | ALLOW | 57 read-only tools (list, check, read, recall, inspect, get, show, simulate) | 60/min | Safe operations — no state mutation, no credential exposure |
+| 2 | ALLOW | 55 write/action tools (send, issue, invoke, store, submit, delegate, access) | 20/min | State-changing but not inherently dangerous |
+| 3 | DENY | 26 high-risk tools | blocked | SSRF, exfiltration, supply chain, rug pull, prompt injection, shadow webhook, unvalidated plan execution, identity replay, role escalation, subprocess execution, policy mutation, DoS, KB poisoning, shell exec |
 
 ### Tier 3 (blocked) tools
 
 | Tool | Vulnerability | OWASP / Playbook |
 |------|--------------|------------------|
+| `agent_http_bypass.call_direct` | Bypass MCP gateway via direct HTTP | MCP-T45 |
+| `bot_identity_theft.read_tbot_secret` | tbot credential exfiltration | MCP-T18 |
+| `bot_identity_theft.replay_identity` | Bot identity replay across services | MCP-T18 |
+| `cert_replay.replay_cert` | Expired-certificate replay | MCP-T19 |
 | `egress.fetch_url` | SSRF via AI proxy | — |
+| `gateway.register_asset` | Register arbitrary URL with CDN proxy | — |
+| `hallucination.execute_plan` | Destructive LLM-generated plan | MCP-T10 |
 | `indirect.fetch_and_summarize` | Indirect prompt injection | MCP-T02 |
+| `platform.execute_privileged_op` | Privileged platform operation | MCP-T05 |
+| `platform.mint_token` | JWT minting via client credentials | MCP01 |
+| `policy_authoring.submit_policy` | Policy mutation (LLM rewriting its own gate) | MCP-T03 |
+| `rag.add_document` | Knowledge base poisoning | MCP-T02 |
+| `ratelimit.flood_calls` | Anonymous rate-limit exhaustion (DoS) | MCP-T51 |
+| `schema.extract_credentials` | Credential pattern extraction from tool schemas | MCP01 |
+| `schema.probe_error` | Error probing for info leak | — |
 | `secrets.leak_config` | Credential exfiltration | MCP01 |
 | `shadow.register_webhook` | Unvalidated persistent callback | MCP09 |
+| `shellwrap.exec` | Shell command execution wrapper | MCP-T53 |
+| `subchain.spawn_agent` | Subprocess agent spawning with caller credentials | MCP-T10 |
+| `subprocess.invoke_worker` | Subprocess execution (Transport D) | MCP-T10 |
 | `supply.install_package` | Malicious supply chain install | MCP04 |
-| `tool.mutate_behavior` | Rug pull / tool drift | MCP03 |
-| `hallucination.execute_plan` | Destructive LLM-generated plan | MCP-T10 |
-| `bot_identity_theft.read_tbot_secret` | tbot credential exfiltration | MCP-T04 |
-| `bot_identity_theft.replay_identity` | Bot identity replay across services | MCP-T04 |
-| `cert_replay.replay_cert` | Expired-certificate replay | MCP-T04 |
-| `policy_authoring.submit_policy` | Policy mutation (LLM rewriting its own gate) | MCP-T03 |
 | `sdk.get_cached_token` | SDK token-cache exposure (Transport C) | MCP01 |
 | `sdk.invoke_as_cached` | SDK token replay (Transport C) | MCP-T04 |
-| `subprocess.invoke_worker` | Subprocess execution (Transport D) | MCP-T10 |
-| `teleport_role_escalation.privileged_operation` | Action requiring escalated role | MCP-T05 |
-| `teleport_role_escalation.request_role` | Self-escalation to higher-privilege Teleport role | MCP-T05 |
+| `teleport_role_escalation.privileged_operation` | Action requiring escalated role | MCP-T28 |
+| `teleport_role_escalation.request_role` | Self-escalation to higher-privilege Teleport role | MCP-T28 |
+| `tool.mutate_behavior` | Rug pull / tool drift | MCP-T03 |
 
 ### Re-syncing against your deployment
 

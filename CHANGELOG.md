@@ -4,7 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Changed
+
+- **Camazotz tool registry re-sync to 138 tools** — `integrations/camazotz/tools.yaml` and `policy.yaml` updated from 85 to 138 tools against live camazotz `tools/list` (2026-05-23). 53 new tools categorized: +21 read-only (tier 1), +22 write/action (tier 2), +10 high-risk deny (tier 3). New lab modules covered: agent HTTP bypass, chain delegation, code review, DPoP, exec gateway, LangChain tool injection, LLM chain, platform ops, pre-auth, RAG, rate limiting, schema probing, shell wrapper, and subchain spawning. All entries alpha-sorted within tiers. `sync-tools.sh` confirms 138/138 in sync
 
 ---
 
