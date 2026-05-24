@@ -35,7 +35,7 @@ All notable changes to this project will be documented in this file.
 - README marks the CRD bridge shipped (was "planned"), cites ADR 0001 for the five-transport taxonomy, and adds a per-lane templates table
 - `docs/mesh-integration.md` adds a "K8s sidecar mode (camazotz reference)" section
 - `docs/quickstart.md` references the camazotz `:30090` policed entry point as the canonical K8s sidecar smoke target
-- `integrations/camazotz/README.md` refreshed to 52 lab modules / 86 tools (verified live), adds the policed `:30090` invocation, and updates the L4 delegation row to reflect `requireActChain` + `maxDepth` enforcement
+- `integrations/camazotz/README.md` refreshed to 52 lab modules / 138 tools (verified live), adds the policed `:30090` invocation, and updates the L4 delegation row to reflect `requireActChain` + `maxDepth` enforcement
 - `policies/by-lane/README.md` confirms the three primitives are enforced as of 2026-05-01
 
 ---

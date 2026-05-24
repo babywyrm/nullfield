@@ -244,7 +244,7 @@ All configuration via environment variables:
 | `NULLFIELD_REGISTRY_PATH` | `/etc/nullfield/tools.yaml` | Path to ToolRegistry YAML |
 | `NULLFIELD_ROUTES_PATH` | _(empty)_ | Path to gateway routes config (gateway mode — mutually exclusive with `UPSTREAM_ADDR`) |
 | `NULLFIELD_IDENTITY_HEADER` | `Authorization` | Header to extract Bearer token from |
-| `NULLFIELD_JWKS_URL` | _(empty)_ | JWKS endpoint for token validation. Empty = noop verifier (dev mode) |
+| `NULLFIELD_JWKS_URL` | _(empty)_ | When set, enables Bearer token extraction from the identity header (header verifier). For full JWKS crypto validation, configure `spec.identity.providers` in the policy YAML instead. Empty = noop verifier (dev mode) |
 | `NULLFIELD_CIRCUIT_MAX_CALLS` | `100` | Max tool calls per session before circuit opens |
 | `NULLFIELD_CIRCUIT_MAX_DURATION` | `5m` | Max session duration before circuit opens |
 | `NULLFIELD_AUDIT_LOG_LEVEL` | `FULL` | Audit verbosity: `FULL`, `SUMMARY`, `NONE` |
@@ -392,7 +392,7 @@ nullfield/
 │   └── proto/                  # Proto definitions (controller.proto)
 ├── internal/config/      # Environment-based configuration
 ├── integrations/
-│   └── camazotz/         # Camazotz vulnerable MCP server (52 labs / 86 tools live; tiered policy ships a 57-tool starter allowlist)
+│   └── camazotz/         # Camazotz vulnerable MCP server (52 labs / 138 tools; tiered policy with full tool registry)
 ├── meshes/               # Service mesh overlays (Istio, Linkerd, Cilium)
 ├── deploy/
 │   ├── helm/nullfield/   # Universal Helm chart (sidecar + controller + observability)
@@ -405,7 +405,7 @@ nullfield/
 │   ├── gateway-routes.yaml
 │   ├── policy.yaml       # Example sidecar policy
 │   └── tools.yaml        # Example tool registry
-├── demos/                # 9 runnable walkthroughs (01-basic through 09-controller)
+├── demos/                # 12 runnable walkthroughs (01-basic through 12-lifecycle)
 ├── tests/
 │   ├── echo-server/      # Echo MCP server for testing
 │   └── smoke.sh          # 12-point smoke test

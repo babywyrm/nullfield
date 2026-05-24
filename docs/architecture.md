@@ -81,7 +81,7 @@ Why this order:
 | `pkg/circuit` | Per-session call count + duration tracking. Allow/Record/Sweep lifecycle. |
 | `pkg/policy` | Rule engine interface (`engine.go`). First-match ALLOW/DENY evaluator (`rules.go`). YAML policy loader (`loader.go`). |
 | `pkg/audit` | Structured JSON event emitter. Event types: mcp.request, tool.allowed, tool.denied, identity.failed, circuit.tripped. |
-| `pkg/credentials` | Secret provider interface for credential injection (env/static for now, Vault/ASM future). |
+| `pkg/credentials` | Secret provider interface for credential injection (env, static, Vault). |
 | `pkg/anomaly` | Velocity tracker — per-identity tool call rate detection with sliding window. |
 | `api/v1alpha1` | Go type definitions for NullfieldPolicy, ToolRegistry, and related CRD structures. |
 | `internal/config` | Environment variable loading with defaults and validation. |
@@ -137,15 +137,15 @@ The sidecar connects to the controller via the `NullfieldController` gRPC servic
 
 ## Layered Security Model
 
-nullfield implements defense in depth through four planned layers:
+nullfield implements defense in depth through four layers:
 
 ```text
 ┌─────────────────────────────────────────────────────┐
-│  L4: Agentic Flow Control (future)                  │
+│  L4: Agentic Flow Control                           │
 │  Identity chaining, human-in-the-loop approval,     │
 │  call chain tracing, delegation depth limits         │
 ├─────────────────────────────────────────────────────┤
-│  L3: Tool Governance (future)                       │
+│  L3: Tool Governance                                │
 │  Registration workflow, approval gates,              │
 │  tool lifecycle, rug-pull detection                  │
 ├─────────────────────────────────────────────────────┤

@@ -2,8 +2,19 @@ apiVersion: nullfield.io/v1alpha1
 kind: ToolRegistry
 metadata:
   name: camazotz-tools
+# Provenance: this registry covers all 138 tools exposed by camazotz's
+# tools/list endpoint as of 2026-05-23 (52 lab modules). Refresh against a
+# live deployment with:
+#   bash integrations/camazotz/sync-tools.sh http://<host>:8080/mcp
+# The script diffs the live tool list against this file and prints the
+# additions / removals — re-categorize new entries by hand into the right
+# tier below before committing.
 tools:
-  # --- Read-only / safe tools (audit, list, check operations) ---
+  # --- Read-only / safe tools (audit, list, check, inspect operations) ---
+  - name: agent_http_bypass.get_access_log
+    description: Return the log of successful direct HTTP calls
+  - name: agent_http_bypass.get_rejected_log
+    description: Return the log of rejected / unauthorized direct HTTP calls
   - name: attribution.read_audit
     description: Read audit log
   - name: attribution.verify_context
@@ -12,6 +23,26 @@ tools:
     description: List performed actions
   - name: auth.issue_token
     description: Issue an auth token
+  - name: bot_identity_theft.check_session_binding
+    description: Check whether a tbot identity is bound to a session
+  - name: budget_tuning.get_traffic_pattern
+    description: Read current traffic pattern for budget tuning
+  - name: budget_tuning.simulate
+    description: Simulate a budget without applying it
+  - name: cert_replay.check_replay_detection
+    description: Check whether replay detection is enabled
+  - name: cert_replay.get_expired_cert
+    description: Read an expired certificate (for inspection)
+  - name: chain.get_service_manifest
+    description: Return the agent chain topology
+  - name: chain.inspect_audit_log
+    description: View Agent B's audit log
+  - name: chain.read_audit_log
+    description: Read the SDK's in-process audit log
+  - name: code_review.get_report
+    description: Retrieve the review report for a submitted PR
+  - name: code_review.get_shell_log
+    description: Return the log of shell commands executed by the review agent
   - name: comms.list_sent
     description: List sent messages
   - name: config.read_system_prompt
@@ -22,38 +53,78 @@ tools:
     description: List available credential vaults
   - name: delegation.read_chain
     description: Read delegation chain
+  - name: delegation_depth.inspect_chain
+    description: Inspect the current delegation chain depth
   - name: downgrade.check_pattern
     description: Check current auth pattern
   - name: downgrade.list_capabilities
     description: List auth capabilities
+  - name: dpop.get_service_info
+    description: Return service configuration and identity metadata
+  - name: error.debug_info
+    description: Get debug information
   - name: error.validate_input
     description: Validate input schema
+  - name: exec.list_approved
+    description: List the approved diagnostic query patterns
+  - name: function_calling.show_tool_schema
+    description: Show the schema of a callable tool (Transport E)
+  - name: gateway.list_resources
+    description: List available resources in the internal asset catalog
   - name: hallucination.list_filesystem
     description: List filesystem contents
+  - name: langchain_tool.list_registered
+    description: List all registered tools and their descriptions
+  - name: llmchain.inspect_context
+    description: Inspect the full system_context passed in the last call
   - name: notification.check_inbox
     description: Check notification inbox
   - name: oauth.list_connections
     description: List OAuth connections
-  - name: rbac.list_agents
-    description: List available agents
+  - name: platform.get_service_config
+    description: Return the platform's identity and service configuration
+  - name: policy_authoring.get_attack_chain
+    description: Read the attack chain that motivated a candidate policy
+  - name: policy_authoring.get_hint
+    description: Read a tuning hint
+  - name: preauth.inspect_session
+    description: Read the raw session state for a given client_id
+  - name: rag.get_synthesis_log
+    description: Return the log of all synthesis operations
+  - name: ratelimit.check_budget
+    description: Return the current global rate-limit budget state
   - name: rbac.check_membership
     description: Check RBAC group membership
+  - name: rbac.list_agents
+    description: List available agents
   - name: revocation.use_token
     description: Use an issued token
+  - name: schema.list_surface
+    description: Return the simulated MCP tool catalog
+  - name: sdk.initialize_session
+    description: Initialize the SDK with a delegated credential
+  - name: sdk.inspect_cache
+    description: Inspect the current SDK credential cache state
   - name: shadow.list_webhooks
     description: List registered webhooks
-  - name: temporal.get_config
-    description: Get temporal config
+  - name: shellwrap.list_commands
+    description: Return the set of allowed base commands
+  - name: subchain.read_env_inheritance
+    description: Return environment variables inherited by subprocess agent
+  - name: subprocess.list_allowlist
+    description: List the subprocess allowlist (Transport D)
+  - name: teleport_role_escalation.get_current_roles
+    description: Read currently-assigned Teleport roles
   - name: temporal.check_permission
     description: Check temporal permission
+  - name: temporal.get_config
+    description: Get temporal config
   - name: temporal.get_status
     description: Get temporal status
-  - name: tenant.recall_memory
-    description: Recall tenant memory
   - name: tenant.list_tenants
     description: List tenants
-  - name: error.debug_info
-    description: Get debug information
+  - name: tenant.recall_memory
+    description: Recall tenant memory
 
   # --- Write / action tools (modify state, trigger flows) ---
   - name: attribution.submit_action
@@ -64,61 +135,159 @@ tools:
     description: Access a protected resource
   - name: auth.access_service_b
     description: Cross-service access (confused deputy)
+  - name: budget_tuning.submit_budget
+    description: Submit a new budget for the calling identity
+  - name: chain.call_downstream
+    description: Agent A calls Agent B via direct REST API
+  - name: chain.delegate_task
+    description: Delegate a task to a previously loaded sub-agent
+  - name: chain.load_agent
+    description: Load a sub-agent (Agent B) into the in-process SDK registry
+  - name: code_review.run_checks
+    description: Run automated checks against a submitted PR
+  - name: code_review.submit_pr
+    description: Submit a pull request for automated code review
   - name: comms.send_message
     description: Send a message
-  - name: config.update_system_prompt
-    description: Update agent system prompt
   - name: config.ask_agent
     description: Query the agent
+  - name: config.update_system_prompt
+    description: Update agent system prompt
   - name: context.injectable_summary
     description: Generate injectable summary
   - name: cost.invoke_llm
     description: Invoke LLM (costs tokens)
   - name: cost.reset_usage
     description: Reset usage counter
-  - name: cred_broker.read_credential
-    description: Read a credential from vault
   - name: cred_broker.configure_sidecar
     description: Configure credential sidecar
+  - name: cred_broker.read_credential
+    description: Read a credential from vault
   - name: delegation.invoke_agent
     description: Invoke another agent
+  - name: delegation_depth.access_resource
+    description: Access the terminal resource at the current delegation depth
+  - name: delegation_depth.delegate
+    description: Delegate to another agent (extends the act chain)
+  - name: delegation_depth.start_chain
+    description: Start a new delegation chain
   - name: downgrade.authenticate
     description: Authenticate with pattern
+  - name: dpop.access_resource
+    description: Access the protected gateway resource using a DPoP proof
+  - name: dpop.request_access
+    description: Attempt to access the protected resource endpoint
+  - name: dpop.sign_proof
+    description: Sign a DPoP proof token using provided key material
+  - name: error.trigger_crash
+    description: Trigger an error crash
+  - name: exec.run_query
+    description: Run a diagnostic query against the system
+  - name: function_calling.invoke
+    description: Invoke a tool via native LLM function-calling (Transport E)
+  - name: gateway.fetch_content
+    description: Fetch content from a CDN URL
+  - name: langchain_tool.invoke
+    description: Invoke a registered tool by name with a user task
+  - name: langchain_tool.register
+    description: Register a tool with name and description (LangChain sim)
+  - name: llmchain.call_with_context
+    description: Invoke Agent B via the LLM's function-calling mechanism
+  - name: llmchain.register_function
+    description: Register Agent B as a callable function
   - name: notification.subscribe
     description: Subscribe to notifications
   - name: notification.trigger_event
     description: Trigger a notification event
-  - name: oauth.exchange_token
-    description: Exchange OAuth token
   - name: oauth.call_downstream
     description: Call downstream OAuth service
+  - name: oauth.exchange_token
+    description: Exchange OAuth token
+  - name: platform.ask_assistant
+    description: Ask the AI operations assistant about platform configuration
+  - name: preauth.complete_auth
+    description: Complete authentication using a session token
+  - name: preauth.start_session
+    description: Begin a pre-authentication guest session
+  - name: rag.query
+    description: Query the knowledge base
+  - name: rag.synthesize
+    description: Run the Synthesizer agent against retrieved chunks
+  - name: ratelimit.authenticated_call
+    description: Simulate a legitimate authenticated user making a call
   - name: rbac.trigger_agent
     description: Trigger an agent
-  - name: relay.store_context
-    description: Store context for relay
   - name: relay.execute_with_context
     description: Execute with stored context
+  - name: relay.store_context
+    description: Store context for relay
+  - name: response_inspection.call_leaky_tool
+    description: Call a known-leaky tool to surface response-side issues
+  - name: response_inspection.submit_redaction
+    description: Submit a redaction rule for response inspection
   - name: revocation.issue_token
     description: Issue a revocable token
   - name: revocation.revoke_principal
     description: Revoke a principal
+  - name: sdk.invoke_action
+    description: Invoke an SDK action using the cached credential
+  - name: sdk.write_cache
+    description: Write to the SDK token cache (Transport C)
+  - name: subchain.run_task
+    description: Send a task to a previously spawned subprocess agent
   - name: tenant.store_memory
     description: Store tenant memory
-  - name: error.trigger_crash
-    description: Trigger an error crash
 
-  # --- High-risk tools (exfil, SSRF, supply chain, shadow) ---
+  # --- High-risk tools (exfil, SSRF, supply chain, shadow, shell, DoS) ---
+  - name: agent_http_bypass.call_direct
+    description: Simulate a direct HTTP API call bypassing the MCP gateway
+  - name: bot_identity_theft.read_tbot_secret
+    description: Read tbot identity secret (credential exfiltration)
+  - name: bot_identity_theft.replay_identity
+    description: Replay a captured tbot identity against another service
+  - name: cert_replay.replay_cert
+    description: Replay an expired certificate (replay attack)
   - name: egress.fetch_url
     description: Fetch external URL (SSRF risk)
+  - name: gateway.register_asset
+    description: Register any URL with the internal CDN proxy
+  - name: hallucination.execute_plan
+    description: Execute an LLM-generated plan
   - name: indirect.fetch_and_summarize
     description: Fetch and summarize URL (prompt injection risk)
+  - name: platform.execute_privileged_op
+    description: Execute a privileged platform operation
+  - name: platform.mint_token
+    description: Mint a JWT using client credentials
+  - name: policy_authoring.submit_policy
+    description: Submit a new policy (policy mutation)
+  - name: rag.add_document
+    description: Add a document to the shared knowledge base (KB poisoning)
+  - name: ratelimit.flood_calls
+    description: Simulate N anonymous flood calls (DoS)
+  - name: schema.extract_credentials
+    description: Scan tool descriptions for credential patterns
+  - name: schema.probe_error
+    description: Send malformed arguments to probe error messages
   - name: secrets.leak_config
     description: Leak configuration secrets
   - name: shadow.register_webhook
     description: Register a shadow webhook
+  - name: shellwrap.exec
+    description: Execute a shell command via convenience wrapper
+  - name: subchain.spawn_agent
+    description: Spawn Agent B as a child subprocess with caller's credentials
+  - name: subprocess.invoke_worker
+    description: Spawn a subprocess worker (arbitrary code path, Transport D)
   - name: supply.install_package
     description: Install a package (supply chain risk)
+  - name: sdk.get_cached_token
+    description: Read a cached bearer token from the SDK cache (credential exposure)
+  - name: sdk.invoke_as_cached
+    description: Invoke as the cached identity (token replay via SDK, Transport C)
+  - name: teleport_role_escalation.privileged_operation
+    description: Perform an operation that requires an escalated role
+  - name: teleport_role_escalation.request_role
+    description: Request escalation to a higher-privilege Teleport role
   - name: tool.mutate_behavior
     description: Mutate tool behavior (rug pull)
-  - name: hallucination.execute_plan
-    description: Execute an LLM-generated plan

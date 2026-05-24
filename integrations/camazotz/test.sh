@@ -38,7 +38,7 @@ check "initialize returns server info" "camazotz" "$resp"
 
 resp=$(post '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}')
 count=$(echo "$resp" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['result']['tools']))" 2>/dev/null || echo "0")
-check "tools/list returns 57 tools" "57" "$count"
+check "tools/list returns 138 tools" "138" "$count"
 
 echo ""
 echo "[tier 1 — read-only tools ALLOWED]"
