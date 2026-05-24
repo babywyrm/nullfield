@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -21,6 +24,7 @@ import (
 	"github.com/babywyrm/nullfield/pkg/credentials"
 	"github.com/babywyrm/nullfield/pkg/hold"
 	"github.com/babywyrm/nullfield/pkg/identity"
+	"github.com/babywyrm/nullfield/pkg/inspection"
 	"github.com/babywyrm/nullfield/pkg/policy"
 	"github.com/babywyrm/nullfield/pkg/proxy"
 	"github.com/babywyrm/nullfield/pkg/registry"
@@ -66,6 +70,15 @@ func main() {
 		} else {
 			logger.Info("loaded tool registry", "path", cfg.ToolRegistryPath, "tools", len(reg.All()))
 		}
+	}
+
+	// Tool lifecycle tracking — monitors upstream tools/list for drift and
+	// rug-pull attacks (MCP-T03). Takes an initial snapshot and reconciles
+	// periodically against the live tool set from the upstream server.
+	lifecycleTracker := registry.NewLifecycleTracker(10)
+	lifecycleTracker.Snapshot(reg)
+	if upstream != nil && len(reg.All()) > 0 {
+		go runLifecycleReconciliation(upstream.String(), reg, lifecycleTracker, logger)
 	}
 
 	emitters := []audit.Emitter{
@@ -175,6 +188,23 @@ func main() {
 
 	engine := policy.NewRuleEngine(spec.Rules)
 
+	// Hot policy reload — polls the policy file for changes and swaps the
+	// engine atomically. The hotLoaderEngine wrapper delegates Evaluate()
+	// to the latest engine so swaps are transparent to in-flight requests.
+	var activeEngine policy.Engine = engine
+	if cfg.PolicyPath != "" {
+		hotLoader := policy.NewHotLoader(cfg.PolicyPath, 10*time.Second, logger)
+		if _, err := hotLoader.LoadInitial(); err != nil {
+			logger.Warn("hot-loader initial load failed, using static engine", "error", err)
+		} else {
+			stopHotLoad := make(chan struct{})
+			go hotLoader.Watch(stopHotLoad)
+			defer close(stopHotLoad)
+			activeEngine = &hotLoaderEngine{loader: hotLoader}
+			logger.Info("policy hot-reload enabled", "interval", "10s")
+		}
+	}
+
 	// Anomaly detection — opt-in via policy anomaly.enabled.
 	var velocityTracker *anomaly.VelocityTracker
 	if spec.Anomaly != nil && spec.Anomaly.Enabled && spec.Anomaly.Velocity != nil {
@@ -267,9 +297,20 @@ func main() {
 		})
 		logger.Info("gateway mode enabled", "routes", len(routes))
 	} else {
+		// Response inspection — create an inspector with default rules when
+		// any policy rule defines an inspection: block.
+		var inspector *inspection.Inspector
+		for _, r := range spec.Rules {
+			if r.Inspection != nil && r.Inspection.Enabled {
+				inspector = inspection.New(inspection.DefaultConfig())
+				logger.Info("response inspection enabled")
+				break
+			}
+		}
+
 		httpHandler = proxy.NewHandler(proxy.HandlerOpts{
 			UpstreamURL:   upstream,
-			Engine:        engine,
+			Engine:        activeEngine,
 			Auditor:       auditor,
 			Verifier:      verifier,
 			Integrity:     integrityChecker,
@@ -279,6 +320,7 @@ func main() {
 			Registry:      reg,
 			Breaker:       breaker,
 			Credentials:   credProvider,
+			Inspector:     inspector,
 			Logger:        logger,
 		})
 	}
@@ -370,6 +412,16 @@ type controllerEmitter struct {
 	logger *slog.Logger
 }
 
+// hotLoaderEngine wraps a HotLoader to satisfy the policy.Engine interface.
+// On each Evaluate call it delegates to the latest atomically-swapped engine.
+type hotLoaderEngine struct {
+	loader *policy.HotLoader
+}
+
+func (h *hotLoaderEngine) Evaluate(ctx context.Context, req policy.Request) policy.Decision {
+	return h.loader.Engine().Evaluate(ctx, req)
+}
+
 func (e *controllerEmitter) Emit(_ context.Context, event audit.Event) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -384,4 +436,93 @@ func (e *controllerEmitter) Emit(_ context.Context, event audit.Event) {
 			e.logger.Debug("controller report failed", "error", err)
 		}
 	}()
+}
+
+// runLifecycleReconciliation periodically fetches tools/list from the upstream
+// MCP server and reconciles against the local registry. Logs rug-pull warnings
+// when tool definitions change post-startup (MCP-T03).
+func runLifecycleReconciliation(upstreamURL string, reg *registry.Registry, tracker *registry.LifecycleTracker, logger *slog.Logger) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		liveTools, err := fetchUpstreamTools(upstreamURL)
+		if err != nil {
+			logger.Debug("lifecycle reconciliation: upstream fetch failed", "error", err)
+			continue
+		}
+
+		report := registry.Reconcile(reg, liveTools)
+		tracker.Snapshot(reg)
+
+		if !report.HasDrift() {
+			continue
+		}
+
+		if report.HasRugPull() {
+			for _, rp := range report.RugPulls() {
+				logger.Warn("RUG-PULL DETECTED: tool definition changed post-startup",
+					"tool", rp.ToolName,
+					"previousHash", rp.PreviousHash,
+					"currentHash", rp.CurrentHash)
+			}
+		}
+		if len(report.Added) > 0 {
+			names := make([]string, len(report.Added))
+			for i, a := range report.Added {
+				names[i] = a.ToolName
+			}
+			logger.Warn("tool drift: new tools appeared upstream", "tools", names)
+		}
+		if len(report.Removed) > 0 {
+			names := make([]string, len(report.Removed))
+			for i, r := range report.Removed {
+				names[i] = r.ToolName
+			}
+			logger.Info("tool drift: tools removed upstream", "tools", names)
+		}
+	}
+}
+
+// fetchUpstreamTools calls the MCP tools/list endpoint on the upstream server.
+func fetchUpstreamTools(upstreamURL string) ([]v1alpha1.ToolRegistryEntry, error) {
+	body, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/list",
+		"params":  map[string]any{},
+	})
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Post(upstreamURL, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var rpcResp struct {
+		Result struct {
+			Tools []struct {
+				Name        string `json:"name"`
+				Description string `json:"description,omitempty"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(data, &rpcResp); err != nil {
+		return nil, err
+	}
+
+	entries := make([]v1alpha1.ToolRegistryEntry, len(rpcResp.Result.Tools))
+	for i, t := range rpcResp.Result.Tools {
+		entries[i] = v1alpha1.ToolRegistryEntry{
+			Name:        t.Name,
+			Description: t.Description,
+		}
+	}
+	return entries, nil
 }
