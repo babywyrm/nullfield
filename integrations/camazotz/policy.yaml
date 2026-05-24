@@ -165,6 +165,7 @@ spec:
         - sdk.invoke_as_cached
         - teleport_role_escalation.privileged_operation
         - teleport_role_escalation.request_role
+        - tool.hidden_exec
         - tool.mutate_behavior
 
     # --- Default deny: anything not explicitly listed above ---

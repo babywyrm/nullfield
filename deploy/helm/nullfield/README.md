@@ -269,8 +269,8 @@ The chart includes ready-to-use policy and registry files:
 
 | Path | Description |
 |---|---|
-| `files/camazotz/policy.yaml` | 138-tool tiered policy (ALLOW safe, ALLOW write, DENY dangerous, DENY *) |
-| `files/camazotz/tools.yaml` | 138-tool registry for the camazotz MCP server |
+| `files/camazotz/policy.yaml` | 139-tool tiered policy (ALLOW safe, ALLOW write, DENY dangerous, DENY *) |
+| `files/camazotz/tools.yaml` | 139-tool registry for the camazotz MCP server |
 | `files/examples/policy-minimal.yaml` | 3-rule starter policy |
 | `files/examples/tools-minimal.yaml` | 3-tool starter registry |
 

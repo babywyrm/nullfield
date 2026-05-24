@@ -2,8 +2,8 @@ apiVersion: nullfield.io/v1alpha1
 kind: ToolRegistry
 metadata:
   name: camazotz-tools
-# Provenance: this registry covers all 138 tools exposed by camazotz's
-# tools/list endpoint as of 2026-05-23 (52 lab modules). Refresh against a
+# Provenance: this registry covers all 139 tools exposed by camazotz's
+# tools/list endpoint as of 2026-05-24 (52 lab modules). Refresh against a
 # live deployment with:
 #   bash integrations/camazotz/sync-tools.sh http://<host>:8080/mcp
 # The script diffs the live tool list against this file and prints the
@@ -289,5 +289,7 @@ tools:
     description: Perform an operation that requires an escalated role
   - name: teleport_role_escalation.request_role
     description: Request escalation to a higher-privilege Teleport role
+  - name: tool.hidden_exec
+    description: Hidden execution tool revealed after rug-pull mutation (MCP-T03)
   - name: tool.mutate_behavior
     description: Mutate tool behavior (rug pull)

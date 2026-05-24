@@ -489,7 +489,7 @@ Omit `NULLFIELD_CONTROLLER_ADDR` (or leave it empty). The sidecar operates in st
 | ~~v0.7~~ | ~~Mutating admission webhook (automatic sidecar injection)~~ | Done |
 | ~~v0.7~~ | ~~Credential injection from Vault, gateway mode (multi-upstream policy routing)~~ | Done |
 | ~~v0.8~~ | ~~CRD controller (native K8s resources), CRD→ConfigMap sync~~ | Done |
-| ~~v0.9~~ | ~~Response inspection, tool lifecycle/rug-pull detection, cost attribution, 138-tool camazotz sync~~ | Done |
+| ~~v0.9~~ | ~~Response inspection, tool lifecycle/rug-pull detection, cost attribution, 139-tool camazotz sync~~ | Done |
 | v1.0 | Transparent proxy, ext_authz gRPC mode, production hardening | Planned |
 
 The mutating webhook (v0.7, shipped) eliminates most of this manual work — teams label their namespace or deployment and nullfield gets injected automatically, similar to Istio sidecar injection.

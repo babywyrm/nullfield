@@ -289,5 +289,7 @@ tools:
     description: Perform an operation that requires an escalated role
   - name: teleport_role_escalation.request_role
     description: Request escalation to a higher-privilege Teleport role
+  - name: tool.hidden_exec
+    description: Hidden execution tool revealed after rug-pull mutation (MCP-T03)
   - name: tool.mutate_behavior
     description: Mutate tool behavior (rug pull)

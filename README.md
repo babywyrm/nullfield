@@ -392,7 +392,7 @@ nullfield/
 │   └── proto/                  # Proto definitions (controller.proto)
 ├── internal/config/      # Environment-based configuration
 ├── integrations/
-│   └── camazotz/         # Camazotz vulnerable MCP server (52 labs / 138 tools; tiered policy with full tool registry)
+│   └── camazotz/         # Camazotz vulnerable MCP server (52 labs / 139 tools; tiered policy with full tool registry)
 ├── meshes/               # Service mesh overlays (Istio, Linkerd, Cilium)
 ├── deploy/
 │   ├── helm/nullfield/   # Universal Helm chart (sidecar + controller + observability)
