@@ -2,7 +2,7 @@
 
 Test nullfield against [camazotz](https://github.com/babywyrm/camazotz), a vulnerable-by-design MCP security training platform with **52 lab modules** mapped to OWASP MCP Top 10 and the MCP Red Team Playbook.
 
-The bundled `policy.yaml` and `tools.yaml` cover all **138 tools** exposed by camazotz's `tools/list` (verified 2026-05-23 against the local Docker Compose deployment with [`sync-tools.sh`](sync-tools.sh)). 57 read-only tools land in tier 1 (ALLOW, 60 calls/min), 55 write/action tools in tier 2 (ALLOW, 20 calls/min), and 26 high-risk tools in tier 3 (DENY). Anything not on this list falls under the trailing `*` default-deny rule.
+The bundled `policy.yaml` and `tools.yaml` cover all **139 tools** exposed by camazotz's `tools/list` (verified 2026-06-19 against the local Docker Compose deployment with [`sync-tools.sh`](sync-tools.sh)). 57 read-only tools land in tier 1 (ALLOW, 60 calls/min), 55 write/action tools in tier 2 (ALLOW, 20 calls/min), and 26 high-risk tools in tier 3 (DENY). Anything not on this list falls under the trailing `*` default-deny rule.
 
 ## Prerequisites
 
@@ -23,8 +23,8 @@ nullfield proxies on `:9090`, camazotz is on `:8080`. Point your MCP client at `
 
 ## Policy Tiers
 
-The policy uses three tiers, covering all 138 live tools (verified
-in-sync 2026-05-23):
+The policy uses three tiers, covering all 139 live tools (verified
+in-sync 2026-06-19):
 
 | Tier | Action | Tools | Rate limit | Rationale |
 |------|--------|-------|------------|-----------|
