@@ -141,13 +141,13 @@ nullfield implements defense in depth through four layers:
 
 ```text
 ┌─────────────────────────────────────────────────────┐
-│  L4: Agentic Flow Control                           │
-│  Identity chaining, human-in-the-loop approval,     │
-│  call chain tracing, delegation depth limits         │
+│  L4: Agentic Flow Control (partially implemented)   │
+│  AgenticFlow intent, identity chaining, HITL,       │
+│  delegation depth limits, compiled control outputs   │
 ├─────────────────────────────────────────────────────┤
-│  L3: Tool Governance                                │
-│  Registration workflow, approval gates,              │
-│  tool lifecycle, rug-pull detection                  │
+│  L3: Tool Governance (implemented)                  │
+│  Tool registry, approval gates, lifecycle,           │
+│  rug-pull detection                                  │
 ├─────────────────────────────────────────────────────┤
 │  L2: Identity-Aware Policy (implemented)             │
 │  Different rules for human vs agent vs autonomous,   │

@@ -24,7 +24,7 @@ Runnable walkthroughs showing how to configure and test nullfield features. Each
 | 11 | [Hot Policy Reload](11-hot-reload/) | Live policy updates without restart, ConfigMap reload |
 | 12 | [Response Inspection](12-response-inspection/) | Credential/PII/prompt detection and redaction in tool responses |
 | 13 | [AgenticFlow — Local Compile](13-agentic-flow-local/) | Least-privilege flow YAML compiled to policy + registry |
-| 14 | [AgenticFlow — Kubernetes Reconciliation](14-agentic-flow-kubernetes/) | AgenticFlow CRD compiled by the controller into ConfigMaps |
+| 14 | [AgenticFlow — Kubernetes Runtime](14-agentic-flow-kubernetes/) | AgenticFlow CRD compiled by the controller and enforced by a sidecar |
 
 Demos 01–03 run against a local binary. Demos 04+ deploy nullfield as a containerized sidecar.
 

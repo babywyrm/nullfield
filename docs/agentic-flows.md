@@ -4,6 +4,25 @@
 
 The goal is not to replace policy YAML. It is to make common agentic flows easier to author, review, and compile into deterministic PDP/PEP controls.
 
+## Current Status
+
+Implemented today:
+
+- Local compiler: `go run ./cmd/nullfield-compile <flow.yaml>`
+- Kubernetes CRD: `AgenticFlow`
+- Controller reconciliation to `nullfield-flow-<name>` ConfigMaps
+- Runtime policy and registry generation
+- Credential-scoped `SCOPE` rules with OAuth audience/scope audit context
+- Optional NetworkPolicy, Istio, Cilium, and Linkerd artifact generation
+- Runtime demo proving CRD-generated policy can be mounted by a nullfield sidecar and enforce real MCP calls
+
+Next build targets:
+
+- Reconciler apply mode for generated network/mesh artifacts
+- Status conditions on `AgenticFlow` for compile failures and generated artifact hashes
+- Richer credential demos using Vault/K8s Secret/OAuth-style flows
+- More lane-specific examples for human, delegated, machine, chain, and anonymous traffic
+
 ## Example
 
 ```yaml

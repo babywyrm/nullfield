@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **AgenticFlow least-privilege authoring layer** — new `AgenticFlow` YAML format compiles known acceptable paths into existing nullfield enforcement artifacts:
+  - `cmd/nullfield-compile` emits multi-document YAML from an `AgenticFlow`
+  - `pkg/flow` compiler emits `NullfieldPolicy`, `ToolRegistry`, optional `NetworkPolicy`, Istio `AuthorizationPolicy`, Cilium `CiliumNetworkPolicy`, and Linkerd `Server` / `ServerAuthorization`
+  - Central `credentials:` declarations with per-tool `credentialRefs`; undeclared credential refs fail compilation
+  - OAuth audience/scope metadata is preserved as rule audit labels
+  - Network/mesh generation is opt-in and fail-closed: selectors, destinations, ports, methods, principals, and identities must be explicit
+- **Decision context in audit events** — policy decisions now carry stable `gate`, `reason_class`, `rule_id`, `rule_index`, route/session/target context, and bounded audit labels through logs, metrics, OTLP, and controller events. Prometheus labels use low-cardinality `gate` and `reason_class` instead of raw denial reasons
+- **AgenticFlow CRD reconciliation** — `deploy/crds/agenticflow-crd.yaml` and `pkg/crdwatcher` support `agenticflows.nullfield.io`; the controller compiles each flow into a managed `nullfield-flow-<name>` ConfigMap containing `compiled.yaml`, `policy.yaml`, and `tools.yaml`
+- **AgenticFlow demos**:
+  - Demo 13 — local compile demo proving ALLOW / SCOPE credential / HOLD / DENY / default-deny output
+  - Demo 14 — Kubernetes runtime demo proving `AgenticFlow` CRD → controller compile → sidecar-mounted ConfigMap → real MCP ALLOW / DENY / registry-deny behavior
+
+### Verified
+
+- `go test ./...`
+- `go run ./cmd/nullfield-compile examples/agentic-flow.yaml`
+- NUC k3s: `bash demos/14-agentic-flow-kubernetes/test.sh camazotz` verifies live CRD reconciliation and runtime MCP enforcement through a nullfield sidecar
+
 ### Changed
 
 - **Camazotz tool registry re-sync to 138 tools** — `integrations/camazotz/tools.yaml` and `policy.yaml` updated from 85 to 138 tools against live camazotz `tools/list` (2026-05-23). 53 new tools categorized: +21 read-only (tier 1), +22 write/action (tier 2), +10 high-risk deny (tier 3). New lab modules covered: agent HTTP bypass, chain delegation, code review, DPoP, exec gateway, LangChain tool injection, LLM chain, platform ops, pre-auth, RAG, rate limiting, schema probing, shell wrapper, and subchain spawning. All entries alpha-sorted within tiers. `sync-tools.sh` confirms 138/138 in sync

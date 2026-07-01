@@ -11,7 +11,8 @@ By the end of this path you will have:
 3. Identity-aware policy with JWT validation
 4. Anomaly detection catching suspicious patterns
 5. A controller coordinating multiple sidecars
-6. A Helm-based Kubernetes deployment ready for production
+6. AgenticFlow YAML compiled into runtime policy, registry, credentials, and optional network/mesh controls
+7. A Helm-based Kubernetes deployment ready for production
 
 ## Prerequisites
 
@@ -90,7 +91,31 @@ You'll start a three-container stack (echo server + sidecar + controller), test 
 
 ---
 
-## Phase 5: Kubernetes Deployment
+## Phase 5: AgenticFlow Least-Privilege Paths
+
+**Goal:** Define a known acceptable path for an agent and compile it into enforceable nullfield artifacts.
+
+Start with **[Demo 13 — AgenticFlow Local Compile](../demos/13-agentic-flow-local/)**. It does not require Kubernetes or private services. You'll compile a flow that demonstrates:
+
+- `ALLOW` for a safe tool
+- credential-scoped `SCOPE`
+- `HOLD` for an operational write
+- explicit `DENY`
+- default deny
+
+Then run **[Demo 14 — AgenticFlow Kubernetes Reconciliation](../demos/14-agentic-flow-kubernetes/)** on k3s, kind, or minikube. It verifies the full runtime path:
+
+```text
+AgenticFlow CRD
+  -> controller compile
+  -> ConfigMap policy.yaml/tools.yaml
+  -> nullfield sidecar mount
+  -> real MCP allow/deny calls
+```
+
+---
+
+## Phase 6: Kubernetes Deployment
 
 **Goal:** Deploy nullfield on a real cluster with Helm.
 
@@ -114,7 +139,7 @@ If you want a fully wired example to point real MCP traffic at, deploy the camaz
 
 ---
 
-## Phase 6: Production Hardening
+## Phase 7: Production Hardening
 
 Once you have nullfield deployed, walk through this checklist before going to production.
 

@@ -463,8 +463,16 @@ nullfield/
 - [x] **v0.9** — L3 tool governance: tool lifecycle tracking + rug-pull detection via `pkg/registry/lifecycle.go` (Reconcile, DriftReport, LifecycleTracker, ComputeHash — 14 tests)
 - [x] **v0.9** — Response inspection: findings detected in upstream responses, per-rule `onFinding: DENY/REDACT/AUDIT`, new `InspectionConfig` type, error code `-32007`, audit events `inspection.finding` + `inspection.redact` (6 tests)
 - [x] **v0.9** — Cost attribution: `GetUsageReport` per identity/session with `CostConfig`/`CostRate`, `GetToolCost` helper, sorted by highest cost (6 tests)
+- [x] **v0.10** — AgenticFlow authoring layer: least-privilege flow YAML compiled to `NullfieldPolicy`, `ToolRegistry`, credential-scoped `SCOPE` rules, optional NetworkPolicy/Istio/Cilium/Linkerd artifacts, and rule audit labels
+- [x] **v0.10** — AgenticFlow CRD reconciliation: controller watches `agenticflows.nullfield.io` and writes `nullfield-flow-<name>` ConfigMaps with `compiled.yaml`, `policy.yaml`, and `tools.yaml`
+- [x] **v0.10** — Decision context: audit logs, controller events, OTLP spans, and metrics carry structured gate/reason/rule context for tracing runtime PDP/PEP decisions back to declared intent
+- [x] **v0.10** — Portable AgenticFlow demos: local compile demo plus Kubernetes runtime demo verified on k3s
 
 ### Next
+
+- [ ] **v0.11** — Apply generated network/mesh artifacts from AgenticFlow through an explicit, previewable reconciler mode
+- [ ] **v0.11** — Full credential runtime demos: Vault/K8s Secret/OAuth-style credential paths with proof that credentials attach only to declared tool actions
+- [ ] **v0.11** — AgenticFlow status conditions: compilation success/failure, generated artifact hashes, last reconcile time
 - [ ] **v1.0** — Transparent iptables-based proxy (Istio-style), production hardening, ext_authz gRPC mode
 
 ### Future
