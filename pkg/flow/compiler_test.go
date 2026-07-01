@@ -167,3 +167,146 @@ func TestMarshalArtifactsYAMLEmitsPolicyAndRegistryDocuments(t *testing.T) {
 		t.Fatalf("output missing YAML document separator:\n%s", text)
 	}
 }
+
+func TestCompileFlowEmitsOptInNetworkAndIstioPolicies(t *testing.T) {
+	artifacts, err := Compile(AgenticFlow{
+		APIVersion: "nullfield.io/v1alpha1",
+		Kind:       "AgenticFlow",
+		Metadata:   v1alpha1.Metadata{Name: "astra-jira", Namespace: "prod"},
+		Spec: FlowSpec{
+			Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "astra"}},
+			Network: &NetworkSpec{
+				Egress: []EgressDestination{
+					{Name: "atlassian", CIDR: "104.192.136.0/21", Ports: []int{443}},
+				},
+			},
+			Mesh: &MeshSpec{
+				Istio: &IstioAuthzSpec{
+					Principals: []string{"cluster.local/ns/prod/sa/astra-runtime"},
+					Ports:      []int{9090},
+				},
+			},
+			Tools: []FlowTool{{Name: "mcp-atlassian.read_issue", Action: v1alpha1.ActionAllow}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compile returned error: %v", err)
+	}
+
+	if len(artifacts.NetworkPolicies) != 1 {
+		t.Fatalf("NetworkPolicies = %d, want 1", len(artifacts.NetworkPolicies))
+	}
+	np := artifacts.NetworkPolicies[0]
+	if np.Kind != "NetworkPolicy" {
+		t.Fatalf("network kind = %q, want NetworkPolicy", np.Kind)
+	}
+	if np.Spec.PodSelector.MatchLabels["app"] != "astra" {
+		t.Fatalf("network pod selector = %+v", np.Spec.PodSelector.MatchLabels)
+	}
+	if got := np.Spec.Egress[0].To[0].IPBlock.CIDR; got != "104.192.136.0/21" {
+		t.Fatalf("egress CIDR = %q, want Atlassian CIDR", got)
+	}
+
+	if len(artifacts.IstioAuthorizationPolicies) != 1 {
+		t.Fatalf("IstioAuthorizationPolicies = %d, want 1", len(artifacts.IstioAuthorizationPolicies))
+	}
+	authz := artifacts.IstioAuthorizationPolicies[0]
+	if authz.Kind != "AuthorizationPolicy" {
+		t.Fatalf("authz kind = %q, want AuthorizationPolicy", authz.Kind)
+	}
+	if got := authz.Spec.Rules[0].From[0].Source.Principals[0]; got != "cluster.local/ns/prod/sa/astra-runtime" {
+		t.Fatalf("authz principal = %q", got)
+	}
+}
+
+func TestCompileFlowRejectsBroadNetworkPolicyIntent(t *testing.T) {
+	cases := []struct {
+		name string
+		spec FlowSpec
+	}{
+		{
+			name: "network without selector",
+			spec: FlowSpec{
+				Network: &NetworkSpec{Egress: []EgressDestination{{CIDR: "104.192.136.0/21", Ports: []int{443}}}},
+				Tools:   []FlowTool{{Name: "mcp-atlassian.read_issue", Action: v1alpha1.ActionAllow}},
+			},
+		},
+		{
+			name: "network without ports",
+			spec: FlowSpec{
+				Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "astra"}},
+				Network:  &NetworkSpec{Egress: []EgressDestination{{CIDR: "104.192.136.0/21"}}},
+				Tools:    []FlowTool{{Name: "mcp-atlassian.read_issue", Action: v1alpha1.ActionAllow}},
+			},
+		},
+		{
+			name: "istio without principals",
+			spec: FlowSpec{
+				Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "astra"}},
+				Mesh:     &MeshSpec{Istio: &IstioAuthzSpec{Ports: []int{9090}}},
+				Tools:    []FlowTool{{Name: "mcp-atlassian.read_issue", Action: v1alpha1.ActionAllow}},
+			},
+		},
+		{
+			name: "istio without ports",
+			spec: FlowSpec{
+				Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "astra"}},
+				Mesh:     &MeshSpec{Istio: &IstioAuthzSpec{Principals: []string{"cluster.local/ns/prod/sa/astra-runtime"}}},
+				Tools:    []FlowTool{{Name: "mcp-atlassian.read_issue", Action: v1alpha1.ActionAllow}},
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := Compile(AgenticFlow{
+				APIVersion: "nullfield.io/v1alpha1",
+				Kind:       "AgenticFlow",
+				Metadata:   v1alpha1.Metadata{Name: "astra-jira"},
+				Spec:       c.spec,
+			})
+			if err == nil {
+				t.Fatal("expected Compile to reject broad network/authz intent")
+			}
+		})
+	}
+}
+
+func TestMarshalArtifactsYAMLEmitsOptInNetworkDocuments(t *testing.T) {
+	artifacts, err := Compile(AgenticFlow{
+		APIVersion: "nullfield.io/v1alpha1",
+		Kind:       "AgenticFlow",
+		Metadata:   v1alpha1.Metadata{Name: "astra-jira", Namespace: "prod"},
+		Spec: FlowSpec{
+			Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "astra"}},
+			Network:  &NetworkSpec{Egress: []EgressDestination{{CIDR: "104.192.136.0/21", Ports: []int{443}}}},
+			Mesh: &MeshSpec{Istio: &IstioAuthzSpec{
+				Principals: []string{"cluster.local/ns/prod/sa/astra-runtime"},
+				Ports:      []int{9090},
+			}},
+			Tools: []FlowTool{{Name: "mcp-atlassian.read_issue", Action: v1alpha1.ActionAllow}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compile returned error: %v", err)
+	}
+
+	out, err := MarshalArtifactsYAML(artifacts)
+	if err != nil {
+		t.Fatalf("MarshalArtifactsYAML returned error: %v", err)
+	}
+	text := string(out)
+	for _, want := range []string{
+		"kind: NetworkPolicy",
+		"name: astra-jira-egress",
+		"cidr: 104.192.136.0/21",
+		"kind: AuthorizationPolicy",
+		"name: astra-jira-authz",
+		"principals:",
+		"- \"9090\"",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("output missing %q:\n%s", want, text)
+		}
+	}
+}

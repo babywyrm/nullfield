@@ -30,11 +30,32 @@ type FlowSpec struct {
 	Lane            string                    `json:"lane,omitempty" yaml:"lane,omitempty"`
 	Transport       string                    `json:"transport,omitempty" yaml:"transport,omitempty"`
 	RequireIdentity *bool                     `json:"requireIdentity,omitempty" yaml:"requireIdentity,omitempty"`
+	Network         *NetworkSpec              `json:"network,omitempty" yaml:"network,omitempty"`
+	Mesh            *MeshSpec                 `json:"mesh,omitempty" yaml:"mesh,omitempty"`
 	Identity        *v1alpha1.IdentityConfig  `json:"identity,omitempty" yaml:"identity,omitempty"`
 	Integrity       *v1alpha1.IntegrityConfig `json:"integrity,omitempty" yaml:"integrity,omitempty"`
 	Anomaly         *v1alpha1.AnomalyConfig   `json:"anomaly,omitempty" yaml:"anomaly,omitempty"`
 	Audit           v1alpha1.AuditConfig      `json:"audit,omitempty" yaml:"audit,omitempty"`
 	Tools           []FlowTool                `json:"tools" yaml:"tools"`
+}
+
+type NetworkSpec struct {
+	Egress []EgressDestination `json:"egress,omitempty" yaml:"egress,omitempty"`
+}
+
+type EgressDestination struct {
+	Name  string `json:"name,omitempty" yaml:"name,omitempty"`
+	CIDR  string `json:"cidr" yaml:"cidr"`
+	Ports []int  `json:"ports,omitempty" yaml:"ports,omitempty"`
+}
+
+type MeshSpec struct {
+	Istio *IstioAuthzSpec `json:"istio,omitempty" yaml:"istio,omitempty"`
+}
+
+type IstioAuthzSpec struct {
+	Principals []string `json:"principals,omitempty" yaml:"principals,omitempty"`
+	Ports      []int    `json:"ports,omitempty" yaml:"ports,omitempty"`
 }
 
 type FlowTool struct {
@@ -55,8 +76,79 @@ type FlowTool struct {
 }
 
 type Artifacts struct {
-	Policy   v1alpha1.NullfieldPolicy
-	Registry v1alpha1.ToolRegistry
+	Policy                     v1alpha1.NullfieldPolicy
+	Registry                   v1alpha1.ToolRegistry
+	NetworkPolicies            []NetworkPolicy
+	IstioAuthorizationPolicies []IstioAuthorizationPolicy
+}
+
+type NetworkPolicy struct {
+	APIVersion string            `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string            `json:"kind" yaml:"kind"`
+	Metadata   v1alpha1.Metadata `json:"metadata" yaml:"metadata"`
+	Spec       NetworkPolicySpec `json:"spec" yaml:"spec"`
+}
+
+type NetworkPolicySpec struct {
+	PodSelector v1alpha1.Selector `json:"podSelector" yaml:"podSelector"`
+	PolicyTypes []string          `json:"policyTypes" yaml:"policyTypes"`
+	Egress      []NetworkEgress   `json:"egress" yaml:"egress"`
+}
+
+type NetworkEgress struct {
+	To    []NetworkPeer `json:"to" yaml:"to"`
+	Ports []NetworkPort `json:"ports,omitempty" yaml:"ports,omitempty"`
+}
+
+type NetworkPeer struct {
+	IPBlock IPBlock `json:"ipBlock" yaml:"ipBlock"`
+}
+
+type IPBlock struct {
+	CIDR string `json:"cidr" yaml:"cidr"`
+}
+
+type NetworkPort struct {
+	Protocol string `json:"protocol" yaml:"protocol"`
+	Port     int    `json:"port" yaml:"port"`
+}
+
+type IstioAuthorizationPolicy struct {
+	APIVersion string                       `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string                       `json:"kind" yaml:"kind"`
+	Metadata   v1alpha1.Metadata            `json:"metadata" yaml:"metadata"`
+	Spec       IstioAuthorizationPolicySpec `json:"spec" yaml:"spec"`
+}
+
+type IstioAuthorizationPolicySpec struct {
+	Selector IstioSelector `json:"selector" yaml:"selector"`
+	Action   string        `json:"action" yaml:"action"`
+	Rules    []IstioRule   `json:"rules" yaml:"rules"`
+}
+
+type IstioSelector struct {
+	MatchLabels map[string]string `json:"matchLabels" yaml:"matchLabels"`
+}
+
+type IstioRule struct {
+	From []IstioFrom `json:"from,omitempty" yaml:"from,omitempty"`
+	To   []IstioTo   `json:"to,omitempty" yaml:"to,omitempty"`
+}
+
+type IstioFrom struct {
+	Source IstioSource `json:"source" yaml:"source"`
+}
+
+type IstioSource struct {
+	Principals []string `json:"principals,omitempty" yaml:"principals,omitempty"`
+}
+
+type IstioTo struct {
+	Operation IstioOperation `json:"operation" yaml:"operation"`
+}
+
+type IstioOperation struct {
+	Ports []string `json:"ports,omitempty" yaml:"ports,omitempty"`
 }
 
 func LoadYAML(data []byte) (AgenticFlow, error) {
@@ -77,6 +169,16 @@ func MarshalArtifactsYAML(artifacts Artifacts) ([]byte, error) {
 	if err := enc.Encode(artifacts.Registry); err != nil {
 		return nil, err
 	}
+	for _, networkPolicy := range artifacts.NetworkPolicies {
+		if err := enc.Encode(networkPolicy); err != nil {
+			return nil, err
+		}
+	}
+	for _, authzPolicy := range artifacts.IstioAuthorizationPolicies {
+		if err := enc.Encode(authzPolicy); err != nil {
+			return nil, err
+		}
+	}
 	if err := enc.Close(); err != nil {
 		return nil, err
 	}
@@ -89,6 +191,9 @@ func Compile(doc AgenticFlow) (Artifacts, error) {
 	}
 	if len(doc.Spec.Tools) == 0 {
 		return Artifacts{}, fmt.Errorf("spec.tools must declare at least one tool")
+	}
+	if err := validateExplicitControlIntent(doc.Spec); err != nil {
+		return Artifacts{}, err
 	}
 
 	metadata := doc.Metadata
@@ -170,7 +275,91 @@ func Compile(doc AgenticFlow) (Artifacts, error) {
 			Metadata:   metadata,
 			Tools:      tools,
 		},
+		NetworkPolicies:            compileNetworkPolicies(doc, metadata),
+		IstioAuthorizationPolicies: compileIstioAuthorizationPolicies(doc, metadata),
 	}, nil
+}
+
+func validateExplicitControlIntent(spec FlowSpec) error {
+	if spec.Network != nil && len(spec.Network.Egress) > 0 {
+		if len(spec.Selector.MatchLabels) == 0 {
+			return fmt.Errorf("spec.selector.matchLabels is required when spec.network.egress is declared")
+		}
+		for _, dest := range spec.Network.Egress {
+			if dest.CIDR == "" {
+				return fmt.Errorf("spec.network.egress[].cidr is required")
+			}
+			if len(dest.Ports) == 0 {
+				return fmt.Errorf("spec.network.egress[].ports is required")
+			}
+		}
+	}
+
+	if spec.Mesh != nil && spec.Mesh.Istio != nil {
+		if len(spec.Selector.MatchLabels) == 0 {
+			return fmt.Errorf("spec.selector.matchLabels is required when spec.mesh.istio is declared")
+		}
+		if len(spec.Mesh.Istio.Principals) == 0 {
+			return fmt.Errorf("spec.mesh.istio.principals is required")
+		}
+		if len(spec.Mesh.Istio.Ports) == 0 {
+			return fmt.Errorf("spec.mesh.istio.ports is required")
+		}
+	}
+
+	return nil
+}
+
+func compileNetworkPolicies(doc AgenticFlow, metadata v1alpha1.Metadata) []NetworkPolicy {
+	if doc.Spec.Network == nil || len(doc.Spec.Network.Egress) == 0 {
+		return nil
+	}
+	egress := make([]NetworkEgress, 0, len(doc.Spec.Network.Egress))
+	for _, dest := range doc.Spec.Network.Egress {
+		if dest.CIDR == "" {
+			continue
+		}
+		egress = append(egress, NetworkEgress{
+			To:    []NetworkPeer{{IPBlock: IPBlock{CIDR: dest.CIDR}}},
+			Ports: networkPorts(dest.Ports),
+		})
+	}
+	if len(egress) == 0 {
+		return nil
+	}
+	return []NetworkPolicy{{
+		APIVersion: "networking.k8s.io/v1",
+		Kind:       "NetworkPolicy",
+		Metadata:   namedMetadata(metadata, metadata.Name+"-egress"),
+		Spec: NetworkPolicySpec{
+			PodSelector: v1alpha1.Selector{MatchLabels: cloneStringMap(doc.Spec.Selector.MatchLabels)},
+			PolicyTypes: []string{"Egress"},
+			Egress:      egress,
+		},
+	}}
+}
+
+func compileIstioAuthorizationPolicies(doc AgenticFlow, metadata v1alpha1.Metadata) []IstioAuthorizationPolicy {
+	if doc.Spec.Mesh == nil || doc.Spec.Mesh.Istio == nil {
+		return nil
+	}
+	istio := doc.Spec.Mesh.Istio
+	if len(istio.Principals) == 0 && len(istio.Ports) == 0 {
+		return nil
+	}
+	return []IstioAuthorizationPolicy{{
+		APIVersion: "security.istio.io/v1beta1",
+		Kind:       "AuthorizationPolicy",
+		Metadata:   namedMetadata(metadata, metadata.Name+"-authz"),
+		Spec: IstioAuthorizationPolicySpec{
+			Selector: IstioSelector{MatchLabels: cloneStringMap(doc.Spec.Selector.MatchLabels)},
+			Action:   "ALLOW",
+			Rules: []IstioRule{{
+				From: []IstioFrom{{Source: IstioSource{Principals: append([]string(nil), istio.Principals...)}}},
+				To:   []IstioTo{{Operation: IstioOperation{Ports: stringPorts(istio.Ports)}}},
+			}},
+		},
+	}}
 }
 
 func ensureScopeRequest(scope *v1alpha1.ScopeConfig) *v1alpha1.ScopeConfig {
@@ -227,6 +416,29 @@ func defaultString(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func networkPorts(ports []int) []NetworkPort {
+	out := make([]NetworkPort, 0, len(ports))
+	for _, port := range ports {
+		out = append(out, NetworkPort{Protocol: "TCP", Port: port})
+	}
+	return out
+}
+
+func stringPorts(ports []int) []string {
+	out := make([]string, 0, len(ports))
+	for _, port := range ports {
+		out = append(out, fmt.Sprintf("%d", port))
+	}
+	return out
+}
+
+func namedMetadata(metadata v1alpha1.Metadata, name string) v1alpha1.Metadata {
+	out := metadata
+	out.Name = name
+	out.Labels = cloneStringMap(metadata.Labels)
+	return out
 }
 
 func ruleID(toolName string, action v1alpha1.Action) string {

@@ -17,6 +17,16 @@ spec:
   selector:
     matchLabels:
       app: astra
+  network:
+    egress:
+      - name: atlassian
+        cidr: 104.192.136.0/21
+        ports: [443]
+  mesh:
+    istio:
+      principals:
+        - cluster.local/ns/prod/sa/astra-runtime
+      ports: [9090]
   tools:
     - name: mcp-atlassian.read_issue
       action: ALLOW
@@ -47,9 +57,11 @@ The output is a multi-document YAML stream:
 
 - `NullfieldPolicy` with stable rule IDs, `requireIdentity: true`, runtime actions, credential-scoped `SCOPE` rules, audit labels, and a default deny.
 - `ToolRegistry` containing every declared tool, including explicitly denied tools, so policy denials are visible as policy decisions instead of disappearing at the registry gate.
+- `NetworkPolicy`, when `spec.network.egress` is declared.
+- Istio `AuthorizationPolicy`, when `spec.mesh.istio` is declared.
 
 ## Control Split
 
 Use `AgenticFlow` for runtime MCP intent: which agent path may call which tool, under which identity, with which credential and audit labels.
 
-Network and mesh policy generation should remain profile-based. `NetworkPolicy`, Istio `AuthorizationPolicy`, Cilium policy, and Linkerd policy answer different questions, so they should be generated only when the flow declares enough explicit workload and destination intent.
+Network and mesh policy generation is opt-in. `NetworkPolicy`, Istio `AuthorizationPolicy`, Cilium policy, and Linkerd policy answer different questions, so nullfield only emits these artifacts when the flow declares enough explicit workload and destination intent.

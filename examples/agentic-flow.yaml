@@ -9,6 +9,16 @@ spec:
   selector:
     matchLabels:
       app: astra
+  network:
+    egress:
+      - name: atlassian
+        cidr: 104.192.136.0/21
+        ports: [443]
+  mesh:
+    istio:
+      principals:
+        - cluster.local/ns/prod/sa/astra-runtime
+      ports: [9090]
   tools:
     - name: mcp-atlassian.read_issue
       description: Read Jira issues on approved projects
