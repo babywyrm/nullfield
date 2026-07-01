@@ -71,10 +71,24 @@ func (o *OTLPEmitter) Emit(ctx context.Context, event Event) {
 			attribute.String("nullfield.method", event.Method),
 			attribute.String("nullfield.tool", event.ToolName),
 			attribute.String("nullfield.identity", event.Identity),
+			attribute.String("nullfield.session_id", event.SessionID),
+			attribute.String("nullfield.target", event.Target),
+			attribute.String("nullfield.gate", event.Gate),
+			attribute.String("nullfield.reason_class", event.ReasonClass),
+			attribute.String("nullfield.rule_id", event.RuleID),
+			attribute.String("nullfield.policy_ref", event.PolicyRef),
+			attribute.String("nullfield.registry_ref", event.RegistryRef),
+			attribute.String("nullfield.route", event.Route),
 		),
 	)
 	defer span.End()
 
+	if event.RuleIndex != nil {
+		span.SetAttributes(attribute.Int("nullfield.rule_index", *event.RuleIndex))
+	}
+	for key, value := range event.Labels {
+		span.SetAttributes(attribute.String("nullfield.label."+key, value))
+	}
 	if event.Reason != "" {
 		span.SetAttributes(attribute.String("nullfield.reason", event.Reason))
 	}

@@ -25,6 +25,67 @@ func TestRuleEngine_BackwardCompatible(t *testing.T) {
 	}
 }
 
+func TestRuleEngine_DecisionContextIdentifiesMatchedRule(t *testing.T) {
+	engine := NewRuleEngine([]v1alpha1.Rule{
+		{ID: "read-jira", Action: v1alpha1.ActionAllow, MCPMethod: "tools/call", ToolNames: []string{"jira.read_issue"}},
+		{ID: "default-deny", Action: v1alpha1.ActionDeny, MCPMethod: "tools/call", ToolNames: []string{"*"}},
+	})
+
+	d := engine.Evaluate(context.Background(), Request{Method: "tools/call", ToolName: "jira.read_issue"})
+	if !d.Allowed {
+		t.Fatalf("expected jira.read_issue allowed, got denied: %s", d.Reason)
+	}
+	if d.RuleIndex != 0 {
+		t.Fatalf("RuleIndex = %d, want 0", d.RuleIndex)
+	}
+	if d.RuleID != "read-jira" {
+		t.Fatalf("RuleID = %q, want read-jira", d.RuleID)
+	}
+	if d.Gate != "policy" {
+		t.Fatalf("Gate = %q, want policy", d.Gate)
+	}
+	if d.ReasonClass != "allowed" {
+		t.Fatalf("ReasonClass = %q, want allowed", d.ReasonClass)
+	}
+
+	d = engine.Evaluate(context.Background(), Request{Method: "tools/call", ToolName: "jira.delete_issue"})
+	if d.Allowed {
+		t.Fatal("expected jira.delete_issue denied")
+	}
+	if d.RuleIndex != 1 {
+		t.Fatalf("RuleIndex = %d, want 1", d.RuleIndex)
+	}
+	if d.RuleID != "default-deny" {
+		t.Fatalf("RuleID = %q, want default-deny", d.RuleID)
+	}
+	if d.ReasonClass != "policy_denied" {
+		t.Fatalf("ReasonClass = %q, want policy_denied", d.ReasonClass)
+	}
+}
+
+func TestRuleEngine_DecisionContextMarksDefaultDeny(t *testing.T) {
+	engine := NewRuleEngine([]v1alpha1.Rule{
+		{ID: "read-jira", Action: v1alpha1.ActionAllow, MCPMethod: "tools/call", ToolNames: []string{"jira.read_issue"}},
+	})
+
+	d := engine.Evaluate(context.Background(), Request{Method: "tools/call", ToolName: "jira.delete_issue"})
+	if d.Allowed {
+		t.Fatal("expected unmatched tool denied")
+	}
+	if d.RuleIndex != -1 {
+		t.Fatalf("RuleIndex = %d, want -1", d.RuleIndex)
+	}
+	if d.RuleID != "" {
+		t.Fatalf("RuleID = %q, want empty", d.RuleID)
+	}
+	if d.Gate != "policy" {
+		t.Fatalf("Gate = %q, want policy", d.Gate)
+	}
+	if d.ReasonClass != "default_deny" {
+		t.Fatalf("ReasonClass = %q, want default_deny", d.ReasonClass)
+	}
+}
+
 func TestRuleEngine_WhenIdentityType(t *testing.T) {
 	engine := NewRuleEngine([]v1alpha1.Rule{
 		{
@@ -129,7 +190,6 @@ func TestRuleEngine_NoWhenBlockBackwardCompat(t *testing.T) {
 	}
 }
 
-
 // --- Per-rule identity / delegation guards (2026-04-26 spec) ----------------
 
 func TestActChainDepth(t *testing.T) {
@@ -232,7 +292,7 @@ func TestAudienceMustNarrow_RejectsWidening(t *testing.T) {
 	// No act chain — narrow-ness is vacuously true, guard passes.
 	noAct := &identity.Identity{
 		Subject: "alice",
-		Claims: map[string]any{"sub": "alice", "aud": []any{"whatever"}},
+		Claims:  map[string]any{"sub": "alice", "aud": []any{"whatever"}},
 	}
 	d = engine.Evaluate(context.Background(), Request{Method: "tools/call", ToolName: "t", Identity: noAct})
 	if !d.Allowed {

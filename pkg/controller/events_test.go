@@ -1,9 +1,14 @@
 package controller
 
 import (
+	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
+
+	pb "github.com/babywyrm/nullfield/api/v1alpha1/controllerpb"
 )
 
 func TestEventBuffer_AddAndList(t *testing.T) {
@@ -96,5 +101,55 @@ func TestEventBuffer_Count(t *testing.T) {
 
 	if buf.Count() != 7 {
 		t.Fatalf("expected count=7, got %d", buf.Count())
+	}
+}
+
+func TestServerReportEventStoresDecisionContext(t *testing.T) {
+	ruleIndex := int32(2)
+	server := &Server{
+		Events:  NewEventBuffer(10),
+		Alerter: NewAlerter("", slog.New(slog.NewTextHandler(io.Discard, nil))),
+	}
+
+	_, err := server.ReportEvent(context.Background(), &pb.ReportEventRequest{
+		EventType:   "tool.denied",
+		Method:      "tools/call",
+		Tool:        "jira.delete_issue",
+		Identity:    "astra",
+		SessionId:   "session-123",
+		Reason:      "not an approved path",
+		Target:      "prod/astra",
+		Gate:        "policy",
+		ReasonClass: "policy_denied",
+		RuleIndex:   &ruleIndex,
+		RuleId:      "deny-delete",
+		PolicyRef:   "astra-jira",
+		RegistryRef: "jira-tools",
+		Route:       "atlassian",
+		Labels:      map[string]string{"lane": "delegated", "resource": "jira"},
+	})
+	if err != nil {
+		t.Fatalf("ReportEvent returned error: %v", err)
+	}
+
+	events := server.Events.List("", 0)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	event := events[0]
+	if event.Gate != "policy" {
+		t.Fatalf("Gate = %q, want policy", event.Gate)
+	}
+	if event.ReasonClass != "policy_denied" {
+		t.Fatalf("ReasonClass = %q, want policy_denied", event.ReasonClass)
+	}
+	if event.RuleIndex == nil || *event.RuleIndex != 2 {
+		t.Fatalf("RuleIndex = %v, want 2", event.RuleIndex)
+	}
+	if event.RuleID != "deny-delete" {
+		t.Fatalf("RuleID = %q, want deny-delete", event.RuleID)
+	}
+	if event.Labels["lane"] != "delegated" {
+		t.Fatalf("Labels[lane] = %q, want delegated", event.Labels["lane"])
 	}
 }

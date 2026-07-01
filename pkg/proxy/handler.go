@@ -31,17 +31,17 @@ type Handler struct {
 	upstream     *httputil.ReverseProxy
 	upstreamAddr string
 	engine       policy.Engine
-	auditor     audit.Emitter
-	verifier    identity.Verifier
-	integrity   *identity.IntegrityChecker
-	velocity    *anomaly.VelocityTracker
-	budgets     *budget.Tracker
-	holds       *hold.Manager
-	registry    *registry.Registry
-	breaker     *circuit.Breaker
-	credentials *credentials.MultiProvider
-	inspector   *inspection.Inspector
-	logger      *slog.Logger
+	auditor      audit.Emitter
+	verifier     identity.Verifier
+	integrity    *identity.IntegrityChecker
+	velocity     *anomaly.VelocityTracker
+	budgets      *budget.Tracker
+	holds        *hold.Manager
+	registry     *registry.Registry
+	breaker      *circuit.Breaker
+	credentials  *credentials.MultiProvider
+	inspector    *inspection.Inspector
+	logger       *slog.Logger
 }
 
 type HandlerOpts struct {
@@ -66,17 +66,17 @@ func NewHandler(opts HandlerOpts) *Handler {
 		upstream:     proxy,
 		upstreamAddr: opts.UpstreamURL.Host,
 		engine:       opts.Engine,
-		auditor:     opts.Auditor,
-		verifier:    opts.Verifier,
-		integrity:   opts.Integrity,
-		velocity:    opts.Velocity,
-		budgets:     opts.Budgets,
-		holds:       opts.Holds,
-		registry:    opts.Registry,
-		breaker:     opts.Breaker,
-		credentials: opts.Credentials,
-		inspector:   opts.Inspector,
-		logger:      opts.Logger,
+		auditor:      opts.Auditor,
+		verifier:     opts.Verifier,
+		integrity:    opts.Integrity,
+		velocity:     opts.Velocity,
+		budgets:      opts.Budgets,
+		holds:        opts.Holds,
+		registry:     opts.Registry,
+		breaker:      opts.Breaker,
+		credentials:  opts.Credentials,
+		inspector:    opts.Inspector,
+		logger:       opts.Logger,
 	}
 }
 
@@ -147,24 +147,26 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 	}
 
 	if !h.registry.IsRegistered(tc.Name) {
-		h.auditor.Emit(ctx, audit.Event{
-			Type:     audit.EventToolDenied,
-			Method:   req.Method,
-			ToolName: tc.Name,
-			Identity: id.Subject,
-			Reason:   "tool not registered",
-		})
+		h.auditor.Emit(ctx, eventWithIdentity(audit.Event{
+			Type:        audit.EventToolDenied,
+			Method:      req.Method,
+			ToolName:    tc.Name,
+			Gate:        "registry",
+			ReasonClass: "tool_not_registered",
+			Reason:      "tool not registered",
+		}, id))
 		h.writeJSONRPCError(w, req.ID, ErrCodeToolUnknown, "tool not registered: "+tc.Name)
 		return
 	}
 
 	if !h.breaker.Allow(id.SessionID) {
-		h.auditor.Emit(ctx, audit.Event{
-			Type:     audit.EventCircuitTripped,
-			Method:   req.Method,
-			ToolName: tc.Name,
-			Identity: id.Subject,
-		})
+		h.auditor.Emit(ctx, eventWithIdentity(audit.Event{
+			Type:        audit.EventCircuitTripped,
+			Method:      req.Method,
+			ToolName:    tc.Name,
+			Gate:        "circuit",
+			ReasonClass: "circuit_open",
+		}, id))
 		h.writeJSONRPCError(w, req.ID, ErrCodeCircuitOpen, "circuit breaker open — session limit exceeded")
 		return
 	}
@@ -190,24 +192,24 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 		h.logger.InfoContext(ctx, "request held for approval",
 			"holdId", holdID, "tool", tc.Name, "identity", id.Subject, "timeout", timeout)
 
-		h.auditor.Emit(ctx, audit.Event{
+		h.auditor.Emit(ctx, eventWithDecision(audit.Event{
 			Type:     audit.EventHoldCreated,
 			Method:   req.Method,
 			ToolName: tc.Name,
-			Identity: id.Subject,
 			Reason:   fmt.Sprintf("held: %s (id=%s, timeout=%s)", decision.Reason, holdID, timeout),
-		})
+		}, decision, id))
 
 		resolution := <-ch
 
 		if !resolution.Approved {
-			h.auditor.Emit(ctx, audit.Event{
-				Type:     audit.EventToolDenied,
-				Method:   req.Method,
-				ToolName: tc.Name,
-				Identity: id.Subject,
-				Reason:   fmt.Sprintf("hold %s: denied by %s", holdID, resolution.By),
-			})
+			h.auditor.Emit(ctx, eventWithDecision(audit.Event{
+				Type:        audit.EventToolDenied,
+				Method:      req.Method,
+				ToolName:    tc.Name,
+				Gate:        "hold",
+				ReasonClass: holdReasonClass(resolution.By),
+				Reason:      fmt.Sprintf("hold %s: denied by %s", holdID, resolution.By),
+			}, decision, id))
 			if resolution.By == "timeout" {
 				h.writeJSONRPCError(w, req.ID, ErrCodeHoldTimeout, "hold timed out without approval")
 			} else {
@@ -217,22 +219,20 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 		}
 
 		h.logger.InfoContext(ctx, "hold approved", "holdId", holdID, "approvedBy", resolution.By)
-		h.auditor.Emit(ctx, audit.Event{
+		h.auditor.Emit(ctx, eventWithDecision(audit.Event{
 			Type:     audit.EventHoldApproved,
 			Method:   req.Method,
 			ToolName: tc.Name,
-			Identity: id.Subject,
 			Reason:   fmt.Sprintf("hold %s: approved by %s", holdID, resolution.By),
-		})
+		}, decision, id))
 		// Fall through to budget check and forwarding.
 	} else if !decision.Allowed {
-		h.auditor.Emit(ctx, audit.Event{
+		h.auditor.Emit(ctx, eventWithDecision(audit.Event{
 			Type:     audit.EventToolDenied,
 			Method:   req.Method,
 			ToolName: tc.Name,
-			Identity: id.Subject,
 			Reason:   decision.Reason,
-		})
+		}, decision, id))
 		h.writeJSONRPCError(w, req.ID, ErrCodePolicyDenied, "denied by policy: "+decision.Reason)
 		return
 	}
@@ -280,13 +280,12 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 			scopeResponseCfg = scopeCfg.Response
 		}
 
-		h.auditor.Emit(ctx, audit.Event{
+		h.auditor.Emit(ctx, eventWithDecision(audit.Event{
 			Type:     audit.EventScopeModified,
 			Method:   req.Method,
 			ToolName: tc.Name,
-			Identity: id.Subject,
 			Reason:   fmt.Sprintf("stripped=%v injected=%v", mods.StrippedArgs, mods.InjectedArgs),
-		})
+		}, decision, id))
 	}
 
 	// Budget check — if the matched rule has a budget config, enforce it.
@@ -308,13 +307,14 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 			}
 		}
 		if err := h.budgets.CheckAndRecord(id.Subject, id.SessionID, perID, perSess); err != nil {
-			h.auditor.Emit(ctx, audit.Event{
-				Type:     audit.EventToolDenied,
-				Method:   req.Method,
-				ToolName: tc.Name,
-				Identity: id.Subject,
-				Reason:   "budget exhausted: " + err.Error(),
-			})
+			h.auditor.Emit(ctx, eventWithDecision(audit.Event{
+				Type:        audit.EventToolDenied,
+				Method:      req.Method,
+				ToolName:    tc.Name,
+				Gate:        "budget",
+				ReasonClass: "budget_exhausted",
+				Reason:      "budget exhausted: " + err.Error(),
+			}, decision, id))
 			h.writeJSONRPCError(w, req.ID, ErrCodeRateLimited, "budget exhausted: "+err.Error())
 			return
 		}
@@ -324,13 +324,14 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 
 	if h.velocity != nil {
 		if alert := h.velocity.Record(id.Subject, tc.Name); alert != nil {
-			h.auditor.Emit(ctx, audit.Event{
-				Type:     audit.EventAnomalyVelocity,
-				Method:   req.Method,
-				ToolName: tc.Name,
-				Identity: id.Subject,
-				Reason:   fmt.Sprintf("velocity %d/min exceeds threshold %d", alert.CallsPerMin, alert.Threshold),
-			})
+			h.auditor.Emit(ctx, eventWithDecision(audit.Event{
+				Type:        audit.EventAnomalyVelocity,
+				Method:      req.Method,
+				ToolName:    tc.Name,
+				Gate:        "anomaly",
+				ReasonClass: "velocity_limit",
+				Reason:      fmt.Sprintf("velocity %d/min exceeds threshold %d", alert.CallsPerMin, alert.Threshold),
+			}, decision, id))
 			if alert.Action == anomaly.AlertActionDeny {
 				h.writeJSONRPCError(w, req.ID, ErrCodeRateLimited, fmt.Sprintf("velocity limit exceeded: %d calls/min", alert.CallsPerMin))
 				return
@@ -338,13 +339,12 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 		}
 	}
 
-	h.auditor.Emit(ctx, audit.Event{
+	h.auditor.Emit(ctx, eventWithDecision(audit.Event{
 		Type:     audit.EventToolAllowed,
 		Method:   req.Method,
 		ToolName: tc.Name,
-		Identity: id.Subject,
 		Args:     tc.Arguments,
-	})
+	}, decision, id))
 
 	r.Body = io.NopCloser(bytes.NewReader(body))
 
@@ -369,13 +369,12 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 			var count int
 			respBody, count = scope.ModifyResponse(respBody, scopeResponseCfg)
 			if count > 0 {
-				h.auditor.Emit(ctx, audit.Event{
+				h.auditor.Emit(ctx, eventWithDecision(audit.Event{
 					Type:     audit.EventScopeModified,
 					Method:   req.Method,
 					ToolName: tc.Name,
-					Identity: id.Subject,
 					Reason:   fmt.Sprintf("response: %d patterns redacted", count),
-				})
+				}, decision, id))
 			}
 		}
 
@@ -427,13 +426,14 @@ func (h *Handler) inspectResponse(
 		return false, nil
 	}
 
-	h.auditor.Emit(ctx, audit.Event{
-		Type:     audit.EventInspectionFinding,
-		Method:   req.Method,
-		ToolName: tc.Name,
-		Identity: id.Subject,
-		Reason:   fmt.Sprintf("%d findings: %s", len(findings), inspection.Summarize(findings)),
-	})
+	h.auditor.Emit(ctx, eventWithDecision(audit.Event{
+		Type:        audit.EventInspectionFinding,
+		Method:      req.Method,
+		ToolName:    tc.Name,
+		Gate:        "inspection",
+		ReasonClass: "inspection_finding",
+		Reason:      fmt.Sprintf("%d findings: %s", len(findings), inspection.Summarize(findings)),
+	}, decision, id))
 
 	action := icfg.OnFinding
 	if action == "" {
@@ -449,13 +449,14 @@ func (h *Handler) inspectResponse(
 	case "REDACT":
 		redacted, count := h.inspector.Redact(string(respBody), "[REDACTED]")
 		if count > 0 {
-			h.auditor.Emit(ctx, audit.Event{
-				Type:     audit.EventInspectionRedact,
-				Method:   req.Method,
-				ToolName: tc.Name,
-				Identity: id.Subject,
-				Reason:   fmt.Sprintf("redacted %d sensitive patterns", count),
-			})
+			h.auditor.Emit(ctx, eventWithDecision(audit.Event{
+				Type:        audit.EventInspectionRedact,
+				Method:      req.Method,
+				ToolName:    tc.Name,
+				Gate:        "inspection",
+				ReasonClass: "inspection_redact",
+				Reason:      fmt.Sprintf("redacted %d sensitive patterns", count),
+			}, decision, id))
 		}
 		return false, []byte(redacted)
 	default:

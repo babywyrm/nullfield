@@ -320,6 +320,14 @@ type ReportEventRequest struct {
 	Reason        string                 `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`
 	Target        string                 `protobuf:"bytes,7,opt,name=target,proto3" json:"target,omitempty"` // which target namespace/deployment
 	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Gate          string                 `protobuf:"bytes,9,opt,name=gate,proto3" json:"gate,omitempty"`                                                                                // enforcement gate: registry, policy, budget, hold, etc.
+	ReasonClass   string                 `protobuf:"bytes,10,opt,name=reason_class,json=reasonClass,proto3" json:"reason_class,omitempty"`                                              // low-cardinality class for metrics/alerts
+	RuleIndex     *int32                 `protobuf:"varint,11,opt,name=rule_index,json=ruleIndex,proto3,oneof" json:"rule_index,omitempty"`                                             // zero-based index in the active policy
+	RuleId        string                 `protobuf:"bytes,12,opt,name=rule_id,json=ruleId,proto3" json:"rule_id,omitempty"`                                                             // stable rule id from policy YAML/CRD
+	PolicyRef     string                 `protobuf:"bytes,13,opt,name=policy_ref,json=policyRef,proto3" json:"policy_ref,omitempty"`                                                    // policy name/hash/reference
+	RegistryRef   string                 `protobuf:"bytes,14,opt,name=registry_ref,json=registryRef,proto3" json:"registry_ref,omitempty"`                                              // registry name/hash/reference
+	Route         string                 `protobuf:"bytes,15,opt,name=route,proto3" json:"route,omitempty"`                                                                             // gateway route, when applicable
+	Labels        map[string]string      `protobuf:"bytes,16,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // bounded operator-defined audit labels
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -406,6 +414,62 @@ func (x *ReportEventRequest) GetTarget() string {
 func (x *ReportEventRequest) GetTimestamp() *timestamppb.Timestamp {
 	if x != nil {
 		return x.Timestamp
+	}
+	return nil
+}
+
+func (x *ReportEventRequest) GetGate() string {
+	if x != nil {
+		return x.Gate
+	}
+	return ""
+}
+
+func (x *ReportEventRequest) GetReasonClass() string {
+	if x != nil {
+		return x.ReasonClass
+	}
+	return ""
+}
+
+func (x *ReportEventRequest) GetRuleIndex() int32 {
+	if x != nil && x.RuleIndex != nil {
+		return *x.RuleIndex
+	}
+	return 0
+}
+
+func (x *ReportEventRequest) GetRuleId() string {
+	if x != nil {
+		return x.RuleId
+	}
+	return ""
+}
+
+func (x *ReportEventRequest) GetPolicyRef() string {
+	if x != nil {
+		return x.PolicyRef
+	}
+	return ""
+}
+
+func (x *ReportEventRequest) GetRegistryRef() string {
+	if x != nil {
+		return x.RegistryRef
+	}
+	return ""
+}
+
+func (x *ReportEventRequest) GetRoute() string {
+	if x != nil {
+		return x.Route
+	}
+	return ""
+}
+
+func (x *ReportEventRequest) GetLabels() map[string]string {
+	if x != nil {
+		return x.Labels
 	}
 	return nil
 }
@@ -611,7 +675,7 @@ const file_controller_proto_rawDesc = "" +
 	"\x12CreateHoldResponse\x12\x17\n" +
 	"\ahold_id\x18\x01 \x01(\tR\x06holdId\x12\x1a\n" +
 	"\bdecision\x18\x02 \x01(\tR\bdecision\x12\x16\n" +
-	"\x06reason\x18\x03 \x01(\tR\x06reason\"\x84\x02\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\"\xe6\x04\n" +
 	"\x12ReportEventRequest\x12\x1d\n" +
 	"\n" +
 	"event_type\x18\x01 \x01(\tR\teventType\x12\x16\n" +
@@ -622,7 +686,22 @@ const file_controller_proto_rawDesc = "" +
 	"session_id\x18\x05 \x01(\tR\tsessionId\x12\x16\n" +
 	"\x06reason\x18\x06 \x01(\tR\x06reason\x12\x16\n" +
 	"\x06target\x18\a \x01(\tR\x06target\x128\n" +
-	"\ttimestamp\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\"\x15\n" +
+	"\ttimestamp\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12\x12\n" +
+	"\x04gate\x18\t \x01(\tR\x04gate\x12!\n" +
+	"\freason_class\x18\n" +
+	" \x01(\tR\vreasonClass\x12\"\n" +
+	"\n" +
+	"rule_index\x18\v \x01(\x05H\x00R\truleIndex\x88\x01\x01\x12\x17\n" +
+	"\arule_id\x18\f \x01(\tR\x06ruleId\x12\x1d\n" +
+	"\n" +
+	"policy_ref\x18\r \x01(\tR\tpolicyRef\x12!\n" +
+	"\fregistry_ref\x18\x0e \x01(\tR\vregistryRef\x12\x14\n" +
+	"\x05route\x18\x0f \x01(\tR\x05route\x12J\n" +
+	"\x06labels\x18\x10 \x03(\v22.nullfield.v1alpha1.ReportEventRequest.LabelsEntryR\x06labels\x1a9\n" +
+	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\r\n" +
+	"\v_rule_index\"\x15\n" +
 	"\x13ReportEventResponse\"\xd7\x01\n" +
 	"\x16RegisterSidecarRequest\x12\x1f\n" +
 	"\vtarget_name\x18\x01 \x01(\tR\n" +
@@ -656,7 +735,7 @@ func file_controller_proto_rawDescGZIP() []byte {
 	return file_controller_proto_rawDescData
 }
 
-var file_controller_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_controller_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_controller_proto_goTypes = []any{
 	(*CheckBudgetRequest)(nil),      // 0: nullfield.v1alpha1.CheckBudgetRequest
 	(*CheckBudgetResponse)(nil),     // 1: nullfield.v1alpha1.CheckBudgetResponse
@@ -666,23 +745,25 @@ var file_controller_proto_goTypes = []any{
 	(*ReportEventResponse)(nil),     // 5: nullfield.v1alpha1.ReportEventResponse
 	(*RegisterSidecarRequest)(nil),  // 6: nullfield.v1alpha1.RegisterSidecarRequest
 	(*RegisterSidecarResponse)(nil), // 7: nullfield.v1alpha1.RegisterSidecarResponse
-	(*timestamppb.Timestamp)(nil),   // 8: google.protobuf.Timestamp
+	nil,                             // 8: nullfield.v1alpha1.ReportEventRequest.LabelsEntry
+	(*timestamppb.Timestamp)(nil),   // 9: google.protobuf.Timestamp
 }
 var file_controller_proto_depIdxs = []int32{
-	8, // 0: nullfield.v1alpha1.ReportEventRequest.timestamp:type_name -> google.protobuf.Timestamp
-	0, // 1: nullfield.v1alpha1.NullfieldController.CheckBudget:input_type -> nullfield.v1alpha1.CheckBudgetRequest
-	2, // 2: nullfield.v1alpha1.NullfieldController.CreateHold:input_type -> nullfield.v1alpha1.CreateHoldRequest
-	4, // 3: nullfield.v1alpha1.NullfieldController.ReportEvent:input_type -> nullfield.v1alpha1.ReportEventRequest
-	6, // 4: nullfield.v1alpha1.NullfieldController.RegisterSidecar:input_type -> nullfield.v1alpha1.RegisterSidecarRequest
-	1, // 5: nullfield.v1alpha1.NullfieldController.CheckBudget:output_type -> nullfield.v1alpha1.CheckBudgetResponse
-	3, // 6: nullfield.v1alpha1.NullfieldController.CreateHold:output_type -> nullfield.v1alpha1.CreateHoldResponse
-	5, // 7: nullfield.v1alpha1.NullfieldController.ReportEvent:output_type -> nullfield.v1alpha1.ReportEventResponse
-	7, // 8: nullfield.v1alpha1.NullfieldController.RegisterSidecar:output_type -> nullfield.v1alpha1.RegisterSidecarResponse
-	5, // [5:9] is the sub-list for method output_type
-	1, // [1:5] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	9, // 0: nullfield.v1alpha1.ReportEventRequest.timestamp:type_name -> google.protobuf.Timestamp
+	8, // 1: nullfield.v1alpha1.ReportEventRequest.labels:type_name -> nullfield.v1alpha1.ReportEventRequest.LabelsEntry
+	0, // 2: nullfield.v1alpha1.NullfieldController.CheckBudget:input_type -> nullfield.v1alpha1.CheckBudgetRequest
+	2, // 3: nullfield.v1alpha1.NullfieldController.CreateHold:input_type -> nullfield.v1alpha1.CreateHoldRequest
+	4, // 4: nullfield.v1alpha1.NullfieldController.ReportEvent:input_type -> nullfield.v1alpha1.ReportEventRequest
+	6, // 5: nullfield.v1alpha1.NullfieldController.RegisterSidecar:input_type -> nullfield.v1alpha1.RegisterSidecarRequest
+	1, // 6: nullfield.v1alpha1.NullfieldController.CheckBudget:output_type -> nullfield.v1alpha1.CheckBudgetResponse
+	3, // 7: nullfield.v1alpha1.NullfieldController.CreateHold:output_type -> nullfield.v1alpha1.CreateHoldResponse
+	5, // 8: nullfield.v1alpha1.NullfieldController.ReportEvent:output_type -> nullfield.v1alpha1.ReportEventResponse
+	7, // 9: nullfield.v1alpha1.NullfieldController.RegisterSidecar:output_type -> nullfield.v1alpha1.RegisterSidecarResponse
+	6, // [6:10] is the sub-list for method output_type
+	2, // [2:6] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_controller_proto_init() }
@@ -690,13 +771,14 @@ func file_controller_proto_init() {
 	if File_controller_proto != nil {
 		return
 	}
+	file_controller_proto_msgTypes[4].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_controller_proto_rawDesc), len(file_controller_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

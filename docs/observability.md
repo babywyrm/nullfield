@@ -14,7 +14,7 @@ nullfield exposes Prometheus metrics on the admin port at `/metrics`. Always ena
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `nullfield_tool_calls_total` | counter | tool, action, reason | Tool call decisions (allowed/denied) |
+| `nullfield_tool_calls_total` | counter | tool, action, gate, reason_class | Tool call decisions (allowed/denied) |
 | `nullfield_requests_total` | counter | method | All MCP requests by method |
 | `nullfield_identity_failures_total` | counter | — | Identity verification failures |
 | `nullfield_circuit_trips_total` | counter | — | Circuit breaker trips |
@@ -58,6 +58,9 @@ sum by (action) (rate(nullfield_tool_calls_total[5m]))
 # Top denied tools
 topk(5, sum by (tool) (rate(nullfield_tool_calls_total{action="denied"}[5m])))
 
+# Denials by enforcement gate
+sum by (gate, reason_class) (rate(nullfield_tool_calls_total{action="denied"}[5m]))
+
 # Identity failure rate
 rate(nullfield_identity_failures_total[5m])
 
@@ -80,9 +83,14 @@ Every decision emits a JSON log line to stdout with these fields:
   "method": "tools/call",
   "tool": "secrets.leak_config",
   "identity": "dev-user",
+  "gate": "policy",
+  "reason_class": "policy_denied",
+  "rule_id": "deny-secret-exfil",
   "payload": "{...}"
 }
 ```
+
+The top-level log fields are intentionally compact. The `payload` contains the full audit event, including `session_id`, `target`, `gate`, `reason_class`, `rule_index`, `rule_id`, `policy_ref`, `registry_ref`, `route`, and bounded operator-defined `labels` when available. Prometheus keeps only low-cardinality labels; use logs, OTLP, or controller events for high-cardinality details such as identity/session and policy references.
 
 ### Event types
 
@@ -163,7 +171,7 @@ integrity:
 
 ## OTLP Trace Export
 
-nullfield can emit OpenTelemetry spans for every decision. Each audit event becomes a span with attributes for event type, tool, identity, and reason. Opt-in via environment variable:
+nullfield can emit OpenTelemetry spans for every decision. Each audit event becomes a span with attributes for event type, tool, identity, session, gate, reason class, rule id, policy/registry refs, route, and reason. Opt-in via environment variable:
 
 ```bash
 NULLFIELD_AUDIT_ENDPOINT=otel-collector.observability:4317

@@ -8,14 +8,22 @@ import (
 const DefaultEventBufferSize = 1000
 
 type AuditEvent struct {
-	EventType string    `json:"eventType"`
-	Method    string    `json:"method,omitempty"`
-	Tool      string    `json:"tool,omitempty"`
-	Identity  string    `json:"identity,omitempty"`
-	SessionID string    `json:"sessionId,omitempty"`
-	Reason    string    `json:"reason,omitempty"`
-	Target    string    `json:"target,omitempty"`
-	Timestamp time.Time `json:"timestamp"`
+	EventType   string            `json:"eventType"`
+	Method      string            `json:"method,omitempty"`
+	Tool        string            `json:"tool,omitempty"`
+	Identity    string            `json:"identity,omitempty"`
+	SessionID   string            `json:"sessionId,omitempty"`
+	Gate        string            `json:"gate,omitempty"`
+	ReasonClass string            `json:"reasonClass,omitempty"`
+	RuleIndex   *int              `json:"ruleIndex,omitempty"`
+	RuleID      string            `json:"ruleId,omitempty"`
+	PolicyRef   string            `json:"policyRef,omitempty"`
+	RegistryRef string            `json:"registryRef,omitempty"`
+	Route       string            `json:"route,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	Reason      string            `json:"reason,omitempty"`
+	Target      string            `json:"target,omitempty"`
+	Timestamp   time.Time         `json:"timestamp"`
 }
 
 // EventBuffer is a thread-safe ring buffer of recent audit events.

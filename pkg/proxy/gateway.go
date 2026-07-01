@@ -129,13 +129,14 @@ func (g *GatewayHandler) handleToolsCall(ctx context.Context, w http.ResponseWri
 
 	route := g.router.Resolve(tc.Name)
 	if route == nil {
-		g.auditor.Emit(ctx, audit.Event{
-			Type:     audit.EventToolDenied,
-			Method:   req.Method,
-			ToolName: tc.Name,
-			Identity: id.Subject,
-			Reason:   "no route for tool",
-		})
+		g.auditor.Emit(ctx, eventWithIdentity(audit.Event{
+			Type:        audit.EventToolDenied,
+			Method:      req.Method,
+			ToolName:    tc.Name,
+			Gate:        "route",
+			ReasonClass: "no_route",
+			Reason:      "no route for tool",
+		}, id))
 		writeJSONRPCErr(w, req.ID, ErrCodeToolUnknown, "no route for tool: "+tc.Name)
 		return
 	}
@@ -143,18 +144,28 @@ func (g *GatewayHandler) handleToolsCall(ctx context.Context, w http.ResponseWri
 	g.logger.InfoContext(ctx, "routed tool call", "tool", tc.Name, "route", route.Name, "upstream", route.UpstreamAddr)
 
 	if !route.Registry.IsRegistered(tc.Name) {
-		g.auditor.Emit(ctx, audit.Event{
-			Type:     audit.EventToolDenied,
-			Method:   req.Method,
-			ToolName: tc.Name,
-			Identity: id.Subject,
-			Reason:   fmt.Sprintf("tool not registered in route %q", route.Name),
-		})
+		g.auditor.Emit(ctx, eventWithIdentity(audit.Event{
+			Type:        audit.EventToolDenied,
+			Method:      req.Method,
+			ToolName:    tc.Name,
+			Gate:        "registry",
+			ReasonClass: "tool_not_registered",
+			Route:       route.Name,
+			Reason:      fmt.Sprintf("tool not registered in route %q", route.Name),
+		}, id))
 		writeJSONRPCErr(w, req.ID, ErrCodeToolUnknown, fmt.Sprintf("tool not registered in route %q: %s", route.Name, tc.Name))
 		return
 	}
 
 	if !g.breaker.Allow(id.SessionID) {
+		g.auditor.Emit(ctx, eventWithIdentity(audit.Event{
+			Type:        audit.EventCircuitTripped,
+			Method:      req.Method,
+			ToolName:    tc.Name,
+			Gate:        "circuit",
+			ReasonClass: "circuit_open",
+			Route:       route.Name,
+		}, id))
 		writeJSONRPCErr(w, req.ID, ErrCodeCircuitOpen, "circuit breaker open — session limit exceeded")
 		return
 	}
@@ -176,16 +187,25 @@ func (g *GatewayHandler) handleToolsCall(ctx context.Context, w http.ResponseWri
 		}
 
 		holdID, ch := g.holds.Hold(tc.Name, tc.Arguments, id.Subject, id.SessionID, decision.Reason, timeout)
-		g.auditor.Emit(ctx, audit.Event{
+		g.auditor.Emit(ctx, eventWithDecision(audit.Event{
 			Type:     audit.EventHoldCreated,
 			Method:   req.Method,
 			ToolName: tc.Name,
-			Identity: id.Subject,
+			Route:    route.Name,
 			Reason:   fmt.Sprintf("held: %s (id=%s, route=%s)", decision.Reason, holdID, route.Name),
-		})
+		}, decision, id))
 
 		resolution := <-ch
 		if !resolution.Approved {
+			g.auditor.Emit(ctx, eventWithDecision(audit.Event{
+				Type:        audit.EventToolDenied,
+				Method:      req.Method,
+				ToolName:    tc.Name,
+				Gate:        "hold",
+				ReasonClass: holdReasonClass(resolution.By),
+				Route:       route.Name,
+				Reason:      fmt.Sprintf("hold %s: denied by %s", holdID, resolution.By),
+			}, decision, id))
 			if resolution.By == "timeout" {
 				writeJSONRPCErr(w, req.ID, ErrCodeHoldTimeout, "hold timed out without approval")
 			} else {
@@ -194,13 +214,13 @@ func (g *GatewayHandler) handleToolsCall(ctx context.Context, w http.ResponseWri
 			return
 		}
 	} else if !decision.Allowed {
-		g.auditor.Emit(ctx, audit.Event{
+		g.auditor.Emit(ctx, eventWithDecision(audit.Event{
 			Type:     audit.EventToolDenied,
 			Method:   req.Method,
 			ToolName: tc.Name,
-			Identity: id.Subject,
+			Route:    route.Name,
 			Reason:   decision.Reason,
-		})
+		}, decision, id))
 		writeJSONRPCErr(w, req.ID, ErrCodePolicyDenied, "denied by policy: "+decision.Reason)
 		return
 	}
@@ -244,13 +264,13 @@ func (g *GatewayHandler) handleToolsCall(ctx context.Context, w http.ResponseWri
 			scopeResponseCfg = scopeCfg.Response
 		}
 
-		g.auditor.Emit(ctx, audit.Event{
+		g.auditor.Emit(ctx, eventWithDecision(audit.Event{
 			Type:     audit.EventScopeModified,
 			Method:   req.Method,
 			ToolName: tc.Name,
-			Identity: id.Subject,
+			Route:    route.Name,
 			Reason:   fmt.Sprintf("stripped=%v injected=%v route=%s", mods.StrippedArgs, mods.InjectedArgs, route.Name),
-		})
+		}, decision, id))
 	}
 
 	// Budget check.
@@ -272,6 +292,15 @@ func (g *GatewayHandler) handleToolsCall(ctx context.Context, w http.ResponseWri
 			}
 		}
 		if err := g.budgets.CheckAndRecord(id.Subject, id.SessionID, perID, perSess); err != nil {
+			g.auditor.Emit(ctx, eventWithDecision(audit.Event{
+				Type:        audit.EventToolDenied,
+				Method:      req.Method,
+				ToolName:    tc.Name,
+				Gate:        "budget",
+				ReasonClass: "budget_exhausted",
+				Route:       route.Name,
+				Reason:      "budget exhausted: " + err.Error(),
+			}, decision, id))
 			writeJSONRPCErr(w, req.ID, ErrCodeRateLimited, "budget exhausted: "+err.Error())
 			return
 		}
@@ -281,6 +310,15 @@ func (g *GatewayHandler) handleToolsCall(ctx context.Context, w http.ResponseWri
 
 	if g.velocity != nil {
 		if alert := g.velocity.Record(id.Subject, tc.Name); alert != nil {
+			g.auditor.Emit(ctx, eventWithDecision(audit.Event{
+				Type:        audit.EventAnomalyVelocity,
+				Method:      req.Method,
+				ToolName:    tc.Name,
+				Gate:        "anomaly",
+				ReasonClass: "velocity_limit",
+				Route:       route.Name,
+				Reason:      fmt.Sprintf("velocity %d/min exceeds threshold %d", alert.CallsPerMin, alert.Threshold),
+			}, decision, id))
 			if alert.Action == anomaly.AlertActionDeny {
 				writeJSONRPCErr(w, req.ID, ErrCodeRateLimited, fmt.Sprintf("velocity limit exceeded: %d calls/min", alert.CallsPerMin))
 				return
@@ -288,13 +326,13 @@ func (g *GatewayHandler) handleToolsCall(ctx context.Context, w http.ResponseWri
 		}
 	}
 
-	g.auditor.Emit(ctx, audit.Event{
+	g.auditor.Emit(ctx, eventWithDecision(audit.Event{
 		Type:     audit.EventToolAllowed,
 		Method:   req.Method,
 		ToolName: tc.Name,
-		Identity: id.Subject,
+		Route:    route.Name,
 		Args:     tc.Arguments,
-	})
+	}, decision, id))
 
 	r.Body = io.NopCloser(bytes.NewReader(body))
 

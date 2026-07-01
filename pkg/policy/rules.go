@@ -18,8 +18,19 @@ func NewRuleEngine(rules []v1alpha1.Rule) *RuleEngine {
 	return &RuleEngine{rules: rules}
 }
 
+const (
+	GatePolicy = "policy"
+
+	ReasonClassAllowed          = "allowed"
+	ReasonClassPolicyDenied     = "policy_denied"
+	ReasonClassPolicyHeld       = "policy_held"
+	ReasonClassPolicyScoped     = "policy_scoped"
+	ReasonClassDefaultDeny      = "default_deny"
+	ReasonClassIdentityRequired = "identity_required"
+)
+
 func (e *RuleEngine) Evaluate(_ context.Context, req Request) Decision {
-	for _, rule := range e.rules {
+	for i, rule := range e.rules {
 		if !matchesMethod(rule, req) {
 			continue
 		}
@@ -30,7 +41,15 @@ func (e *RuleEngine) Evaluate(_ context.Context, req Request) Decision {
 			continue
 		}
 		if rule.RequireIdentity && req.Identity == nil {
-			return Decision{Allowed: false, Reason: "identity required but not present"}
+			return Decision{
+				Allowed:     false,
+				Reason:      "identity required but not present",
+				Gate:        GatePolicy,
+				ReasonClass: ReasonClassIdentityRequired,
+				RuleIndex:   i,
+				RuleID:      rule.ID,
+				MatchedRule: &rule,
+			}
 		}
 		// Per-rule identity + delegation guards (2026-04-26 spec).
 		// Guards are AND-composed after the match predicates; a failing
@@ -46,23 +65,44 @@ func (e *RuleEngine) Evaluate(_ context.Context, req Request) Decision {
 		matched := rule
 		switch rule.Action {
 		case v1alpha1.ActionAllow:
-			return Decision{Allowed: true, MatchedRule: &matched}
+			return newRuleDecision(true, false, false, "", ReasonClassAllowed, i, matched)
 		case v1alpha1.ActionDeny:
 			if reason == "" {
 				reason = "denied by rule for tool: " + req.ToolName
 			}
-			return Decision{Allowed: false, Reason: reason, MatchedRule: &matched}
+			return newRuleDecision(false, false, false, reason, ReasonClassPolicyDenied, i, matched)
 		case v1alpha1.ActionHold:
 			if reason == "" {
 				reason = "held for approval: " + req.ToolName
 			}
-			return Decision{Allowed: false, Held: true, Reason: reason, MatchedRule: &matched}
+			return newRuleDecision(false, true, false, reason, ReasonClassPolicyHeld, i, matched)
 		case v1alpha1.ActionScope:
-			return Decision{Allowed: true, Scoped: true, MatchedRule: &matched}
+			return newRuleDecision(true, false, true, "", ReasonClassPolicyScoped, i, matched)
 		}
 	}
 
-	return Decision{Allowed: false, Reason: "no matching rule (default deny)"}
+	return Decision{
+		Allowed:     false,
+		Reason:      "no matching rule (default deny)",
+		Gate:        GatePolicy,
+		ReasonClass: ReasonClassDefaultDeny,
+		RuleIndex:   -1,
+	}
+}
+
+func newRuleDecision(allowed, held, scoped bool, reason, reasonClass string, ruleIndex int, rule v1alpha1.Rule) Decision {
+	matched := rule
+	return Decision{
+		Allowed:     allowed,
+		Held:        held,
+		Scoped:      scoped,
+		Reason:      reason,
+		Gate:        GatePolicy,
+		ReasonClass: reasonClass,
+		RuleIndex:   ruleIndex,
+		RuleID:      rule.ID,
+		MatchedRule: &matched,
+	}
 }
 
 func matchesMethod(rule v1alpha1.Rule, req Request) bool {

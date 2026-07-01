@@ -108,20 +108,36 @@ func (s *Server) ReportEvent(_ context.Context, req *pb.ReportEventRequest) (*pb
 	}
 
 	event := AuditEvent{
-		EventType: req.EventType,
-		Method:    req.Method,
-		Tool:      req.Tool,
-		Identity:  req.Identity,
-		SessionID: req.SessionId,
-		Reason:    req.Reason,
-		Target:    req.Target,
-		Timestamp: ts,
+		EventType:   req.EventType,
+		Method:      req.Method,
+		Tool:        req.Tool,
+		Identity:    req.Identity,
+		SessionID:   req.SessionId,
+		Gate:        req.Gate,
+		ReasonClass: req.ReasonClass,
+		RuleIndex:   optionalRuleIndex(req.RuleIndex),
+		RuleID:      req.RuleId,
+		PolicyRef:   req.PolicyRef,
+		RegistryRef: req.RegistryRef,
+		Route:       req.Route,
+		Labels:      req.Labels,
+		Reason:      req.Reason,
+		Target:      req.Target,
+		Timestamp:   ts,
 	}
 
 	s.Events.Add(event)
 	s.Alerter.Alert(event)
 
 	return &pb.ReportEventResponse{}, nil
+}
+
+func optionalRuleIndex(ruleIndex *int32) *int {
+	if ruleIndex == nil {
+		return nil
+	}
+	i := int(*ruleIndex)
+	return &i
 }
 
 func (s *Server) RegisterSidecar(_ context.Context, req *pb.RegisterSidecarRequest) (*pb.RegisterSidecarResponse, error) {

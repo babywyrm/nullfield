@@ -21,9 +21,12 @@ type Decision struct {
 	Held        bool
 	Scoped      bool
 	Reason      string
+	Gate        string
+	ReasonClass string
+	RuleIndex   int
+	RuleID      string
 	MatchedRule *v1alpha1.Rule
 }
-
 
 // Engine evaluates policy rules against an incoming request.
 type Engine interface {

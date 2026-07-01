@@ -28,6 +28,14 @@ type noopEmitter struct{}
 
 func (n *noopEmitter) Emit(_ context.Context, _ audit.Event) {}
 
+type captureEmitter struct {
+	events []audit.Event
+}
+
+func (c *captureEmitter) Emit(_ context.Context, event audit.Event) {
+	c.events = append(c.events, event)
+}
+
 // allowAllEngine unconditionally allows every request.
 type allowAllEngine struct{}
 
@@ -167,6 +175,66 @@ func TestHandler_DenyingPolicyReturnsError(t *testing.T) {
 	}
 }
 
+func TestHandler_AuditEventIncludesPolicyDecisionContext(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	upstreamURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatalf("parse upstream URL: %v", err)
+	}
+	reg := registry.New()
+	reg.Register(v1alpha1.ToolRegistryEntry{Name: "test_tool"})
+	auditor := &captureEmitter{}
+	engine := policy.NewRuleEngine([]v1alpha1.Rule{
+		{ID: "read-only", Action: v1alpha1.ActionAllow, MCPMethod: MethodToolsCall, ToolNames: []string{"safe_tool"}},
+		{ID: "deny-default", Action: v1alpha1.ActionDeny, MCPMethod: MethodToolsCall, ToolNames: []string{"*"}, Reason: "not an approved path"},
+	})
+	h := NewHandler(HandlerOpts{
+		UpstreamURL: upstreamURL,
+		Engine:      engine,
+		Auditor:     auditor,
+		Verifier:    &identity.NoopVerifier{},
+		Registry:    reg,
+		Breaker:     circuit.New(1000, 0),
+		Logger:      discardLogger(),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(toolsCallBody("test_tool")))
+	req.Header.Set("Mcp-Session-Id", "session-123")
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, req)
+
+	var denied *audit.Event
+	for i := range auditor.events {
+		if auditor.events[i].Type == audit.EventToolDenied {
+			denied = &auditor.events[i]
+			break
+		}
+	}
+	if denied == nil {
+		t.Fatalf("expected tool.denied audit event, got %+v", auditor.events)
+	}
+	if denied.Gate != "policy" {
+		t.Fatalf("Gate = %q, want policy", denied.Gate)
+	}
+	if denied.ReasonClass != "policy_denied" {
+		t.Fatalf("ReasonClass = %q, want policy_denied", denied.ReasonClass)
+	}
+	if denied.RuleID != "deny-default" {
+		t.Fatalf("RuleID = %q, want deny-default", denied.RuleID)
+	}
+	if denied.RuleIndex == nil || *denied.RuleIndex != 1 {
+		t.Fatalf("RuleIndex = %v, want 1", denied.RuleIndex)
+	}
+	if denied.SessionID != "session-123" {
+		t.Fatalf("SessionID = %q, want session-123", denied.SessionID)
+	}
+}
+
 func TestHandler_MissingIdentityHeaderReturnsError(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -298,11 +366,11 @@ func TestHandler_InvalidToolsCallParamsReturnsError(t *testing.T) {
 
 func makeGateway(router *Router, verifier identity.Verifier) *GatewayHandler {
 	return NewGatewayHandler(GatewayHandlerOpts{
-		Router:  router,
-		Auditor: &noopEmitter{},
+		Router:   router,
+		Auditor:  &noopEmitter{},
 		Verifier: verifier,
-		Breaker: circuit.New(1000, 0),
-		Logger:  discardLogger(),
+		Breaker:  circuit.New(1000, 0),
+		Logger:   discardLogger(),
 	})
 }
 

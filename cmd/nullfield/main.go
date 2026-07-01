@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/babywyrm/nullfield/internal/config"
 	"github.com/babywyrm/nullfield/pkg/anomaly"
@@ -309,19 +310,19 @@ func main() {
 		}
 
 		httpHandler = proxy.NewHandler(proxy.HandlerOpts{
-			UpstreamURL:   upstream,
-			Engine:        activeEngine,
-			Auditor:       auditor,
-			Verifier:      verifier,
-			Integrity:     integrityChecker,
-			Velocity:      velocityTracker,
-			Budgets:       budgetTracker,
-			Holds:         holdManager,
-			Registry:      reg,
-			Breaker:       breaker,
-			Credentials:   credProvider,
-			Inspector:     inspector,
-			Logger:        logger,
+			UpstreamURL: upstream,
+			Engine:      activeEngine,
+			Auditor:     auditor,
+			Verifier:    verifier,
+			Integrity:   integrityChecker,
+			Velocity:    velocityTracker,
+			Budgets:     budgetTracker,
+			Holds:       holdManager,
+			Registry:    reg,
+			Breaker:     breaker,
+			Credentials: credProvider,
+			Inspector:   inspector,
+			Logger:      logger,
 		})
 	}
 
@@ -427,15 +428,34 @@ func (e *controllerEmitter) Emit(_ context.Context, event audit.Event) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := e.client.ReportEvent(ctx, &controller.ReportEventRequest{
-			EventType: string(event.Type),
-			Method:    event.Method,
-			Tool:      event.ToolName,
-			Identity:  event.Identity,
-			Reason:    event.Reason,
+			EventType:   string(event.Type),
+			Method:      event.Method,
+			Tool:        event.ToolName,
+			Identity:    event.Identity,
+			SessionId:   event.SessionID,
+			Reason:      event.Reason,
+			Target:      event.Target,
+			Gate:        event.Gate,
+			ReasonClass: event.ReasonClass,
+			RuleIndex:   int32PtrFromIntPtr(event.RuleIndex),
+			RuleId:      event.RuleID,
+			PolicyRef:   event.PolicyRef,
+			RegistryRef: event.RegistryRef,
+			Route:       event.Route,
+			Labels:      event.Labels,
+			Timestamp:   timestamppb.New(event.Time),
 		}); err != nil {
 			e.logger.Debug("controller report failed", "error", err)
 		}
 	}()
+}
+
+func int32PtrFromIntPtr(v *int) *int32 {
+	if v == nil {
+		return nil
+	}
+	out := int32(*v)
+	return &out
 }
 
 // runLifecycleReconciliation periodically fetches tools/list from the upstream

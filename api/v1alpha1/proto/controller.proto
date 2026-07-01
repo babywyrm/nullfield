@@ -68,6 +68,14 @@ message ReportEventRequest {
   string reason     = 6;
   string target     = 7; // which target namespace/deployment
   google.protobuf.Timestamp timestamp = 8;
+  string gate        = 9;  // enforcement gate: registry, policy, budget, hold, etc.
+  string reason_class = 10; // low-cardinality class for metrics/alerts
+  optional int32 rule_index = 11; // zero-based index in the active policy
+  string rule_id     = 12; // stable rule id from policy YAML/CRD
+  string policy_ref  = 13; // policy name/hash/reference
+  string registry_ref = 14; // registry name/hash/reference
+  string route       = 15; // gateway route, when applicable
+  map<string, string> labels = 16; // bounded operator-defined audit labels
 }
 
 message ReportEventResponse {}

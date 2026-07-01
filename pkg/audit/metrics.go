@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -10,8 +11,8 @@ import (
 var (
 	toolCallsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "nullfield_tool_calls_total",
-		Help: "Total tool call decisions by tool name and action",
-	}, []string{"tool", "action", "reason"})
+		Help: "Total tool call decisions by tool name, action, gate, and reason class",
+	}, []string{"tool", "action", "gate", "reason_class"})
 
 	requestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "nullfield_requests_total",
@@ -44,12 +45,13 @@ func NewMetricsEmitter() *MetricsEmitter {
 func (m *MetricsEmitter) Emit(_ context.Context, event Event) {
 	switch event.Type {
 	case EventToolAllowed:
-		toolCallsTotal.WithLabelValues(event.ToolName, "allowed", "").Inc()
+		labels := toolCallMetricLabels(event)
+		toolCallsTotal.WithLabelValues(labels.tool, labels.action, labels.gate, labels.reasonClass).Inc()
 		requestsTotal.WithLabelValues(event.Method).Inc()
 
 	case EventToolDenied:
-		reason := truncateReason(event.Reason)
-		toolCallsTotal.WithLabelValues(event.ToolName, "denied", reason).Inc()
+		labels := toolCallMetricLabels(event)
+		toolCallsTotal.WithLabelValues(labels.tool, labels.action, labels.gate, labels.reasonClass).Inc()
 		requestsTotal.WithLabelValues(event.Method).Inc()
 
 	case EventMCPRequest:
@@ -68,9 +70,75 @@ func (m *MetricsEmitter) Emit(_ context.Context, event Event) {
 	}
 }
 
-func truncateReason(reason string) string {
-	if len(reason) > 40 {
-		return reason[:40]
+type toolCallLabels struct {
+	tool        string
+	action      string
+	gate        string
+	reasonClass string
+}
+
+func toolCallMetricLabels(event Event) toolCallLabels {
+	action := "allowed"
+	if event.Type == EventToolDenied {
+		action = "denied"
 	}
-	return reason
+	gate := event.Gate
+	if gate == "" {
+		gate = inferGate(event)
+	}
+	return toolCallLabels{
+		tool:        metricToolLabel(event),
+		action:      action,
+		gate:        gate,
+		reasonClass: classifyReason(event),
+	}
+}
+
+func metricToolLabel(event Event) string {
+	switch event.Gate {
+	case "registry":
+		return "unregistered"
+	case "route":
+		return "unrouted"
+	default:
+		return event.ToolName
+	}
+}
+
+func inferGate(event Event) string {
+	switch event.Type {
+	case EventToolDenied:
+		return "policy"
+	case EventToolAllowed:
+		return "policy"
+	default:
+		return "unknown"
+	}
+}
+
+func classifyReason(event Event) string {
+	if event.ReasonClass != "" {
+		return event.ReasonClass
+	}
+	reason := strings.ToLower(event.Reason)
+	switch {
+	case event.Type == EventToolAllowed:
+		return "allowed"
+	case strings.Contains(reason, "tool not registered"):
+		return "tool_not_registered"
+	case strings.Contains(reason, "budget exhausted"):
+		return "budget_exhausted"
+	case strings.Contains(reason, "hold timed out"):
+		return "hold_timeout"
+	case strings.Contains(reason, "hold") && strings.Contains(reason, "denied"):
+		return "hold_denied"
+	case strings.Contains(reason, "circuit breaker"):
+		return "circuit_open"
+	case strings.Contains(reason, "no route for tool"):
+		return "no_route"
+	case reason == "":
+		return "unspecified"
+	default:
+		return "policy_denied"
+	}
 }

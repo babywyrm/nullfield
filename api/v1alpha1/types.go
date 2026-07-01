@@ -29,9 +29,9 @@ type NullfieldPolicySpec struct {
 // AnomalyConfig configures opt-in anomaly detection patterns.
 // When Enabled is false (default), no anomaly tracking occurs.
 type AnomalyConfig struct {
-	Enabled   bool               `json:"enabled" yaml:"enabled"`
-	Velocity  *VelocityConfig    `json:"velocity,omitempty" yaml:"velocity,omitempty"`
-	Sequences []SequencePattern  `json:"sequences,omitempty" yaml:"sequences,omitempty"`
+	Enabled   bool              `json:"enabled" yaml:"enabled"`
+	Velocity  *VelocityConfig   `json:"velocity,omitempty" yaml:"velocity,omitempty"`
+	Sequences []SequencePattern `json:"sequences,omitempty" yaml:"sequences,omitempty"`
 }
 
 type SequencePattern struct {
@@ -62,11 +62,11 @@ type IdentityProvider struct {
 }
 
 type ValidationConfig struct {
-	RequireSignature bool     `json:"requireSignature,omitempty" yaml:"requireSignature,omitempty"`
+	RequireSignature  bool     `json:"requireSignature,omitempty" yaml:"requireSignature,omitempty"`
 	AllowedAlgorithms []string `json:"allowedAlgorithms,omitempty" yaml:"allowedAlgorithms,omitempty"`
-	RequireExpiry    bool     `json:"requireExpiry,omitempty" yaml:"requireExpiry,omitempty"`
-	MaxLifetime      string   `json:"maxLifetime,omitempty" yaml:"maxLifetime,omitempty"`
-	RequireAudience  bool     `json:"requireAudience,omitempty" yaml:"requireAudience,omitempty"`
+	RequireExpiry     bool     `json:"requireExpiry,omitempty" yaml:"requireExpiry,omitempty"`
+	MaxLifetime       string   `json:"maxLifetime,omitempty" yaml:"maxLifetime,omitempty"`
+	RequireAudience   bool     `json:"requireAudience,omitempty" yaml:"requireAudience,omitempty"`
 }
 
 // IntegrityConfig configures opt-in token integrity checks.
@@ -94,16 +94,16 @@ type Selector struct {
 type Action string
 
 const (
-	ActionAllow  Action = "ALLOW"
-	ActionDeny   Action = "DENY"
-	ActionHold   Action = "HOLD"
-	ActionScope  Action = "SCOPE"
+	ActionAllow Action = "ALLOW"
+	ActionDeny  Action = "DENY"
+	ActionHold  Action = "HOLD"
+	ActionScope Action = "SCOPE"
 )
 
 // HoldConfig configures the HOLD action — park a request for human approval.
 type HoldConfig struct {
-	Timeout   string       `json:"timeout,omitempty" yaml:"timeout,omitempty"`
-	OnTimeout string       `json:"onTimeout,omitempty" yaml:"onTimeout,omitempty"`
+	Timeout   string        `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+	OnTimeout string        `json:"onTimeout,omitempty" yaml:"onTimeout,omitempty"`
 	Notify    *NotifyConfig `json:"notify,omitempty" yaml:"notify,omitempty"`
 }
 
@@ -119,13 +119,13 @@ type ScopeConfig struct {
 }
 
 type ScopeRequestConfig struct {
-	StripArguments    []string         `json:"stripArguments,omitempty" yaml:"stripArguments,omitempty"`
-	InjectArguments   map[string]any   `json:"injectArguments,omitempty" yaml:"injectArguments,omitempty"`
-	InjectCredentials []CredentialRef  `json:"injectCredentials,omitempty" yaml:"injectCredentials,omitempty"`
+	StripArguments    []string        `json:"stripArguments,omitempty" yaml:"stripArguments,omitempty"`
+	InjectArguments   map[string]any  `json:"injectArguments,omitempty" yaml:"injectArguments,omitempty"`
+	InjectCredentials []CredentialRef `json:"injectCredentials,omitempty" yaml:"injectCredentials,omitempty"`
 	// BlockRedirects strips URL-typed arguments that contain redirect parameters
 	// (url=, uri=, redirect=, location=, target=) before forwarding to the tool.
 	// Prevents AI governance gate bypass via open redirect (MCP-T41).
-	BlockRedirects    bool             `json:"blockRedirects,omitempty" yaml:"blockRedirects,omitempty"`
+	BlockRedirects bool `json:"blockRedirects,omitempty" yaml:"blockRedirects,omitempty"`
 }
 
 type ScopeResponseConfig struct {
@@ -156,6 +156,7 @@ const (
 )
 
 type Rule struct {
+	ID              string               `json:"id,omitempty" yaml:"id,omitempty"`
 	Action          Action               `json:"action" yaml:"action"`
 	MCPMethod       string               `json:"mcpMethod,omitempty" yaml:"mcpMethod,omitempty"`
 	ToolNames       []string             `json:"toolNames,omitempty" yaml:"toolNames,omitempty"`
