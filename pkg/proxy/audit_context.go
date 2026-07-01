@@ -34,6 +34,16 @@ func eventWithDecision(event audit.Event, decision policy.Decision, id *identity
 		ruleIndex := decision.RuleIndex
 		event.RuleIndex = &ruleIndex
 	}
+	if len(decision.Labels) > 0 {
+		if event.Labels == nil {
+			event.Labels = make(map[string]string, len(decision.Labels))
+		}
+		for key, value := range decision.Labels {
+			if _, exists := event.Labels[key]; !exists {
+				event.Labels[key] = value
+			}
+		}
+	}
 	return event
 }
 

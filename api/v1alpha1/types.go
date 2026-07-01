@@ -174,6 +174,7 @@ type Rule struct {
 	Identity        *RuleIdentityGuard   `json:"identity,omitempty" yaml:"identity,omitempty"`
 	Delegation      *RuleDelegationGuard `json:"delegation,omitempty" yaml:"delegation,omitempty"`
 	Inspection      *InspectionConfig    `json:"inspection,omitempty" yaml:"inspection,omitempty"`
+	AuditLabels     map[string]string    `json:"auditLabels,omitempty" yaml:"auditLabels,omitempty"`
 	Reason          string               `json:"reason,omitempty" yaml:"reason,omitempty"`
 }
 

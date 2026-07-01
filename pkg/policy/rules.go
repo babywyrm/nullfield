@@ -48,6 +48,7 @@ func (e *RuleEngine) Evaluate(_ context.Context, req Request) Decision {
 				ReasonClass: ReasonClassIdentityRequired,
 				RuleIndex:   i,
 				RuleID:      rule.ID,
+				Labels:      cloneLabels(rule.AuditLabels),
 				MatchedRule: &rule,
 			}
 		}
@@ -101,8 +102,20 @@ func newRuleDecision(allowed, held, scoped bool, reason, reasonClass string, rul
 		ReasonClass: reasonClass,
 		RuleIndex:   ruleIndex,
 		RuleID:      rule.ID,
+		Labels:      cloneLabels(rule.AuditLabels),
 		MatchedRule: &matched,
 	}
+}
+
+func cloneLabels(labels map[string]string) map[string]string {
+	if len(labels) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(labels))
+	for k, v := range labels {
+		out[k] = v
+	}
+	return out
 }
 
 func matchesMethod(rule v1alpha1.Rule, req Request) bool {

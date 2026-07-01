@@ -25,6 +25,7 @@ type Decision struct {
 	ReasonClass string
 	RuleIndex   int
 	RuleID      string
+	Labels      map[string]string
 	MatchedRule *v1alpha1.Rule
 }
 

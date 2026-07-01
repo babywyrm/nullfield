@@ -294,6 +294,16 @@ spec:
 
 See `examples/policy.yaml` for a full example.
 
+### AgenticFlow compile target
+
+For common agent/workload paths, `AgenticFlow` provides a tighter YAML authoring layer that compiles into the existing `NullfieldPolicy` and `ToolRegistry` documents:
+
+```bash
+go run ./cmd/nullfield-compile examples/agentic-flow.yaml > compiled.yaml
+```
+
+Use it when you want to describe a known acceptable path — tools, credentials, lane/transport labels, and audit context — while keeping nullfield's existing runtime policy and registry as the enforcement target. See [docs/agentic-flows.md](docs/agentic-flows.md).
+
 ### Per-rule guard primitives
 
 Rules can carry identity and delegation guards that fire after the match predicates. They short-circuit the rule (continuing the loop so a later, looser rule may still fire) when the caller's claims do not satisfy them:
