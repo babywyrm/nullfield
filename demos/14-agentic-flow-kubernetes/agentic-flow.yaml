@@ -1,0 +1,33 @@
+apiVersion: nullfield.io/v1alpha1
+kind: AgenticFlow
+metadata:
+  name: echo-known-path
+spec:
+  lane: delegated
+  transport: A
+  selector:
+    matchLabels:
+      app: echo-agent
+  tools:
+    - name: echo
+      action: ALLOW
+      auditLabels:
+        system: echo
+        path: read
+
+    - name: github_create_pr
+      action: HOLD
+      reason: writes require approval in this demo
+      hold:
+        timeout: 2m
+        onTimeout: DENY
+      auditLabels:
+        system: github
+        path: approval
+
+    - name: dangerous_tool
+      action: DENY
+      reason: destructive tool is outside the known acceptable path
+      auditLabels:
+        system: echo
+        path: denied

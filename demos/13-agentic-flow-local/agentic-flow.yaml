@@ -1,0 +1,54 @@
+apiVersion: nullfield.io/v1alpha1
+kind: AgenticFlow
+metadata:
+  name: echo-known-path
+spec:
+  lane: delegated
+  transport: A
+  selector:
+    matchLabels:
+      app: echo-agent
+  credentials:
+    - name: github-read
+      from: env
+      secretRef: GITHUB_READ_TOKEN
+      injectAs: token
+      oauth:
+        audience: https://api.github.com
+        scopes: [repo:read]
+      auditLabels:
+        provider: github
+  tools:
+    - name: echo
+      description: Safe read-style status check
+      action: ALLOW
+      auditLabels:
+        system: echo
+        path: read
+
+    - name: github_create_pr
+      description: Demonstrates credential-scoped action
+      action: ALLOW
+      credentialRefs: [github-read]
+      auditLabels:
+        system: github
+        path: credentialed
+
+    - name: pagerduty_resolve
+      description: Simulated operational write requiring human approval
+      action: HOLD
+      reason: operational writes require approval
+      hold:
+        timeout: 2m
+        onTimeout: DENY
+      auditLabels:
+        system: pagerduty
+        path: approval
+
+    - name: dangerous_tool
+      description: Explicitly outside the known acceptable path
+      action: DENY
+      reason: destructive tool is not part of this flow
+      auditLabels:
+        system: echo
+        path: denied
