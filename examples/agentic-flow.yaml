@@ -19,6 +19,18 @@ spec:
       principals:
         - cluster.local/ns/prod/sa/astra-runtime
       ports: [9090]
+    cilium:
+      ingress:
+        - fromEndpoints:
+            - app: astra-runtime
+          port: 9090
+          methods: [POST]
+    linkerd:
+      servers:
+        - name: astra-mcp
+          port: 9090
+          identities:
+            - astra-runtime.prod.serviceaccount.identity.linkerd.cluster.local
   credentials:
     - name: jira-read
       from: vault

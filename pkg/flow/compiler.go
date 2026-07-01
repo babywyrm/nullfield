@@ -51,12 +51,35 @@ type EgressDestination struct {
 }
 
 type MeshSpec struct {
-	Istio *IstioAuthzSpec `json:"istio,omitempty" yaml:"istio,omitempty"`
+	Istio   *IstioAuthzSpec `json:"istio,omitempty" yaml:"istio,omitempty"`
+	Cilium  *CiliumSpec     `json:"cilium,omitempty" yaml:"cilium,omitempty"`
+	Linkerd *LinkerdSpec    `json:"linkerd,omitempty" yaml:"linkerd,omitempty"`
 }
 
 type IstioAuthzSpec struct {
 	Principals []string `json:"principals,omitempty" yaml:"principals,omitempty"`
 	Ports      []int    `json:"ports,omitempty" yaml:"ports,omitempty"`
+}
+
+type CiliumSpec struct {
+	Ingress []CiliumIngressRule `json:"ingress,omitempty" yaml:"ingress,omitempty"`
+}
+
+type CiliumIngressRule struct {
+	FromEndpoints []map[string]string `json:"fromEndpoints,omitempty" yaml:"fromEndpoints,omitempty"`
+	Port          int                 `json:"port" yaml:"port"`
+	Methods       []string            `json:"methods,omitempty" yaml:"methods,omitempty"`
+	Paths         []string            `json:"paths,omitempty" yaml:"paths,omitempty"`
+}
+
+type LinkerdSpec struct {
+	Servers []LinkerdServerSpec `json:"servers,omitempty" yaml:"servers,omitempty"`
+}
+
+type LinkerdServerSpec struct {
+	Name       string   `json:"name" yaml:"name"`
+	Port       int      `json:"port" yaml:"port"`
+	Identities []string `json:"identities,omitempty" yaml:"identities,omitempty"`
 }
 
 type FlowCredential struct {
@@ -96,10 +119,13 @@ type FlowTool struct {
 }
 
 type Artifacts struct {
-	Policy                     v1alpha1.NullfieldPolicy
-	Registry                   v1alpha1.ToolRegistry
-	NetworkPolicies            []NetworkPolicy
-	IstioAuthorizationPolicies []IstioAuthorizationPolicy
+	Policy                      v1alpha1.NullfieldPolicy
+	Registry                    v1alpha1.ToolRegistry
+	NetworkPolicies             []NetworkPolicy
+	IstioAuthorizationPolicies  []IstioAuthorizationPolicy
+	CiliumNetworkPolicies       []CiliumNetworkPolicy
+	LinkerdServers              []LinkerdServer
+	LinkerdServerAuthorizations []LinkerdServerAuthorization
 }
 
 type NetworkPolicy struct {
@@ -171,6 +197,84 @@ type IstioOperation struct {
 	Ports []string `json:"ports,omitempty" yaml:"ports,omitempty"`
 }
 
+type CiliumNetworkPolicy struct {
+	APIVersion string                  `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string                  `json:"kind" yaml:"kind"`
+	Metadata   v1alpha1.Metadata       `json:"metadata" yaml:"metadata"`
+	Spec       CiliumNetworkPolicySpec `json:"spec" yaml:"spec"`
+}
+
+type CiliumNetworkPolicySpec struct {
+	EndpointSelector CiliumEndpointSelector `json:"endpointSelector" yaml:"endpointSelector"`
+	Ingress          []CiliumIngress        `json:"ingress,omitempty" yaml:"ingress,omitempty"`
+}
+
+type CiliumEndpointSelector struct {
+	MatchLabels map[string]string `json:"matchLabels" yaml:"matchLabels"`
+}
+
+type CiliumIngress struct {
+	FromEndpoints []map[string]string `json:"fromEndpoints" yaml:"fromEndpoints"`
+	ToPorts       []CiliumToPorts     `json:"toPorts" yaml:"toPorts"`
+}
+
+type CiliumToPorts struct {
+	Ports []CiliumPortRule `json:"ports" yaml:"ports"`
+	Rules CiliumL7Rules    `json:"rules,omitempty" yaml:"rules,omitempty"`
+}
+
+type CiliumPortRule struct {
+	Port     string `json:"port" yaml:"port"`
+	Protocol string `json:"protocol" yaml:"protocol"`
+}
+
+type CiliumL7Rules struct {
+	HTTP []CiliumHTTPRule `json:"http,omitempty" yaml:"http,omitempty"`
+}
+
+type CiliumHTTPRule struct {
+	Method string `json:"method,omitempty" yaml:"method,omitempty"`
+	Path   string `json:"path,omitempty" yaml:"path,omitempty"`
+}
+
+type LinkerdServer struct {
+	APIVersion string            `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string            `json:"kind" yaml:"kind"`
+	Metadata   v1alpha1.Metadata `json:"metadata" yaml:"metadata"`
+	Spec       LinkerdServerBody `json:"spec" yaml:"spec"`
+}
+
+type LinkerdServerBody struct {
+	PodSelector   v1alpha1.Selector `json:"podSelector" yaml:"podSelector"`
+	Port          int               `json:"port" yaml:"port"`
+	ProxyProtocol string            `json:"proxyProtocol" yaml:"proxyProtocol"`
+}
+
+type LinkerdServerAuthorization struct {
+	APIVersion string                         `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string                         `json:"kind" yaml:"kind"`
+	Metadata   v1alpha1.Metadata              `json:"metadata" yaml:"metadata"`
+	Spec       LinkerdServerAuthorizationSpec `json:"spec" yaml:"spec"`
+}
+
+type LinkerdServerAuthorizationSpec struct {
+	Server LinkerdServerRef    `json:"server" yaml:"server"`
+	Client LinkerdClientPolicy `json:"client" yaml:"client"`
+}
+
+type LinkerdServerRef struct {
+	Name string `json:"name" yaml:"name"`
+}
+
+type LinkerdClientPolicy struct {
+	MeshTLS         *LinkerdMeshTLS `json:"meshTLS,omitempty" yaml:"meshTLS,omitempty"`
+	Unauthenticated bool            `json:"unauthenticated,omitempty" yaml:"unauthenticated,omitempty"`
+}
+
+type LinkerdMeshTLS struct {
+	Identities []string `json:"identities" yaml:"identities"`
+}
+
 func LoadYAML(data []byte) (AgenticFlow, error) {
 	var doc AgenticFlow
 	if err := yaml.Unmarshal(data, &doc); err != nil {
@@ -196,6 +300,21 @@ func MarshalArtifactsYAML(artifacts Artifacts) ([]byte, error) {
 	}
 	for _, authzPolicy := range artifacts.IstioAuthorizationPolicies {
 		if err := enc.Encode(authzPolicy); err != nil {
+			return nil, err
+		}
+	}
+	for _, ciliumPolicy := range artifacts.CiliumNetworkPolicies {
+		if err := enc.Encode(ciliumPolicy); err != nil {
+			return nil, err
+		}
+	}
+	for _, server := range artifacts.LinkerdServers {
+		if err := enc.Encode(server); err != nil {
+			return nil, err
+		}
+	}
+	for _, authz := range artifacts.LinkerdServerAuthorizations {
+		if err := enc.Encode(authz); err != nil {
 			return nil, err
 		}
 	}
@@ -303,8 +422,11 @@ func Compile(doc AgenticFlow) (Artifacts, error) {
 			Metadata:   metadata,
 			Tools:      tools,
 		},
-		NetworkPolicies:            compileNetworkPolicies(doc, metadata),
-		IstioAuthorizationPolicies: compileIstioAuthorizationPolicies(doc, metadata),
+		NetworkPolicies:             compileNetworkPolicies(doc, metadata),
+		IstioAuthorizationPolicies:  compileIstioAuthorizationPolicies(doc, metadata),
+		CiliumNetworkPolicies:       compileCiliumNetworkPolicies(doc, metadata),
+		LinkerdServers:              compileLinkerdServers(doc, metadata),
+		LinkerdServerAuthorizations: compileLinkerdServerAuthorizations(doc, metadata),
 	}, nil
 }
 
@@ -332,6 +454,46 @@ func validateExplicitControlIntent(spec FlowSpec) error {
 		}
 		if len(spec.Mesh.Istio.Ports) == 0 {
 			return fmt.Errorf("spec.mesh.istio.ports is required")
+		}
+	}
+
+	if spec.Mesh != nil && spec.Mesh.Cilium != nil {
+		if len(spec.Selector.MatchLabels) == 0 {
+			return fmt.Errorf("spec.selector.matchLabels is required when spec.mesh.cilium is declared")
+		}
+		if len(spec.Mesh.Cilium.Ingress) == 0 {
+			return fmt.Errorf("spec.mesh.cilium.ingress is required")
+		}
+		for _, rule := range spec.Mesh.Cilium.Ingress {
+			if len(rule.FromEndpoints) == 0 {
+				return fmt.Errorf("spec.mesh.cilium.ingress[].fromEndpoints is required")
+			}
+			if rule.Port <= 0 {
+				return fmt.Errorf("spec.mesh.cilium.ingress[].port is required")
+			}
+			if len(rule.Methods) == 0 {
+				return fmt.Errorf("spec.mesh.cilium.ingress[].methods is required")
+			}
+		}
+	}
+
+	if spec.Mesh != nil && spec.Mesh.Linkerd != nil {
+		if len(spec.Selector.MatchLabels) == 0 {
+			return fmt.Errorf("spec.selector.matchLabels is required when spec.mesh.linkerd is declared")
+		}
+		if len(spec.Mesh.Linkerd.Servers) == 0 {
+			return fmt.Errorf("spec.mesh.linkerd.servers is required")
+		}
+		for _, server := range spec.Mesh.Linkerd.Servers {
+			if server.Name == "" {
+				return fmt.Errorf("spec.mesh.linkerd.servers[].name is required")
+			}
+			if server.Port <= 0 {
+				return fmt.Errorf("spec.mesh.linkerd.servers[%q].port is required", server.Name)
+			}
+			if len(server.Identities) == 0 {
+				return fmt.Errorf("spec.mesh.linkerd.servers[%q].identities is required", server.Name)
+			}
 		}
 	}
 
@@ -453,6 +615,70 @@ func compileIstioAuthorizationPolicies(doc AgenticFlow, metadata v1alpha1.Metada
 	}}
 }
 
+func compileCiliumNetworkPolicies(doc AgenticFlow, metadata v1alpha1.Metadata) []CiliumNetworkPolicy {
+	if doc.Spec.Mesh == nil || doc.Spec.Mesh.Cilium == nil || len(doc.Spec.Mesh.Cilium.Ingress) == 0 {
+		return nil
+	}
+	ingress := make([]CiliumIngress, 0, len(doc.Spec.Mesh.Cilium.Ingress))
+	for _, rule := range doc.Spec.Mesh.Cilium.Ingress {
+		ingress = append(ingress, CiliumIngress{
+			FromEndpoints: cloneEndpointLabels(rule.FromEndpoints),
+			ToPorts: []CiliumToPorts{{
+				Ports: []CiliumPortRule{{Port: fmt.Sprintf("%d", rule.Port), Protocol: "TCP"}},
+				Rules: CiliumL7Rules{HTTP: ciliumHTTPRules(rule)},
+			}},
+		})
+	}
+	return []CiliumNetworkPolicy{{
+		APIVersion: "cilium.io/v2",
+		Kind:       "CiliumNetworkPolicy",
+		Metadata:   namedMetadata(metadata, metadata.Name+"-cilium"),
+		Spec: CiliumNetworkPolicySpec{
+			EndpointSelector: CiliumEndpointSelector{MatchLabels: cloneStringMap(doc.Spec.Selector.MatchLabels)},
+			Ingress:          ingress,
+		},
+	}}
+}
+
+func compileLinkerdServers(doc AgenticFlow, metadata v1alpha1.Metadata) []LinkerdServer {
+	if doc.Spec.Mesh == nil || doc.Spec.Mesh.Linkerd == nil || len(doc.Spec.Mesh.Linkerd.Servers) == 0 {
+		return nil
+	}
+	servers := make([]LinkerdServer, 0, len(doc.Spec.Mesh.Linkerd.Servers))
+	for _, server := range doc.Spec.Mesh.Linkerd.Servers {
+		servers = append(servers, LinkerdServer{
+			APIVersion: "policy.linkerd.io/v1beta3",
+			Kind:       "Server",
+			Metadata:   namedMetadata(metadata, server.Name),
+			Spec: LinkerdServerBody{
+				PodSelector:   v1alpha1.Selector{MatchLabels: cloneStringMap(doc.Spec.Selector.MatchLabels)},
+				Port:          server.Port,
+				ProxyProtocol: "HTTP/1",
+			},
+		})
+	}
+	return servers
+}
+
+func compileLinkerdServerAuthorizations(doc AgenticFlow, metadata v1alpha1.Metadata) []LinkerdServerAuthorization {
+	if doc.Spec.Mesh == nil || doc.Spec.Mesh.Linkerd == nil || len(doc.Spec.Mesh.Linkerd.Servers) == 0 {
+		return nil
+	}
+	authz := make([]LinkerdServerAuthorization, 0, len(doc.Spec.Mesh.Linkerd.Servers))
+	for _, server := range doc.Spec.Mesh.Linkerd.Servers {
+		authz = append(authz, LinkerdServerAuthorization{
+			APIVersion: "policy.linkerd.io/v1beta1",
+			Kind:       "ServerAuthorization",
+			Metadata:   namedMetadata(metadata, server.Name+"-authz"),
+			Spec: LinkerdServerAuthorizationSpec{
+				Server: LinkerdServerRef{Name: server.Name},
+				Client: linkerdClientPolicy(server),
+			},
+		})
+	}
+	return authz
+}
+
 func ensureScopeRequest(scope *v1alpha1.ScopeConfig) *v1alpha1.ScopeConfig {
 	if scope == nil {
 		scope = &v1alpha1.ScopeConfig{}
@@ -521,6 +747,42 @@ func stringPorts(ports []int) []string {
 	out := make([]string, 0, len(ports))
 	for _, port := range ports {
 		out = append(out, fmt.Sprintf("%d", port))
+	}
+	return out
+}
+
+func ciliumHTTPRules(rule CiliumIngressRule) []CiliumHTTPRule {
+	out := make([]CiliumHTTPRule, 0, max(1, len(rule.Methods))*max(1, len(rule.Paths)))
+	if len(rule.Methods) == 0 {
+		for _, path := range rule.Paths {
+			out = append(out, CiliumHTTPRule{Path: path})
+		}
+		return out
+	}
+	if len(rule.Paths) == 0 {
+		for _, method := range rule.Methods {
+			out = append(out, CiliumHTTPRule{Method: method})
+		}
+		return out
+	}
+	for _, method := range rule.Methods {
+		for _, path := range rule.Paths {
+			out = append(out, CiliumHTTPRule{Method: method, Path: path})
+		}
+	}
+	return out
+}
+
+func linkerdClientPolicy(server LinkerdServerSpec) LinkerdClientPolicy {
+	return LinkerdClientPolicy{
+		MeshTLS: &LinkerdMeshTLS{Identities: append([]string(nil), server.Identities...)},
+	}
+}
+
+func cloneEndpointLabels(in []map[string]string) []map[string]string {
+	out := make([]map[string]string, 0, len(in))
+	for _, labels := range in {
+		out = append(out, cloneStringMap(labels))
 	}
 	return out
 }

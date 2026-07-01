@@ -27,6 +27,18 @@ spec:
       principals:
         - cluster.local/ns/prod/sa/astra-runtime
       ports: [9090]
+    cilium:
+      ingress:
+        - fromEndpoints:
+            - app: astra-runtime
+          port: 9090
+          methods: [POST]
+    linkerd:
+      servers:
+        - name: astra-mcp
+          port: 9090
+          identities:
+            - astra-runtime.prod.serviceaccount.identity.linkerd.cluster.local
   credentials:
     - name: jira-read
       from: vault
@@ -64,6 +76,8 @@ The output is a multi-document YAML stream:
 - `ToolRegistry` containing every declared tool, including explicitly denied tools, so policy denials are visible as policy decisions instead of disappearing at the registry gate.
 - `NetworkPolicy`, when `spec.network.egress` is declared.
 - Istio `AuthorizationPolicy`, when `spec.mesh.istio` is declared.
+- Cilium `CiliumNetworkPolicy`, when `spec.mesh.cilium` is declared.
+- Linkerd `Server` and `ServerAuthorization`, when `spec.mesh.linkerd` is declared.
 
 Credential declarations are resolved by name. If a tool references an undeclared credential, compilation fails. OAuth metadata is preserved as audit context so operators can see which audience and scopes were intended for the credentialed path.
 
@@ -71,4 +85,4 @@ Credential declarations are resolved by name. If a tool references an undeclared
 
 Use `AgenticFlow` for runtime MCP intent: which agent path may call which tool, under which identity, with which credential and audit labels.
 
-Network and mesh policy generation is opt-in. `NetworkPolicy`, Istio `AuthorizationPolicy`, Cilium policy, and Linkerd policy answer different questions, so nullfield only emits these artifacts when the flow declares enough explicit workload and destination intent.
+Network and mesh policy generation is opt-in. `NetworkPolicy`, Istio `AuthorizationPolicy`, Cilium policy, and Linkerd policy answer different questions, so nullfield only emits these artifacts when the flow declares enough explicit workload, destination, principal, port, and method intent to avoid broad allow rules.

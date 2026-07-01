@@ -385,3 +385,112 @@ func TestMarshalArtifactsYAMLEmitsOptInNetworkDocuments(t *testing.T) {
 		}
 	}
 }
+
+func TestCompileFlowEmitsCiliumAndLinkerdPolicies(t *testing.T) {
+	artifacts, err := Compile(AgenticFlow{
+		APIVersion: "nullfield.io/v1alpha1",
+		Kind:       "AgenticFlow",
+		Metadata:   v1alpha1.Metadata{Name: "astra-jira", Namespace: "prod"},
+		Spec: FlowSpec{
+			Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "astra"}},
+			Mesh: &MeshSpec{
+				Cilium: &CiliumSpec{Ingress: []CiliumIngressRule{{
+					FromEndpoints: []map[string]string{{"app": "astra-runtime"}},
+					Port:          9090,
+					Methods:       []string{"POST"},
+				}}},
+				Linkerd: &LinkerdSpec{Servers: []LinkerdServerSpec{{
+					Name:       "astra-mcp",
+					Port:       9090,
+					Identities: []string{"astra-runtime.prod.serviceaccount.identity.linkerd.cluster.local"},
+				}}},
+			},
+			Tools: []FlowTool{{Name: "mcp-atlassian.read_issue", Action: v1alpha1.ActionAllow}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compile returned error: %v", err)
+	}
+
+	if len(artifacts.CiliumNetworkPolicies) != 1 {
+		t.Fatalf("CiliumNetworkPolicies = %d, want 1", len(artifacts.CiliumNetworkPolicies))
+	}
+	cilium := artifacts.CiliumNetworkPolicies[0]
+	if cilium.Kind != "CiliumNetworkPolicy" {
+		t.Fatalf("cilium kind = %q, want CiliumNetworkPolicy", cilium.Kind)
+	}
+	if got := cilium.Spec.Ingress[0].ToPorts[0].Ports[0].Port; got != "9090" {
+		t.Fatalf("cilium port = %q, want 9090", got)
+	}
+	if got := cilium.Spec.Ingress[0].ToPorts[0].Rules.HTTP[0].Method; got != "POST" {
+		t.Fatalf("cilium method = %q, want POST", got)
+	}
+	if got := cilium.Spec.Ingress[0].FromEndpoints[0]["app"]; got != "astra-runtime" {
+		t.Fatalf("cilium source label = %q, want astra-runtime", got)
+	}
+
+	if len(artifacts.LinkerdServers) != 1 {
+		t.Fatalf("LinkerdServers = %d, want 1", len(artifacts.LinkerdServers))
+	}
+	server := artifacts.LinkerdServers[0]
+	if server.Kind != "Server" || server.Spec.Port != 9090 {
+		t.Fatalf("linkerd server = %+v", server)
+	}
+	if len(artifacts.LinkerdServerAuthorizations) != 1 {
+		t.Fatalf("LinkerdServerAuthorizations = %d, want 1", len(artifacts.LinkerdServerAuthorizations))
+	}
+	authz := artifacts.LinkerdServerAuthorizations[0]
+	if got := authz.Spec.Client.MeshTLS.Identities[0]; got != "astra-runtime.prod.serviceaccount.identity.linkerd.cluster.local" {
+		t.Fatalf("linkerd identity = %q", got)
+	}
+}
+
+func TestCompileFlowRejectsBroadCiliumAndLinkerdIntent(t *testing.T) {
+	cases := []struct {
+		name string
+		mesh *MeshSpec
+	}{
+		{
+			name: "cilium without source endpoints",
+			mesh: &MeshSpec{Cilium: &CiliumSpec{Ingress: []CiliumIngressRule{{Port: 9090, Methods: []string{"POST"}}}}},
+		},
+		{
+			name: "cilium without HTTP methods",
+			mesh: &MeshSpec{Cilium: &CiliumSpec{Ingress: []CiliumIngressRule{{
+				FromEndpoints: []map[string]string{{"app": "astra-runtime"}},
+				Port:          9090,
+				Paths:         []string{"/mcp"},
+			}}}},
+		},
+		{
+			name: "cilium without ingress rules",
+			mesh: &MeshSpec{Cilium: &CiliumSpec{}},
+		},
+		{
+			name: "linkerd without identity decision",
+			mesh: &MeshSpec{Linkerd: &LinkerdSpec{Servers: []LinkerdServerSpec{{Name: "astra-mcp", Port: 9090}}}},
+		},
+		{
+			name: "linkerd without servers",
+			mesh: &MeshSpec{Linkerd: &LinkerdSpec{}},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := Compile(AgenticFlow{
+				APIVersion: "nullfield.io/v1alpha1",
+				Kind:       "AgenticFlow",
+				Metadata:   v1alpha1.Metadata{Name: "astra-jira"},
+				Spec: FlowSpec{
+					Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "astra"}},
+					Mesh:     c.mesh,
+					Tools:    []FlowTool{{Name: "mcp-atlassian.read_issue", Action: v1alpha1.ActionAllow}},
+				},
+			})
+			if err == nil {
+				t.Fatal("expected Compile to reject broad mesh intent")
+			}
+		})
+	}
+}
