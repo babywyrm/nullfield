@@ -29,13 +29,13 @@ Next build targets:
 apiVersion: nullfield.io/v1alpha1
 kind: AgenticFlow
 metadata:
-  name: astra-jira
+  name: demo-jira
 spec:
   lane: delegated
   transport: A
   selector:
     matchLabels:
-      app: astra
+      app: demo-agent
   network:
     egress:
       - name: atlassian
@@ -44,20 +44,20 @@ spec:
   mesh:
     istio:
       principals:
-        - cluster.local/ns/prod/sa/astra-runtime
+        - cluster.local/ns/demo/sa/demo-runtime
       ports: [9090]
     cilium:
       ingress:
         - fromEndpoints:
-            - app: astra-runtime
+            - app: demo-runtime
           port: 9090
           methods: [POST]
     linkerd:
       servers:
-        - name: astra-mcp
+        - name: demo-mcp
           port: 9090
           identities:
-            - astra-runtime.prod.serviceaccount.identity.linkerd.cluster.local
+            - demo-runtime.demo.serviceaccount.identity.linkerd.cluster.local
   credentials:
     - name: jira-read
       from: vault
@@ -69,7 +69,7 @@ spec:
   tools:
     - name: mcp-atlassian.read_issue
       action: ALLOW
-      allowedScopes: [PRODENG, AIFE, EE]
+      allowedScopes: [PROJECT-A, PROJECT-B, PROJECT-C]
       auditLabels:
         system: jira
         resource: issue

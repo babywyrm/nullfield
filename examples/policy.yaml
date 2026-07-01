@@ -1,15 +1,15 @@
 apiVersion: nullfield.io/v1alpha1
 kind: NullfieldPolicy
 metadata:
-  name: kosmos-agents
-  namespace: kosmos
+  name: demo-agents
+  namespace: demo
   labels:
     nullfield.io/lane: "delegated"
     nullfield.io/transport: "A"
 spec:
   selector:
     matchLabels:
-      app: kosmos-agent
+      app: demo-agent
   rules:
     # Allow specific tools with identity required
     - action: ALLOW

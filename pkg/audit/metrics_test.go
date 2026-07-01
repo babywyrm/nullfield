@@ -28,7 +28,7 @@ func TestToolCallMetricLabelsUseStableDecisionContext(t *testing.T) {
 		Type:        EventToolDenied,
 		ToolName:    "jira.delete_issue",
 		Gate:        "policy",
-		Reason:      "mcp-atlassian.delete_page denied for AIFE",
+		Reason:      "mcp-atlassian.delete_page denied for PROJECT-B",
 		ReasonClass: "policy_denied",
 	})
 

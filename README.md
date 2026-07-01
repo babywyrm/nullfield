@@ -265,12 +265,12 @@ Rules are evaluated in order — first match wins. Default is deny if no rule ma
 apiVersion: nullfield.io/v1alpha1
 kind: NullfieldPolicy
 metadata:
-  name: kosmos-agents
-  namespace: kosmos
+  name: demo-agents
+  namespace: demo
 spec:
   selector:
     matchLabels:
-      app: kosmos-agent
+      app: demo-agent
   rules:
     - action: ALLOW
       mcpMethod: tools/call
@@ -345,7 +345,7 @@ Every tool that nullfield allows must be registered:
 apiVersion: nullfield.io/v1alpha1
 kind: ToolRegistry
 metadata:
-  name: kosmos-tools
+  name: demo-tools
 tools:
   - name: github_create_pr
     description: Create a pull request

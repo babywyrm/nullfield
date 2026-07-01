@@ -77,7 +77,7 @@ metadata:
 | File | `nullfield.io/lane` | `nullfield.io/transport` |
 |------|---------------------|--------------------------|
 | `examples/policy-minimal.yaml` | `anonymous` | `A` |
-| `examples/policy.yaml` (kosmos-agents) | `delegated` | `A` |
+| `examples/policy.yaml` (demo-agents) | `delegated` | `A` |
 | `examples/policy-identity.yaml` | `human-direct` | `A` |
 | `examples/gateway/*.yaml` | per-file (see below) | per-file |
 | `examples/crd/*.yaml` | per-file | per-file |

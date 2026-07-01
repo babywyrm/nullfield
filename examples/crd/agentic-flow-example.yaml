@@ -1,14 +1,14 @@
 apiVersion: nullfield.io/v1alpha1
 kind: AgenticFlow
 metadata:
-  name: astra-jira
+  name: demo-jira
   namespace: nullfield
 spec:
   lane: delegated
   transport: A
   selector:
     matchLabels:
-      app: astra
+      app: demo-agent
   credentials:
     - name: jira-read
       from: vault
@@ -20,7 +20,7 @@ spec:
   tools:
     - name: mcp-atlassian.read_issue
       action: ALLOW
-      allowedScopes: [PRODENG, AIFE, EE]
+      allowedScopes: [PROJECT-A, PROJECT-B, PROJECT-C]
       auditLabels:
         system: jira
         resource: issue

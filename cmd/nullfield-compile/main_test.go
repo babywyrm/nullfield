@@ -11,7 +11,7 @@ func TestRunCompilesFlowFromStdin(t *testing.T) {
 apiVersion: nullfield.io/v1alpha1
 kind: AgenticFlow
 metadata:
-  name: astra-jira
+  name: demo-jira
 spec:
   tools:
     - name: mcp-atlassian.read_issue

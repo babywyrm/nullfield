@@ -12,11 +12,11 @@ func TestCompileFlowEmitsPolicyAndRegistry(t *testing.T) {
 		APIVersion: "nullfield.io/v1alpha1",
 		Kind:       "AgenticFlow",
 		Metadata: v1alpha1.Metadata{
-			Name:      "astra-jira",
+			Name:      "demo-jira",
 			Namespace: "prod",
 		},
 		Spec: FlowSpec{
-			Selector:  v1alpha1.Selector{MatchLabels: map[string]string{"app": "astra"}},
+			Selector:  v1alpha1.Selector{MatchLabels: map[string]string{"app": "demo-agent"}},
 			Lane:      "delegated",
 			Transport: "A",
 			Tools: []FlowTool{
@@ -24,7 +24,7 @@ func TestCompileFlowEmitsPolicyAndRegistry(t *testing.T) {
 					Name:          "mcp-atlassian.read_issue",
 					Description:   "Read Jira issues",
 					Action:        v1alpha1.ActionAllow,
-					AllowedScopes: []string{"PRODENG", "AIFE", "EE"},
+					AllowedScopes: []string{"PROJECT-A", "PROJECT-B", "PROJECT-C"},
 					AuditLabels:   map[string]string{"system": "jira", "resource": "issue"},
 				},
 				{
@@ -115,13 +115,13 @@ func TestLoadYAMLParsesAgenticFlow(t *testing.T) {
 apiVersion: nullfield.io/v1alpha1
 kind: AgenticFlow
 metadata:
-  name: astra-jira
+  name: demo-jira
 spec:
   lane: delegated
   transport: A
   selector:
     matchLabels:
-      app: astra
+      app: demo-agent
   tools:
     - name: mcp-atlassian.read_issue
       action: ALLOW
@@ -131,8 +131,8 @@ spec:
 	if err != nil {
 		t.Fatalf("LoadYAML returned error: %v", err)
 	}
-	if doc.Metadata.Name != "astra-jira" {
-		t.Fatalf("metadata.name = %q, want astra-jira", doc.Metadata.Name)
+	if doc.Metadata.Name != "demo-jira" {
+		t.Fatalf("metadata.name = %q, want demo-jira", doc.Metadata.Name)
 	}
 	if doc.Spec.Tools[0].AuditLabels["system"] != "jira" {
 		t.Fatalf("audit label system = %q, want jira", doc.Spec.Tools[0].AuditLabels["system"])
@@ -143,7 +143,7 @@ func TestMarshalArtifactsYAMLEmitsPolicyAndRegistryDocuments(t *testing.T) {
 	artifacts, err := Compile(AgenticFlow{
 		APIVersion: "nullfield.io/v1alpha1",
 		Kind:       "AgenticFlow",
-		Metadata:   v1alpha1.Metadata{Name: "astra-jira"},
+		Metadata:   v1alpha1.Metadata{Name: "demo-jira"},
 		Spec: FlowSpec{
 			Tools: []FlowTool{{Name: "mcp-atlassian.read_issue", Action: v1alpha1.ActionAllow}},
 		},
@@ -172,9 +172,9 @@ func TestCompileFlowEmitsOptInNetworkAndIstioPolicies(t *testing.T) {
 	artifacts, err := Compile(AgenticFlow{
 		APIVersion: "nullfield.io/v1alpha1",
 		Kind:       "AgenticFlow",
-		Metadata:   v1alpha1.Metadata{Name: "astra-jira", Namespace: "prod"},
+		Metadata:   v1alpha1.Metadata{Name: "demo-jira", Namespace: "prod"},
 		Spec: FlowSpec{
-			Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "astra"}},
+			Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "demo-agent"}},
 			Network: &NetworkSpec{
 				Egress: []EgressDestination{
 					{Name: "atlassian", CIDR: "104.192.136.0/21", Ports: []int{443}},
@@ -182,7 +182,7 @@ func TestCompileFlowEmitsOptInNetworkAndIstioPolicies(t *testing.T) {
 			},
 			Mesh: &MeshSpec{
 				Istio: &IstioAuthzSpec{
-					Principals: []string{"cluster.local/ns/prod/sa/astra-runtime"},
+					Principals: []string{"cluster.local/ns/prod/sa/demo-runtime"},
 					Ports:      []int{9090},
 				},
 			},
@@ -200,7 +200,7 @@ func TestCompileFlowEmitsOptInNetworkAndIstioPolicies(t *testing.T) {
 	if np.Kind != "NetworkPolicy" {
 		t.Fatalf("network kind = %q, want NetworkPolicy", np.Kind)
 	}
-	if np.Spec.PodSelector.MatchLabels["app"] != "astra" {
+	if np.Spec.PodSelector.MatchLabels["app"] != "demo-agent" {
 		t.Fatalf("network pod selector = %+v", np.Spec.PodSelector.MatchLabels)
 	}
 	if got := np.Spec.Egress[0].To[0].IPBlock.CIDR; got != "104.192.136.0/21" {
@@ -214,7 +214,7 @@ func TestCompileFlowEmitsOptInNetworkAndIstioPolicies(t *testing.T) {
 	if authz.Kind != "AuthorizationPolicy" {
 		t.Fatalf("authz kind = %q, want AuthorizationPolicy", authz.Kind)
 	}
-	if got := authz.Spec.Rules[0].From[0].Source.Principals[0]; got != "cluster.local/ns/prod/sa/astra-runtime" {
+	if got := authz.Spec.Rules[0].From[0].Source.Principals[0]; got != "cluster.local/ns/prod/sa/demo-runtime" {
 		t.Fatalf("authz principal = %q", got)
 	}
 }
@@ -223,7 +223,7 @@ func TestCompileFlowEnforcesDeclaredCredentialRefs(t *testing.T) {
 	artifacts, err := Compile(AgenticFlow{
 		APIVersion: "nullfield.io/v1alpha1",
 		Kind:       "AgenticFlow",
-		Metadata:   v1alpha1.Metadata{Name: "astra-jira"},
+		Metadata:   v1alpha1.Metadata{Name: "demo-jira"},
 		Spec: FlowSpec{
 			Credentials: []FlowCredential{
 				{
@@ -278,7 +278,7 @@ func TestCompileFlowRejectsUndeclaredCredentialRefs(t *testing.T) {
 	_, err := Compile(AgenticFlow{
 		APIVersion: "nullfield.io/v1alpha1",
 		Kind:       "AgenticFlow",
-		Metadata:   v1alpha1.Metadata{Name: "astra-jira"},
+		Metadata:   v1alpha1.Metadata{Name: "demo-jira"},
 		Spec: FlowSpec{
 			Tools: []FlowTool{
 				{
@@ -309,7 +309,7 @@ func TestCompileFlowRejectsBroadNetworkPolicyIntent(t *testing.T) {
 		{
 			name: "network without ports",
 			spec: FlowSpec{
-				Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "astra"}},
+				Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "demo-agent"}},
 				Network:  &NetworkSpec{Egress: []EgressDestination{{CIDR: "104.192.136.0/21"}}},
 				Tools:    []FlowTool{{Name: "mcp-atlassian.read_issue", Action: v1alpha1.ActionAllow}},
 			},
@@ -317,7 +317,7 @@ func TestCompileFlowRejectsBroadNetworkPolicyIntent(t *testing.T) {
 		{
 			name: "istio without principals",
 			spec: FlowSpec{
-				Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "astra"}},
+				Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "demo-agent"}},
 				Mesh:     &MeshSpec{Istio: &IstioAuthzSpec{Ports: []int{9090}}},
 				Tools:    []FlowTool{{Name: "mcp-atlassian.read_issue", Action: v1alpha1.ActionAllow}},
 			},
@@ -325,8 +325,8 @@ func TestCompileFlowRejectsBroadNetworkPolicyIntent(t *testing.T) {
 		{
 			name: "istio without ports",
 			spec: FlowSpec{
-				Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "astra"}},
-				Mesh:     &MeshSpec{Istio: &IstioAuthzSpec{Principals: []string{"cluster.local/ns/prod/sa/astra-runtime"}}},
+				Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "demo-agent"}},
+				Mesh:     &MeshSpec{Istio: &IstioAuthzSpec{Principals: []string{"cluster.local/ns/prod/sa/demo-runtime"}}},
 				Tools:    []FlowTool{{Name: "mcp-atlassian.read_issue", Action: v1alpha1.ActionAllow}},
 			},
 		},
@@ -337,7 +337,7 @@ func TestCompileFlowRejectsBroadNetworkPolicyIntent(t *testing.T) {
 			_, err := Compile(AgenticFlow{
 				APIVersion: "nullfield.io/v1alpha1",
 				Kind:       "AgenticFlow",
-				Metadata:   v1alpha1.Metadata{Name: "astra-jira"},
+				Metadata:   v1alpha1.Metadata{Name: "demo-jira"},
 				Spec:       c.spec,
 			})
 			if err == nil {
@@ -351,12 +351,12 @@ func TestMarshalArtifactsYAMLEmitsOptInNetworkDocuments(t *testing.T) {
 	artifacts, err := Compile(AgenticFlow{
 		APIVersion: "nullfield.io/v1alpha1",
 		Kind:       "AgenticFlow",
-		Metadata:   v1alpha1.Metadata{Name: "astra-jira", Namespace: "prod"},
+		Metadata:   v1alpha1.Metadata{Name: "demo-jira", Namespace: "prod"},
 		Spec: FlowSpec{
-			Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "astra"}},
+			Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "demo-agent"}},
 			Network:  &NetworkSpec{Egress: []EgressDestination{{CIDR: "104.192.136.0/21", Ports: []int{443}}}},
 			Mesh: &MeshSpec{Istio: &IstioAuthzSpec{
-				Principals: []string{"cluster.local/ns/prod/sa/astra-runtime"},
+				Principals: []string{"cluster.local/ns/prod/sa/demo-runtime"},
 				Ports:      []int{9090},
 			}},
 			Tools: []FlowTool{{Name: "mcp-atlassian.read_issue", Action: v1alpha1.ActionAllow}},
@@ -373,10 +373,10 @@ func TestMarshalArtifactsYAMLEmitsOptInNetworkDocuments(t *testing.T) {
 	text := string(out)
 	for _, want := range []string{
 		"kind: NetworkPolicy",
-		"name: astra-jira-egress",
+		"name: demo-jira-egress",
 		"cidr: 104.192.136.0/21",
 		"kind: AuthorizationPolicy",
-		"name: astra-jira-authz",
+		"name: demo-jira-authz",
 		"principals:",
 		"- \"9090\"",
 	} {
@@ -390,19 +390,19 @@ func TestCompileFlowEmitsCiliumAndLinkerdPolicies(t *testing.T) {
 	artifacts, err := Compile(AgenticFlow{
 		APIVersion: "nullfield.io/v1alpha1",
 		Kind:       "AgenticFlow",
-		Metadata:   v1alpha1.Metadata{Name: "astra-jira", Namespace: "prod"},
+		Metadata:   v1alpha1.Metadata{Name: "demo-jira", Namespace: "prod"},
 		Spec: FlowSpec{
-			Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "astra"}},
+			Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "demo-agent"}},
 			Mesh: &MeshSpec{
 				Cilium: &CiliumSpec{Ingress: []CiliumIngressRule{{
-					FromEndpoints: []map[string]string{{"app": "astra-runtime"}},
+					FromEndpoints: []map[string]string{{"app": "demo-runtime"}},
 					Port:          9090,
 					Methods:       []string{"POST"},
 				}}},
 				Linkerd: &LinkerdSpec{Servers: []LinkerdServerSpec{{
-					Name:       "astra-mcp",
+					Name:       "demo-mcp",
 					Port:       9090,
-					Identities: []string{"astra-runtime.prod.serviceaccount.identity.linkerd.cluster.local"},
+					Identities: []string{"demo-runtime.prod.serviceaccount.identity.linkerd.cluster.local"},
 				}}},
 			},
 			Tools: []FlowTool{{Name: "mcp-atlassian.read_issue", Action: v1alpha1.ActionAllow}},
@@ -425,8 +425,8 @@ func TestCompileFlowEmitsCiliumAndLinkerdPolicies(t *testing.T) {
 	if got := cilium.Spec.Ingress[0].ToPorts[0].Rules.HTTP[0].Method; got != "POST" {
 		t.Fatalf("cilium method = %q, want POST", got)
 	}
-	if got := cilium.Spec.Ingress[0].FromEndpoints[0]["app"]; got != "astra-runtime" {
-		t.Fatalf("cilium source label = %q, want astra-runtime", got)
+	if got := cilium.Spec.Ingress[0].FromEndpoints[0]["app"]; got != "demo-runtime" {
+		t.Fatalf("cilium source label = %q, want demo-runtime", got)
 	}
 
 	if len(artifacts.LinkerdServers) != 1 {
@@ -440,7 +440,7 @@ func TestCompileFlowEmitsCiliumAndLinkerdPolicies(t *testing.T) {
 		t.Fatalf("LinkerdServerAuthorizations = %d, want 1", len(artifacts.LinkerdServerAuthorizations))
 	}
 	authz := artifacts.LinkerdServerAuthorizations[0]
-	if got := authz.Spec.Client.MeshTLS.Identities[0]; got != "astra-runtime.prod.serviceaccount.identity.linkerd.cluster.local" {
+	if got := authz.Spec.Client.MeshTLS.Identities[0]; got != "demo-runtime.prod.serviceaccount.identity.linkerd.cluster.local" {
 		t.Fatalf("linkerd identity = %q", got)
 	}
 }
@@ -457,7 +457,7 @@ func TestCompileFlowRejectsBroadCiliumAndLinkerdIntent(t *testing.T) {
 		{
 			name: "cilium without HTTP methods",
 			mesh: &MeshSpec{Cilium: &CiliumSpec{Ingress: []CiliumIngressRule{{
-				FromEndpoints: []map[string]string{{"app": "astra-runtime"}},
+				FromEndpoints: []map[string]string{{"app": "demo-runtime"}},
 				Port:          9090,
 				Paths:         []string{"/mcp"},
 			}}}},
@@ -468,7 +468,7 @@ func TestCompileFlowRejectsBroadCiliumAndLinkerdIntent(t *testing.T) {
 		},
 		{
 			name: "linkerd without identity decision",
-			mesh: &MeshSpec{Linkerd: &LinkerdSpec{Servers: []LinkerdServerSpec{{Name: "astra-mcp", Port: 9090}}}},
+			mesh: &MeshSpec{Linkerd: &LinkerdSpec{Servers: []LinkerdServerSpec{{Name: "demo-mcp", Port: 9090}}}},
 		},
 		{
 			name: "linkerd without servers",
@@ -481,9 +481,9 @@ func TestCompileFlowRejectsBroadCiliumAndLinkerdIntent(t *testing.T) {
 			_, err := Compile(AgenticFlow{
 				APIVersion: "nullfield.io/v1alpha1",
 				Kind:       "AgenticFlow",
-				Metadata:   v1alpha1.Metadata{Name: "astra-jira"},
+				Metadata:   v1alpha1.Metadata{Name: "demo-jira"},
 				Spec: FlowSpec{
-					Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "astra"}},
+					Selector: v1alpha1.Selector{MatchLabels: map[string]string{"app": "demo-agent"}},
 					Mesh:     c.mesh,
 					Tools:    []FlowTool{{Name: "mcp-atlassian.read_issue", Action: v1alpha1.ActionAllow}},
 				},

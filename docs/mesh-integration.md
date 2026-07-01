@@ -213,7 +213,7 @@ spec:
 ### Gotchas
 
 - Linkerd's opaque port annotation is important if your MCP server uses anything other than plain HTTP/1.1 (e.g. SSE, WebSocket upgrade). Without it, Linkerd may try to parse the stream and break it.
-- Linkerd does not inject into Jobs by default. If nullfield sidecars an ephemeral Job (like a KosmosJobAgent), add `linkerd.io/inject: enabled` to the Job's pod template.
+- Linkerd does not inject into Jobs by default. If nullfield sidecars an ephemeral Job (like a JobAgent), add `linkerd.io/inject: enabled` to the Job's pod template.
 - `skip-inbound-ports` ensures kubelet probes on `:9091` are not proxied. Without this, probes may fail during linkerd-proxy startup.
 
 ### Deploy
@@ -327,7 +327,7 @@ Client ──┬──► :30080 ──► brain-gateway :8080                  
 
 ### Why a separate Service?
 
-The default `brain-gateway` `Service` targets pod port `8080` directly so existing kosmos / camazotz tooling and the Streamlit operator UI keep working unmodified. The policed `Service` reuses the same pod selector but targets pod port `9090` — the nullfield sidecar's listen address. Both flow into the same pod; only the path through the pod differs.
+The default `brain-gateway` `Service` targets pod port `8080` directly so existing existing camazotz tooling and the Streamlit operator UI keep working unmodified. The policed `Service` reuses the same pod selector but targets pod port `9090` — the nullfield sidecar's listen address. Both flow into the same pod; only the path through the pod differs.
 
 This pattern lets you:
 

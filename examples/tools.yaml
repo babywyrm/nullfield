@@ -1,8 +1,8 @@
 apiVersion: nullfield.io/v1alpha1
 kind: ToolRegistry
 metadata:
-  name: kosmos-tools
-  namespace: kosmos
+  name: demo-tools
+  namespace: demo
 tools:
   - name: github_create_pr
     description: Create a pull request on GitHub

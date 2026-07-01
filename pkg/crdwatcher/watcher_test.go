@@ -148,7 +148,7 @@ func TestSyncAgenticFlows_CreateCompiledConfigMap(t *testing.T) {
 						"apiVersion": "nullfield.io/v1alpha1",
 						"kind":       "AgenticFlow",
 						"metadata": map[string]any{
-							"name":      "astra-jira",
+							"name":      "demo-jira",
 							"namespace": "default",
 						},
 						"spec": map[string]any{
@@ -161,7 +161,7 @@ func TestSyncAgenticFlows_CreateCompiledConfigMap(t *testing.T) {
 			})
 			return
 		}
-		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/namespaces/default/configmaps/nullfield-flow-astra-jira" {
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/namespaces/default/configmaps/nullfield-flow-demo-jira" {
 			http.NotFound(w, r)
 			return
 		}
@@ -186,8 +186,8 @@ func TestSyncAgenticFlows_CreateCompiledConfigMap(t *testing.T) {
 		t.Fatal("expected ConfigMap to be created")
 	}
 	meta := created["metadata"].(map[string]any)
-	if meta["name"] != "nullfield-flow-astra-jira" {
-		t.Fatalf("expected CM name nullfield-flow-astra-jira, got %v", meta["name"])
+	if meta["name"] != "nullfield-flow-demo-jira" {
+		t.Fatalf("expected CM name nullfield-flow-demo-jira, got %v", meta["name"])
 	}
 	labels := meta["labels"].(map[string]any)
 	if labels["nullfield.io/source-kind"] != "AgenticFlow" {
