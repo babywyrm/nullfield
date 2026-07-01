@@ -19,6 +19,16 @@ spec:
       principals:
         - cluster.local/ns/prod/sa/astra-runtime
       ports: [9090]
+  credentials:
+    - name: jira-read
+      from: vault
+      secretRef: jira-read-token
+      injectAs: token
+      oauth:
+        audience: https://api.atlassian.com
+        scopes: [read:jira-work]
+      auditLabels:
+        provider: atlassian
   tools:
     - name: mcp-atlassian.read_issue
       description: Read Jira issues on approved projects
@@ -31,13 +41,9 @@ spec:
     - name: mcp-atlassian.search
       description: Search Jira with a scoped read credential
       action: ALLOW
-      credentials:
-        - from: vault
-          secretRef: jira-read-token
-          injectAs: token
+      credentialRefs: [jira-read]
       auditLabels:
         system: jira
-        credential: jira-read-token
 
     - name: mcp-atlassian.add_comment
       action: HOLD

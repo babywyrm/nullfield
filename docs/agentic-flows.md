@@ -27,6 +27,14 @@ spec:
       principals:
         - cluster.local/ns/prod/sa/astra-runtime
       ports: [9090]
+  credentials:
+    - name: jira-read
+      from: vault
+      secretRef: jira-read-token
+      injectAs: token
+      oauth:
+        audience: https://api.atlassian.com
+        scopes: [read:jira-work]
   tools:
     - name: mcp-atlassian.read_issue
       action: ALLOW
@@ -37,10 +45,7 @@ spec:
 
     - name: mcp-atlassian.search
       action: ALLOW
-      credentials:
-        - from: vault
-          secretRef: jira-read-token
-          injectAs: token
+      credentialRefs: [jira-read]
 
     - name: mcp-atlassian.delete_page
       action: DENY
@@ -59,6 +64,8 @@ The output is a multi-document YAML stream:
 - `ToolRegistry` containing every declared tool, including explicitly denied tools, so policy denials are visible as policy decisions instead of disappearing at the registry gate.
 - `NetworkPolicy`, when `spec.network.egress` is declared.
 - Istio `AuthorizationPolicy`, when `spec.mesh.istio` is declared.
+
+Credential declarations are resolved by name. If a tool references an undeclared credential, compilation fails. OAuth metadata is preserved as audit context so operators can see which audience and scopes were intended for the credentialed path.
 
 ## Control Split
 

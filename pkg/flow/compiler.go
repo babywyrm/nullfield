@@ -32,6 +32,7 @@ type FlowSpec struct {
 	RequireIdentity *bool                     `json:"requireIdentity,omitempty" yaml:"requireIdentity,omitempty"`
 	Network         *NetworkSpec              `json:"network,omitempty" yaml:"network,omitempty"`
 	Mesh            *MeshSpec                 `json:"mesh,omitempty" yaml:"mesh,omitempty"`
+	Credentials     []FlowCredential          `json:"credentials,omitempty" yaml:"credentials,omitempty"`
 	Identity        *v1alpha1.IdentityConfig  `json:"identity,omitempty" yaml:"identity,omitempty"`
 	Integrity       *v1alpha1.IntegrityConfig `json:"integrity,omitempty" yaml:"integrity,omitempty"`
 	Anomaly         *v1alpha1.AnomalyConfig   `json:"anomaly,omitempty" yaml:"anomaly,omitempty"`
@@ -58,6 +59,24 @@ type IstioAuthzSpec struct {
 	Ports      []int    `json:"ports,omitempty" yaml:"ports,omitempty"`
 }
 
+type FlowCredential struct {
+	Name        string            `json:"name" yaml:"name"`
+	From        string            `json:"from" yaml:"from"`
+	SecretRef   string            `json:"secretRef" yaml:"secretRef"`
+	InjectAs    string            `json:"injectAs,omitempty" yaml:"injectAs,omitempty"`
+	OAuth       *OAuthSpec        `json:"oauth,omitempty" yaml:"oauth,omitempty"`
+	AuditLabels map[string]string `json:"auditLabels,omitempty" yaml:"auditLabels,omitempty"`
+}
+
+type OAuthSpec struct {
+	Issuer       string   `json:"issuer,omitempty" yaml:"issuer,omitempty"`
+	TokenURL     string   `json:"tokenUrl,omitempty" yaml:"tokenUrl,omitempty"`
+	Audience     string   `json:"audience,omitempty" yaml:"audience,omitempty"`
+	Scopes       []string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
+	SubjectToken string   `json:"subjectToken,omitempty" yaml:"subjectToken,omitempty"`
+	ActorClaim   string   `json:"actorClaim,omitempty" yaml:"actorClaim,omitempty"`
+}
+
 type FlowTool struct {
 	Name           string                   `json:"name" yaml:"name"`
 	Description    string                   `json:"description,omitempty" yaml:"description,omitempty"`
@@ -67,6 +86,7 @@ type FlowTool struct {
 	Hold           *v1alpha1.HoldConfig     `json:"hold,omitempty" yaml:"hold,omitempty"`
 	Scope          *v1alpha1.ScopeConfig    `json:"scope,omitempty" yaml:"scope,omitempty"`
 	Budget         *v1alpha1.BudgetConfig   `json:"budget,omitempty" yaml:"budget,omitempty"`
+	CredentialRefs []string                 `json:"credentialRefs,omitempty" yaml:"credentialRefs,omitempty"`
 	Credentials    []v1alpha1.CredentialRef `json:"credentials,omitempty" yaml:"credentials,omitempty"`
 	AllowedScopes  []string                 `json:"allowedScopes,omitempty" yaml:"allowedScopes,omitempty"`
 	SignatureHash  string                   `json:"signatureHash,omitempty" yaml:"signatureHash,omitempty"`
@@ -201,6 +221,10 @@ func Compile(doc AgenticFlow) (Artifacts, error) {
 
 	rules := make([]v1alpha1.Rule, 0, len(doc.Spec.Tools)+1)
 	tools := make([]v1alpha1.ToolRegistryEntry, 0, len(doc.Spec.Tools))
+	credentials, err := credentialMap(doc.Spec.Credentials)
+	if err != nil {
+		return Artifacts{}, err
+	}
 	requireIdentity := true
 	if doc.Spec.RequireIdentity != nil {
 		requireIdentity = *doc.Spec.RequireIdentity
@@ -214,7 +238,11 @@ func Compile(doc AgenticFlow) (Artifacts, error) {
 		if action == "" {
 			action = v1alpha1.ActionAllow
 		}
-		if len(tool.Credentials) > 0 {
+		resolvedCredentials, credentialLabels, err := resolveToolCredentials(tool, credentials)
+		if err != nil {
+			return Artifacts{}, err
+		}
+		if len(resolvedCredentials) > 0 {
 			action = v1alpha1.ActionScope
 		}
 
@@ -228,13 +256,13 @@ func Compile(doc AgenticFlow) (Artifacts, error) {
 			Hold:            tool.Hold,
 			Scope:           tool.Scope,
 			Budget:          tool.Budget,
-			AuditLabels:     cloneStringMap(tool.AuditLabels),
+			AuditLabels:     mergeLabels(tool.AuditLabels, credentialLabels),
 			Reason:          tool.Reason,
 		}
 
-		if len(tool.Credentials) > 0 {
+		if len(resolvedCredentials) > 0 {
 			rule.Scope = ensureScopeRequest(rule.Scope)
-			rule.Scope.Request.InjectCredentials = append(rule.Scope.Request.InjectCredentials, tool.Credentials...)
+			rule.Scope.Request.InjectCredentials = append(rule.Scope.Request.InjectCredentials, resolvedCredentials...)
 		}
 
 		rules = append(rules, rule)
@@ -308,6 +336,69 @@ func validateExplicitControlIntent(spec FlowSpec) error {
 	}
 
 	return nil
+}
+
+func credentialMap(credentials []FlowCredential) (map[string]FlowCredential, error) {
+	out := make(map[string]FlowCredential, len(credentials))
+	for _, credential := range credentials {
+		if credential.Name == "" {
+			return nil, fmt.Errorf("spec.credentials[].name is required")
+		}
+		if credential.From == "" {
+			return nil, fmt.Errorf("spec.credentials[%q].from is required", credential.Name)
+		}
+		if credential.SecretRef == "" {
+			return nil, fmt.Errorf("spec.credentials[%q].secretRef is required", credential.Name)
+		}
+		if _, exists := out[credential.Name]; exists {
+			return nil, fmt.Errorf("duplicate credential declaration: %s", credential.Name)
+		}
+		out[credential.Name] = credential
+	}
+	return out, nil
+}
+
+func resolveToolCredentials(tool FlowTool, credentials map[string]FlowCredential) ([]v1alpha1.CredentialRef, map[string]string, error) {
+	refs := append([]v1alpha1.CredentialRef(nil), tool.Credentials...)
+	labels := map[string]string{}
+
+	for _, name := range tool.CredentialRefs {
+		credential, ok := credentials[name]
+		if !ok {
+			return nil, nil, fmt.Errorf("tool %q references undeclared credential %q", tool.Name, name)
+		}
+		refs = append(refs, v1alpha1.CredentialRef{
+			From:      credential.From,
+			SecretRef: credential.SecretRef,
+			InjectAs:  credential.InjectAs,
+		})
+		labels = mergeLabels(labels, credentialLabels(credential))
+	}
+
+	if len(labels) == 0 {
+		labels = nil
+	}
+	return refs, labels, nil
+}
+
+func credentialLabels(credential FlowCredential) map[string]string {
+	labels := cloneStringMap(credential.AuditLabels)
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	labels["credential"] = credential.Name
+	if credential.OAuth != nil {
+		if credential.OAuth.Issuer != "" {
+			labels["oauth_issuer"] = credential.OAuth.Issuer
+		}
+		if credential.OAuth.Audience != "" {
+			labels["oauth_audience"] = credential.OAuth.Audience
+		}
+		if len(credential.OAuth.Scopes) > 0 {
+			labels["oauth_scopes"] = strings.Join(credential.OAuth.Scopes, " ")
+		}
+	}
+	return labels
 }
 
 func compileNetworkPolicies(doc AgenticFlow, metadata v1alpha1.Metadata) []NetworkPolicy {

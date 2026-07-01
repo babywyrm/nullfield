@@ -219,6 +219,81 @@ func TestCompileFlowEmitsOptInNetworkAndIstioPolicies(t *testing.T) {
 	}
 }
 
+func TestCompileFlowEnforcesDeclaredCredentialRefs(t *testing.T) {
+	artifacts, err := Compile(AgenticFlow{
+		APIVersion: "nullfield.io/v1alpha1",
+		Kind:       "AgenticFlow",
+		Metadata:   v1alpha1.Metadata{Name: "astra-jira"},
+		Spec: FlowSpec{
+			Credentials: []FlowCredential{
+				{
+					Name:      "jira-read",
+					From:      "vault",
+					SecretRef: "jira-read-token",
+					InjectAs:  "token",
+					OAuth: &OAuthSpec{
+						Audience: "https://api.atlassian.com",
+						Scopes:   []string{"read:jira-work"},
+					},
+					AuditLabels: map[string]string{"credential": "jira-read", "provider": "atlassian"},
+				},
+			},
+			Tools: []FlowTool{
+				{
+					Name:           "mcp-atlassian.search",
+					Action:         v1alpha1.ActionAllow,
+					CredentialRefs: []string{"jira-read"},
+					AuditLabels:    map[string]string{"system": "jira"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compile returned error: %v", err)
+	}
+
+	rule := artifacts.Policy.Spec.Rules[0]
+	if rule.Action != v1alpha1.ActionScope {
+		t.Fatalf("credentialed action = %q, want SCOPE", rule.Action)
+	}
+	if rule.Scope == nil || rule.Scope.Request == nil {
+		t.Fatal("expected compiled credential rule to have request scope")
+	}
+	gotCred := rule.Scope.Request.InjectCredentials[0]
+	if gotCred.SecretRef != "jira-read-token" || gotCred.From != "vault" || gotCred.InjectAs != "token" {
+		t.Fatalf("compiled credential = %+v", gotCred)
+	}
+	if rule.AuditLabels["credential"] != "jira-read" {
+		t.Fatalf("credential audit label = %q, want jira-read", rule.AuditLabels["credential"])
+	}
+	if rule.AuditLabels["oauth_audience"] != "https://api.atlassian.com" {
+		t.Fatalf("oauth audience label = %q", rule.AuditLabels["oauth_audience"])
+	}
+	if rule.AuditLabels["oauth_scopes"] != "read:jira-work" {
+		t.Fatalf("oauth scopes label = %q", rule.AuditLabels["oauth_scopes"])
+	}
+}
+
+func TestCompileFlowRejectsUndeclaredCredentialRefs(t *testing.T) {
+	_, err := Compile(AgenticFlow{
+		APIVersion: "nullfield.io/v1alpha1",
+		Kind:       "AgenticFlow",
+		Metadata:   v1alpha1.Metadata{Name: "astra-jira"},
+		Spec: FlowSpec{
+			Tools: []FlowTool{
+				{
+					Name:           "mcp-atlassian.search",
+					Action:         v1alpha1.ActionAllow,
+					CredentialRefs: []string{"missing"},
+				},
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected undeclared credential ref to fail compilation")
+	}
+}
+
 func TestCompileFlowRejectsBroadNetworkPolicyIntent(t *testing.T) {
 	cases := []struct {
 		name string
