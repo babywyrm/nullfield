@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -135,6 +136,77 @@ func TestSyncRegistries_CreateConfigMap(t *testing.T) {
 	}
 }
 
+func TestSyncAgenticFlows_CreateCompiledConfigMap(t *testing.T) {
+	var mu sync.Mutex
+	var created map[string]any
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/apis/nullfield.io/v1alpha1/namespaces/default/agenticflows" {
+			json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"apiVersion": "nullfield.io/v1alpha1",
+						"kind":       "AgenticFlow",
+						"metadata": map[string]any{
+							"name":      "astra-jira",
+							"namespace": "default",
+						},
+						"spec": map[string]any{
+							"tools": []map[string]any{
+								{"name": "mcp-atlassian.read_issue", "action": "ALLOW"},
+							},
+						},
+					},
+				},
+			})
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/namespaces/default/configmaps/nullfield-flow-astra-jira" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPost {
+			body, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			json.Unmarshal(body, &created)
+			mu.Unlock()
+			w.WriteHeader(http.StatusCreated)
+			w.Write(body)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+	})
+
+	watcher := testWatcher(handler)
+	watcher.syncAgenticFlows(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	if created == nil {
+		t.Fatal("expected ConfigMap to be created")
+	}
+	meta := created["metadata"].(map[string]any)
+	if meta["name"] != "nullfield-flow-astra-jira" {
+		t.Fatalf("expected CM name nullfield-flow-astra-jira, got %v", meta["name"])
+	}
+	labels := meta["labels"].(map[string]any)
+	if labels["nullfield.io/source-kind"] != "AgenticFlow" {
+		t.Fatalf("source-kind label = %v", labels["nullfield.io/source-kind"])
+	}
+	data := created["data"].(map[string]any)
+	for _, key := range []string{"compiled.yaml", "policy.yaml", "tools.yaml"} {
+		if _, ok := data[key]; !ok {
+			t.Fatalf("expected %q key in ConfigMap data", key)
+		}
+	}
+	if !strings.Contains(data["policy.yaml"].(string), "kind: NullfieldPolicy") {
+		t.Fatalf("policy.yaml did not contain compiled policy:\n%s", data["policy.yaml"])
+	}
+	if !strings.Contains(data["tools.yaml"].(string), "kind: ToolRegistry") {
+		t.Fatalf("tools.yaml did not contain compiled registry:\n%s", data["tools.yaml"])
+	}
+}
+
 func TestSyncPolicies_UpdateExistingConfigMap(t *testing.T) {
 	var mu sync.Mutex
 	var updated bool
@@ -199,7 +271,6 @@ func TestSyncPolicies_APIError(t *testing.T) {
 	watcher.syncPolicies(context.Background())
 	// Should log warning but not panic
 }
-
 
 // --- Sidecar bridge tests (2026-04-27) -------------------------------------
 //

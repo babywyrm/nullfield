@@ -81,6 +81,21 @@ The output is a multi-document YAML stream:
 
 Credential declarations are resolved by name. If a tool references an undeclared credential, compilation fails. OAuth metadata is preserved as audit context so operators can see which audience and scopes were intended for the credentialed path.
 
+## Kubernetes Reconciliation
+
+`AgenticFlow` is also available as a namespaced CRD. When the controller runs with `NULLFIELD_CRD_WATCH=true`, the CRD watcher lists `agenticflows.nullfield.io`, compiles each flow, and writes a managed ConfigMap named `nullfield-flow-<name>` containing:
+
+- `compiled.yaml` — all generated artifacts
+- `policy.yaml` — compiled `NullfieldPolicy`
+- `tools.yaml` — compiled `ToolRegistry`
+
+Apply the CRD and an example:
+
+```bash
+kubectl apply -f deploy/crds/agenticflow-crd.yaml
+kubectl apply -f examples/crd/agentic-flow-example.yaml
+```
+
 ## Control Split
 
 Use `AgenticFlow` for runtime MCP intent: which agent path may call which tool, under which identity, with which credential and audit labels.

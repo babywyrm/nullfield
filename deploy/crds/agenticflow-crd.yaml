@@ -1,0 +1,67 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: agenticflows.nullfield.io
+spec:
+  group: nullfield.io
+  names:
+    kind: AgenticFlow
+    listKind: AgenticFlowList
+    plural: agenticflows
+    singular: agenticflow
+    shortNames:
+      - nfaf
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+              properties:
+                selector:
+                  type: object
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                lane:
+                  type: string
+                transport:
+                  type: string
+                credentials:
+                  type: array
+                  items:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                network:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                mesh:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                tools:
+                  type: array
+                  items:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+              required:
+                - tools
+      additionalPrinterColumns:
+        - name: Lane
+          type: string
+          jsonPath: .spec.lane
+        - name: Transport
+          type: string
+          jsonPath: .spec.transport
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}

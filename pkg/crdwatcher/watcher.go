@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/babywyrm/nullfield/pkg/flow"
 	"gopkg.in/yaml.v3"
 )
 
@@ -133,6 +134,7 @@ func (w *Watcher) Run(ctx context.Context, interval time.Duration) {
 }
 
 func (w *Watcher) sync(ctx context.Context) {
+	w.syncAgenticFlows(ctx)
 	w.syncPolicies(ctx)
 	w.syncRegistries(ctx)
 	w.syncActivePolicy(ctx)
@@ -296,6 +298,90 @@ func (w *Watcher) syncPolicies(ctx context.Context) {
 			w.logger.Info("synced NullfieldPolicy to ConfigMap", "policy", name, "configmap", cmName, "namespace", ns)
 		}
 	}
+}
+
+func (w *Watcher) syncAgenticFlows(ctx context.Context) {
+	flows, err := w.listCRD(ctx, "agenticflows")
+	if err != nil {
+		w.logger.Warn("failed to list AgenticFlows", "error", err)
+		return
+	}
+
+	items, _ := flows["items"].([]any)
+	for _, item := range items {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		doc, name, ns, err := parseAgenticFlow(obj, w.namespace)
+		if err != nil {
+			w.logger.Warn("failed to parse AgenticFlow", "error", err)
+			continue
+		}
+
+		artifacts, err := flow.Compile(doc)
+		if err != nil {
+			w.logger.Warn("failed to compile AgenticFlow", "name", name, "error", err)
+			continue
+		}
+		compiledYAML, err := flow.MarshalArtifactsYAML(artifacts)
+		if err != nil {
+			w.logger.Warn("failed to marshal AgenticFlow artifacts", "name", name, "error", err)
+			continue
+		}
+		policyYAML, err := yaml.Marshal(artifacts.Policy)
+		if err != nil {
+			w.logger.Warn("failed to marshal AgenticFlow policy", "name", name, "error", err)
+			continue
+		}
+		registryYAML, err := yaml.Marshal(artifacts.Registry)
+		if err != nil {
+			w.logger.Warn("failed to marshal AgenticFlow registry", "name", name, "error", err)
+			continue
+		}
+
+		cmName := fmt.Sprintf("nullfield-flow-%s", name)
+		if err := w.upsertConfigMap(ctx, ns, cmName, map[string]string{
+			"compiled.yaml": string(compiledYAML),
+			"policy.yaml":   string(policyYAML),
+			"tools.yaml":    string(registryYAML),
+		}, map[string]string{
+			"nullfield.io/managed-by":  "crd-controller",
+			"nullfield.io/source-kind": "AgenticFlow",
+			"nullfield.io/source-name": name,
+		}); err != nil {
+			w.logger.Warn("failed to sync AgenticFlow ConfigMap", "name", cmName, "error", err)
+		} else {
+			w.logger.Info("synced AgenticFlow to ConfigMap", "flow", name, "configmap", cmName, "namespace", ns)
+		}
+	}
+}
+
+func parseAgenticFlow(obj map[string]any, fallbackNamespace string) (flow.AgenticFlow, string, string, error) {
+	data, err := yaml.Marshal(obj)
+	if err != nil {
+		return flow.AgenticFlow{}, "", "", err
+	}
+	doc, err := flow.LoadYAML(data)
+	if err != nil {
+		return flow.AgenticFlow{}, "", "", err
+	}
+	name := doc.Metadata.Name
+	if name == "" {
+		return flow.AgenticFlow{}, "", "", fmt.Errorf("metadata.name is required")
+	}
+	ns := doc.Metadata.Namespace
+	if ns == "" {
+		ns = fallbackNamespace
+		doc.Metadata.Namespace = ns
+	}
+	if doc.APIVersion == "" {
+		doc.APIVersion = "nullfield.io/v1alpha1"
+	}
+	if doc.Kind == "" {
+		doc.Kind = flow.KindAgenticFlow
+	}
+	return doc, name, ns, nil
 }
 
 func (w *Watcher) syncRegistries(ctx context.Context) {

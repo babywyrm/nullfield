@@ -1,0 +1,43 @@
+apiVersion: nullfield.io/v1alpha1
+kind: AgenticFlow
+metadata:
+  name: astra-jira
+  namespace: nullfield
+spec:
+  lane: delegated
+  transport: A
+  selector:
+    matchLabels:
+      app: astra
+  credentials:
+    - name: jira-read
+      from: vault
+      secretRef: jira-read-token
+      injectAs: token
+      oauth:
+        audience: https://api.atlassian.com
+        scopes: [read:jira-work]
+  tools:
+    - name: mcp-atlassian.read_issue
+      action: ALLOW
+      allowedScopes: [PRODENG, AIFE, EE]
+      auditLabels:
+        system: jira
+        resource: issue
+
+    - name: mcp-atlassian.search
+      action: ALLOW
+      credentialRefs: [jira-read]
+      auditLabels:
+        system: jira
+
+    - name: mcp-atlassian.add_comment
+      action: HOLD
+      reason: Jira comments require human approval
+      hold:
+        timeout: 5m
+        onTimeout: DENY
+
+    - name: mcp-atlassian.delete_page
+      action: DENY
+      reason: delete is outside the known acceptable path

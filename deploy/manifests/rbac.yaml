@@ -6,10 +6,13 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["configmaps"]
-    verbs: ["get", "watch", "list"]
+    verbs: ["get", "watch", "list", "create", "update"]
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get"]
+  - apiGroups: ["nullfield.io"]
+    resources: ["agenticflows", "nullfieldpolicies", "toolregistries"]
+    verbs: ["get", "watch", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
