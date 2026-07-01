@@ -16,14 +16,11 @@ spec:
         path: read
 
     - name: github_create_pr
-      action: HOLD
-      reason: writes require approval in this demo
-      hold:
-        timeout: 2m
-        onTimeout: DENY
+      action: DENY
+      reason: writes are outside this demo path
       auditLabels:
         system: github
-        path: approval
+        path: denied
 
     - name: dangerous_tool
       action: DENY

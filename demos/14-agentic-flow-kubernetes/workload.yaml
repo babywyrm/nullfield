@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentic-flow-runtime
+  labels:
+    app: echo-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: echo-agent
+  template:
+    metadata:
+      labels:
+        app: echo-agent
+    spec:
+      containers:
+        - name: echo-server
+          image: ghcr.io/babywyrm/nullfield-echo:latest
+          imagePullPolicy: Never
+          ports:
+            - name: app
+              containerPort: 8080
+          env:
+            - name: LISTEN_ADDR
+              value: ":8080"
+
+        - name: nullfield
+          image: ghcr.io/babywyrm/nullfield:latest
+          imagePullPolicy: Never
+          ports:
+            - name: proxy
+              containerPort: 9090
+            - name: admin
+              containerPort: 9091
+          env:
+            - name: NULLFIELD_LISTEN_ADDR
+              value: ":9090"
+            - name: NULLFIELD_UPSTREAM_ADDR
+              value: "localhost:8080"
+            - name: NULLFIELD_ADMIN_ADDR
+              value: ":9091"
+            - name: NULLFIELD_POLICY_PATH
+              value: "/etc/nullfield/policy.yaml"
+            - name: NULLFIELD_REGISTRY_PATH
+              value: "/etc/nullfield/tools.yaml"
+            - name: NULLFIELD_AUDIT_LOG_LEVEL
+              value: FULL
+          volumeMounts:
+            - name: flow-config
+              mountPath: /etc/nullfield
+              readOnly: true
+      volumes:
+        - name: flow-config
+          configMap:
+            name: nullfield-flow-echo-known-path
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentic-flow-runtime
+  labels:
+    app: echo-agent
+spec:
+  selector:
+    app: echo-agent
+  ports:
+    - name: proxy
+      port: 9090
+      targetPort: proxy
+    - name: admin
+      port: 9091
+      targetPort: admin
+  type: ClusterIP
