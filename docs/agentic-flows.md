@@ -1,8 +1,25 @@
 # Agentic Flows
 
-`AgenticFlow` is a concise YAML intent format for defining the known acceptable path for an agent. It compiles to the enforcement surfaces nullfield already uses: `NullfieldPolicy` and `ToolRegistry`.
+`AgenticFlow` is a concise YAML intent format for defining the known acceptable path for an agentic workload. It compiles declared intent into the enforcement surfaces nullfield already uses.
 
-The goal is not to replace policy YAML. It is to make common agentic flows easier to author, review, and compile into deterministic PDP/PEP controls.
+The goal is not to replace `NullfieldPolicy`. The goal is to give teams a higher-level contract for tools, credentials, workload identity, network reachability, mesh authorization, and audit context, then compile that contract into deterministic PDP/PEP controls.
+
+```mermaid
+flowchart LR
+  AgenticFlow["AgenticFlow YAML"] --> Compiler["nullfield compiler"]
+  Compiler --> RuntimePolicy["NullfieldPolicy"]
+  Compiler --> Registry["ToolRegistry"]
+  Compiler --> Credentials["Credential scoped SCOPE"]
+  Compiler --> Network["NetworkPolicy"]
+  Compiler --> Mesh["Mesh authz"]
+  Compiler --> Audit["Audit context"]
+  RuntimePolicy --> Sidecar["nullfield sidecar"]
+  Registry --> Sidecar
+  Credentials --> Sidecar
+  Sidecar --> MCPServer["MCP server"]
+```
+
+The practical effect: model behavior can remain non-deterministic, but executable authority is constrained to declared paths.
 
 ## Current Status
 
@@ -22,6 +39,22 @@ Next build targets:
 - Status conditions on `AgenticFlow` for compile failures and generated artifact hashes
 - Richer credential demos using Vault/K8s Secret/OAuth-style flows
 - More lane-specific examples for human, delegated, machine, chain, and anonymous traffic
+
+## Why This Exists
+
+Provider scopes define what a token could do. `AgenticFlow` defines what this workload is allowed to do.
+
+```mermaid
+flowchart TB
+  Token["Provider token scope"] --> MaxAuthority["Maximum possible authority"]
+  Flow["AgenticFlow contract"] --> PermittedUse["Permitted use for this workload"]
+  MaxAuthority --> Nullfield["nullfield arbitration"]
+  PermittedUse --> Nullfield
+  Nullfield --> Execute["Execute allowed path"]
+  Nullfield --> Block["Block hold or scope everything else"]
+```
+
+This distinction matters because prompt injection, tool output, tickets, documents, and agent-to-agent delegation can all influence which valid tool call an agent tries to make. The MCP server and upstream token may behave correctly while the larger workflow still makes the wrong call.
 
 ## Example
 
@@ -100,6 +133,21 @@ The output is a multi-document YAML stream:
 
 Credential declarations are resolved by name. If a tool references an undeclared credential, compilation fails. OAuth metadata is preserved as audit context so operators can see which audience and scopes were intended for the credentialed path.
 
+## Generated Controls
+
+Each generated artifact answers a different question:
+
+| Artifact | Question |
+|---|---|
+| `ToolRegistry` | Is this tool part of the declared workload? |
+| `NullfieldPolicy` | Is this exact tool action allowed, denied, held, scoped, or budgeted? |
+| Credential-scoped `SCOPE` | May this credential attach to this exact tool action? |
+| `NetworkPolicy` | Can this workload reach that destination at all? |
+| Mesh authorization | Which workload identity can call this service or port? |
+| Audit context | Which declared flow and rule caused this decision? |
+
+These controls are layered because they narrow different dimensions of authority. None of them replaces the others.
+
 ## Kubernetes Reconciliation
 
 `AgenticFlow` is also available as a namespaced CRD. When the controller runs with `NULLFIELD_CRD_WATCH=true`, the CRD watcher lists `agenticflows.nullfield.io`, compiles each flow, and writes a managed ConfigMap named `nullfield-flow-<name>` containing:
@@ -114,6 +162,23 @@ Apply the CRD and an example:
 kubectl apply -f deploy/crds/agenticflow-crd.yaml
 kubectl apply -f examples/crd/agentic-flow-example.yaml
 ```
+
+```mermaid
+flowchart LR
+  Apply["kubectl apply AgenticFlow"] --> API["Kubernetes API"]
+  API --> Watcher["nullfield controller watcher"]
+  Watcher --> Compile["Compile flow"]
+  Compile --> ConfigMap["ConfigMap nullfield-flow-name"]
+  ConfigMap --> Mount["sidecar mounts policy and tools"]
+  Mount --> Enforce["runtime MCP enforcement"]
+```
+
+## Portable Demos
+
+Two demos are kept intentionally generic:
+
+- [Demo 13](../demos/13-agentic-flow-local/) compiles a local flow and checks generated ALLOW, SCOPE, HOLD, DENY, and default-deny rules.
+- [Demo 14](../demos/14-agentic-flow-kubernetes/) applies an `AgenticFlow` CRD, waits for controller reconciliation, deploys an echo MCP server with a nullfield sidecar, and proves real MCP ALLOW, policy DENY, and registry DENY behavior.
 
 ## Control Split
 
