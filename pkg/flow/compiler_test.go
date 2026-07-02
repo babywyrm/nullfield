@@ -494,3 +494,46 @@ func TestCompileFlowRejectsBroadCiliumAndLinkerdIntent(t *testing.T) {
 		})
 	}
 }
+
+func TestCompileFlowRejectsInvalidGeneratedControlApplyIntent(t *testing.T) {
+	cases := []struct {
+		name              string
+		generatedControls *GeneratedControlsSpec
+	}{
+		{
+			name:              "apply without kind allowlist",
+			generatedControls: &GeneratedControlsSpec{Mode: "apply"},
+		},
+		{
+			name:              "unknown generated kind",
+			generatedControls: &GeneratedControlsSpec{Mode: "apply", Apply: []string{"ClusterRole"}},
+		},
+		{
+			name:              "unknown mode",
+			generatedControls: &GeneratedControlsSpec{Mode: "auto", Apply: []string{"NetworkPolicy"}},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := Compile(AgenticFlow{
+				APIVersion: "nullfield.io/v1alpha1",
+				Kind:       "AgenticFlow",
+				Metadata:   v1alpha1.Metadata{Name: "demo-apply"},
+				Spec: FlowSpec{
+					Selector:          v1alpha1.Selector{MatchLabels: map[string]string{"app": "demo-agent"}},
+					GeneratedControls: c.generatedControls,
+					Network: &NetworkSpec{Egress: []EgressDestination{{
+						Name:  "example",
+						CIDR:  "203.0.113.0/24",
+						Ports: []int{443},
+					}}},
+					Tools: []FlowTool{{Name: "echo", Action: v1alpha1.ActionAllow}},
+				},
+			})
+			if err == nil {
+				t.Fatal("expected invalid generatedControls apply intent to fail")
+			}
+		})
+	}
+}

@@ -467,12 +467,12 @@ nullfield/
 - [x] **v0.10** — AgenticFlow CRD reconciliation: controller watches `agenticflows.nullfield.io` and writes `nullfield-flow-<name>` ConfigMaps with `compiled.yaml`, `policy.yaml`, and `tools.yaml`
 - [x] **v0.10** — Decision context: audit logs, controller events, OTLP spans, and metrics carry structured gate/reason/rule context for tracing runtime PDP/PEP decisions back to declared intent
 - [x] **v0.10** — Portable AgenticFlow demos: local compile demo plus Kubernetes runtime demo verified on k3s
+- [x] **v0.10** — AgenticFlow status conditions: compilation success/failure, generated artifact hash, ConfigMap name, observed generation, and last reconcile time
 
 ### Next
 
 - [ ] **v0.11** — Apply generated network/mesh artifacts from AgenticFlow through an explicit, previewable reconciler mode
 - [ ] **v0.11** — Full credential runtime demos: Vault/K8s Secret/OAuth-style credential paths with proof that credentials attach only to declared tool actions
-- [ ] **v0.11** — AgenticFlow status conditions: compilation success/failure, generated artifact hashes, last reconcile time
 - [ ] **v1.0** — Transparent iptables-based proxy (Istio-style), production hardening, ext_authz gRPC mode
 
 ### Future

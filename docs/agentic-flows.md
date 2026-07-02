@@ -35,7 +35,6 @@ Implemented today:
 
 Next build targets:
 
-- Reconciler apply mode for generated network/mesh artifacts
 - Richer credential demos using Vault/K8s Secret/OAuth-style flows
 - More lane-specific examples for human, delegated, machine, chain, and anonymous traffic
 
@@ -73,6 +72,8 @@ spec:
       - name: atlassian
         cidr: 104.192.136.0/21
         ports: [443]
+  generatedControls:
+    mode: preview
   mesh:
     istio:
       principals:
@@ -147,6 +148,32 @@ Each generated artifact answers a different question:
 
 These controls are layered because they narrow different dimensions of authority. None of them replaces the others.
 
+Generated network and mesh artifacts default to `preview` mode. In preview mode they appear in `compiled.yaml` and in `AgenticFlow.status.generatedArtifacts`, but the controller does not apply them.
+
+To apply selected generated controls, opt in explicitly:
+
+```yaml
+spec:
+  generatedControls:
+    mode: apply
+    apply: [NetworkPolicy]
+```
+
+Apply mode is intentionally narrow:
+
+- `mode` must be `preview` or `apply`
+- `apply` is required when `mode: apply`
+- only known generated kinds are accepted
+- broad selectors, missing ports, missing principals, and missing identities fail compilation
+
+Supported apply kinds today:
+
+- `NetworkPolicy`
+- `AuthorizationPolicy`
+- `CiliumNetworkPolicy`
+- `Server`
+- `ServerAuthorization`
+
 ## Kubernetes Reconciliation
 
 `AgenticFlow` is also available as a namespaced CRD. When the controller runs with `NULLFIELD_CRD_WATCH=true`, the CRD watcher lists `agenticflows.nullfield.io`, compiles each flow, and writes a managed ConfigMap named `nullfield-flow-<name>` containing:
@@ -158,8 +185,10 @@ These controls are layered because they narrow different dimensions of authority
 The watcher also patches `status` with:
 
 - `conditions[type=Compiled]` — `True` or `False`
+- `conditions[type=GeneratedControlsPreviewed]` or `conditions[type=GeneratedControlsApplied]`
 - `observedGeneration`
 - `artifactHash`
+- `generatedArtifacts`
 - `configMapName`
 - `lastReconciledAt`
 

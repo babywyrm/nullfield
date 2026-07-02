@@ -300,6 +300,163 @@ func TestSyncAgenticFlows_PatchesCompileFailureStatus(t *testing.T) {
 	}
 }
 
+func TestSyncAgenticFlows_PreviewsGeneratedControlsByDefault(t *testing.T) {
+	var mu sync.Mutex
+	var statusPatch map[string]any
+	var appliedNetworkPolicy bool
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/apis/nullfield.io/v1alpha1/namespaces/default/agenticflows" {
+			json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{{
+					"apiVersion": "nullfield.io/v1alpha1",
+					"kind":       "AgenticFlow",
+					"metadata": map[string]any{
+						"name":       "network-preview",
+						"namespace":  "default",
+						"generation": 2,
+					},
+					"spec": map[string]any{
+						"selector": map[string]any{"matchLabels": map[string]any{"app": "demo-agent"}},
+						"network": map[string]any{"egress": []map[string]any{{
+							"name":  "example",
+							"cidr":  "203.0.113.0/24",
+							"ports": []int{443},
+						}}},
+						"tools": []map[string]any{{"name": "echo", "action": "ALLOW"}},
+					},
+				}},
+			})
+			return
+		}
+		if r.Method == http.MethodPatch && r.URL.Path == "/apis/nullfield.io/v1alpha1/namespaces/default/agenticflows/network-preview/status" {
+			body, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			json.Unmarshal(body, &statusPatch)
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+			w.Write(body)
+			return
+		}
+		if strings.Contains(r.URL.Path, "/networkpolicies/") || (r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/networkpolicies")) {
+			mu.Lock()
+			appliedNetworkPolicy = true
+			mu.Unlock()
+		}
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/configmaps/nullfield-flow-network-preview") {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/configmaps") {
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+	})
+
+	watcher := testWatcher(handler)
+	watcher.syncAgenticFlows(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	if appliedNetworkPolicy {
+		t.Fatal("expected preview mode not to apply NetworkPolicy")
+	}
+	if statusPatch == nil {
+		t.Fatal("expected status patch")
+	}
+	status := statusPatch["status"].(map[string]any)
+	generated := status["generatedArtifacts"].([]any)
+	artifact := generated[0].(map[string]any)
+	if artifact["kind"] != "NetworkPolicy" || artifact["mode"] != "preview" || artifact["applied"] != false {
+		t.Fatalf("generated artifact = %+v", artifact)
+	}
+}
+
+func TestSyncAgenticFlows_AppliesExplicitGeneratedNetworkPolicy(t *testing.T) {
+	var mu sync.Mutex
+	var statusPatch map[string]any
+	var applied map[string]any
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/apis/nullfield.io/v1alpha1/namespaces/default/agenticflows" {
+			json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{{
+					"apiVersion": "nullfield.io/v1alpha1",
+					"kind":       "AgenticFlow",
+					"metadata": map[string]any{
+						"name":       "network-apply",
+						"namespace":  "default",
+						"generation": 4,
+					},
+					"spec": map[string]any{
+						"selector": map[string]any{"matchLabels": map[string]any{"app": "demo-agent"}},
+						"generatedControls": map[string]any{
+							"mode":  "apply",
+							"apply": []string{"NetworkPolicy"},
+						},
+						"network": map[string]any{"egress": []map[string]any{{
+							"name":  "example",
+							"cidr":  "203.0.113.0/24",
+							"ports": []int{443},
+						}}},
+						"tools": []map[string]any{{"name": "echo", "action": "ALLOW"}},
+					},
+				}},
+			})
+			return
+		}
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/networkpolicies/network-apply-egress") {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/networkpolicies") {
+			body, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			json.Unmarshal(body, &applied)
+			mu.Unlock()
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		if r.Method == http.MethodPatch && r.URL.Path == "/apis/nullfield.io/v1alpha1/namespaces/default/agenticflows/network-apply/status" {
+			body, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			json.Unmarshal(body, &statusPatch)
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+			w.Write(body)
+			return
+		}
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/configmaps/nullfield-flow-network-apply") {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/configmaps") {
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+	})
+
+	watcher := testWatcher(handler)
+	watcher.syncAgenticFlows(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	if applied == nil {
+		t.Fatal("expected generated NetworkPolicy to be applied")
+	}
+	if applied["kind"] != "NetworkPolicy" {
+		t.Fatalf("applied kind = %v", applied["kind"])
+	}
+	status := statusPatch["status"].(map[string]any)
+	generated := status["generatedArtifacts"].([]any)
+	artifact := generated[0].(map[string]any)
+	if artifact["kind"] != "NetworkPolicy" || artifact["mode"] != "apply" || artifact["applied"] != true {
+		t.Fatalf("generated artifact = %+v", artifact)
+	}
+}
+
 func TestSyncPolicies_UpdateExistingConfigMap(t *testing.T) {
 	var mu sync.Mutex
 	var updated bool

@@ -28,6 +28,18 @@ rules:
   - apiGroups: ["nullfield.io"]
     resources: ["agenticflows/status"]
     verbs: ["patch", "update"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "create", "update"]
+  - apiGroups: ["security.istio.io"]
+    resources: ["authorizationpolicies"]
+    verbs: ["get", "create", "update"]
+  - apiGroups: ["cilium.io"]
+    resources: ["ciliumnetworkpolicies"]
+    verbs: ["get", "create", "update"]
+  - apiGroups: ["policy.linkerd.io"]
+    resources: ["servers", "serverauthorizations"]
+    verbs: ["get", "create", "update"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

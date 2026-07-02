@@ -26,18 +26,24 @@ type AgenticFlow struct {
 }
 
 type FlowSpec struct {
-	Selector        v1alpha1.Selector         `json:"selector" yaml:"selector"`
-	Lane            string                    `json:"lane,omitempty" yaml:"lane,omitempty"`
-	Transport       string                    `json:"transport,omitempty" yaml:"transport,omitempty"`
-	RequireIdentity *bool                     `json:"requireIdentity,omitempty" yaml:"requireIdentity,omitempty"`
-	Network         *NetworkSpec              `json:"network,omitempty" yaml:"network,omitempty"`
-	Mesh            *MeshSpec                 `json:"mesh,omitempty" yaml:"mesh,omitempty"`
-	Credentials     []FlowCredential          `json:"credentials,omitempty" yaml:"credentials,omitempty"`
-	Identity        *v1alpha1.IdentityConfig  `json:"identity,omitempty" yaml:"identity,omitempty"`
-	Integrity       *v1alpha1.IntegrityConfig `json:"integrity,omitempty" yaml:"integrity,omitempty"`
-	Anomaly         *v1alpha1.AnomalyConfig   `json:"anomaly,omitempty" yaml:"anomaly,omitempty"`
-	Audit           v1alpha1.AuditConfig      `json:"audit,omitempty" yaml:"audit,omitempty"`
-	Tools           []FlowTool                `json:"tools" yaml:"tools"`
+	Selector          v1alpha1.Selector         `json:"selector" yaml:"selector"`
+	Lane              string                    `json:"lane,omitempty" yaml:"lane,omitempty"`
+	Transport         string                    `json:"transport,omitempty" yaml:"transport,omitempty"`
+	RequireIdentity   *bool                     `json:"requireIdentity,omitempty" yaml:"requireIdentity,omitempty"`
+	Network           *NetworkSpec              `json:"network,omitempty" yaml:"network,omitempty"`
+	Mesh              *MeshSpec                 `json:"mesh,omitempty" yaml:"mesh,omitempty"`
+	GeneratedControls *GeneratedControlsSpec    `json:"generatedControls,omitempty" yaml:"generatedControls,omitempty"`
+	Credentials       []FlowCredential          `json:"credentials,omitempty" yaml:"credentials,omitempty"`
+	Identity          *v1alpha1.IdentityConfig  `json:"identity,omitempty" yaml:"identity,omitempty"`
+	Integrity         *v1alpha1.IntegrityConfig `json:"integrity,omitempty" yaml:"integrity,omitempty"`
+	Anomaly           *v1alpha1.AnomalyConfig   `json:"anomaly,omitempty" yaml:"anomaly,omitempty"`
+	Audit             v1alpha1.AuditConfig      `json:"audit,omitempty" yaml:"audit,omitempty"`
+	Tools             []FlowTool                `json:"tools" yaml:"tools"`
+}
+
+type GeneratedControlsSpec struct {
+	Mode  string   `json:"mode,omitempty" yaml:"mode,omitempty"`
+	Apply []string `json:"apply,omitempty" yaml:"apply,omitempty"`
 }
 
 type NetworkSpec struct {
@@ -431,6 +437,9 @@ func Compile(doc AgenticFlow) (Artifacts, error) {
 }
 
 func validateExplicitControlIntent(spec FlowSpec) error {
+	if err := validateGeneratedControls(spec.GeneratedControls); err != nil {
+		return err
+	}
 	if spec.Network != nil && len(spec.Network.Egress) > 0 {
 		if len(spec.Selector.MatchLabels) == 0 {
 			return fmt.Errorf("spec.selector.matchLabels is required when spec.network.egress is declared")
@@ -498,6 +507,41 @@ func validateExplicitControlIntent(spec FlowSpec) error {
 	}
 
 	return nil
+}
+
+func validateGeneratedControls(spec *GeneratedControlsSpec) error {
+	if spec == nil {
+		return nil
+	}
+	mode := spec.Mode
+	if mode == "" {
+		mode = "preview"
+	}
+	switch mode {
+	case "preview":
+		return nil
+	case "apply":
+		if len(spec.Apply) == 0 {
+			return fmt.Errorf("spec.generatedControls.apply is required when mode is apply")
+		}
+		for _, kind := range spec.Apply {
+			if !allowedGeneratedControlKind(kind) {
+				return fmt.Errorf("unsupported generated control kind %q", kind)
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("spec.generatedControls.mode must be preview or apply")
+	}
+}
+
+func allowedGeneratedControlKind(kind string) bool {
+	switch kind {
+	case "NetworkPolicy", "AuthorizationPolicy", "CiliumNetworkPolicy", "Server", "ServerAuthorization":
+		return true
+	default:
+		return false
+	}
 }
 
 func credentialMap(credentials []FlowCredential) (map[string]FlowCredential, error) {

@@ -360,6 +360,8 @@ func (w *Watcher) syncAgenticFlows(ctx context.Context) {
 			continue
 		}
 
+		generatedArtifacts, generatedCondition := w.reconcileGeneratedControls(ctx, ns, doc.Spec.GeneratedControls, artifacts)
+
 		cmName := fmt.Sprintf("nullfield-flow-%s", name)
 		if err := w.upsertConfigMap(ctx, ns, cmName, map[string]string{
 			"compiled.yaml": string(compiledYAML),
@@ -375,24 +377,26 @@ func (w *Watcher) syncAgenticFlows(ctx context.Context) {
 				ObservedGeneration: resourceGeneration(obj),
 				ArtifactHash:       artifactHash(compiledYAML),
 				ConfigMapName:      cmName,
-				Conditions: []agenticFlowCondition{newAgenticFlowCondition(
+				GeneratedArtifacts: generatedArtifacts,
+				Conditions: append([]agenticFlowCondition{newAgenticFlowCondition(
 					"Compiled",
 					"False",
 					"ConfigMapSyncFailed",
 					err.Error(),
-				)},
+				)}, generatedCondition...),
 			})
 		} else {
 			w.patchAgenticFlowStatus(ctx, ns, name, agenticFlowStatus{
 				ObservedGeneration: resourceGeneration(obj),
 				ArtifactHash:       artifactHash(compiledYAML),
 				ConfigMapName:      cmName,
-				Conditions: []agenticFlowCondition{newAgenticFlowCondition(
+				GeneratedArtifacts: generatedArtifacts,
+				Conditions: append([]agenticFlowCondition{newAgenticFlowCondition(
 					"Compiled",
 					"True",
 					"CompileSucceeded",
 					"AgenticFlow compiled and synced to ConfigMap",
-				)},
+				)}, generatedCondition...),
 			})
 			w.logger.Info("synced AgenticFlow to ConfigMap", "flow", name, "configmap", cmName, "namespace", ns)
 		}
@@ -400,11 +404,21 @@ func (w *Watcher) syncAgenticFlows(ctx context.Context) {
 }
 
 type agenticFlowStatus struct {
-	ObservedGeneration int64                  `json:"observedGeneration,omitempty"`
-	ArtifactHash       string                 `json:"artifactHash,omitempty"`
-	ConfigMapName      string                 `json:"configMapName,omitempty"`
-	Conditions         []agenticFlowCondition `json:"conditions,omitempty"`
-	LastReconciledAt   string                 `json:"lastReconciledAt,omitempty"`
+	ObservedGeneration int64                     `json:"observedGeneration,omitempty"`
+	ArtifactHash       string                    `json:"artifactHash,omitempty"`
+	ConfigMapName      string                    `json:"configMapName,omitempty"`
+	GeneratedArtifacts []generatedArtifactStatus `json:"generatedArtifacts,omitempty"`
+	Conditions         []agenticFlowCondition    `json:"conditions,omitempty"`
+	LastReconciledAt   string                    `json:"lastReconciledAt,omitempty"`
+}
+
+type generatedArtifactStatus struct {
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+	Hash      string `json:"hash"`
+	Mode      string `json:"mode"`
+	Applied   bool   `json:"applied"`
 }
 
 type agenticFlowCondition struct {
@@ -452,6 +466,145 @@ func (w *Watcher) patchAgenticFlowStatus(ctx context.Context, ns, name string, s
 	url := fmt.Sprintf("%s/apis/nullfield.io/v1alpha1/namespaces/%s/agenticflows/%s/status", w.apiBase, ns, name)
 	if err := w.k8sMergePatch(ctx, url, map[string]any{"status": status}); err != nil {
 		w.logger.Warn("failed to patch AgenticFlow status", "name", name, "error", err)
+	}
+}
+
+type generatedControlObject struct {
+	Kind      string
+	Name      string
+	Namespace string
+	Object    any
+}
+
+func (w *Watcher) reconcileGeneratedControls(ctx context.Context, namespace string, spec *flow.GeneratedControlsSpec, artifacts flow.Artifacts) ([]generatedArtifactStatus, []agenticFlowCondition) {
+	mode := "preview"
+	if spec != nil && spec.Mode != "" {
+		mode = spec.Mode
+	}
+	applySet := map[string]struct{}{}
+	if spec != nil {
+		for _, kind := range spec.Apply {
+			applySet[kind] = struct{}{}
+		}
+	}
+
+	var statuses []generatedArtifactStatus
+	var applyErrors []string
+	for _, obj := range generatedControlObjects(namespace, artifacts) {
+		data, err := yaml.Marshal(obj.Object)
+		hash := ""
+		if err == nil {
+			hash = artifactHash(data)
+		}
+		applied := false
+		if mode == "apply" {
+			if _, ok := applySet[obj.Kind]; ok {
+				if err := w.upsertGeneratedControl(ctx, obj); err != nil {
+					applyErrors = append(applyErrors, fmt.Sprintf("%s/%s: %v", obj.Kind, obj.Name, err))
+				} else {
+					applied = true
+				}
+			}
+		}
+		statuses = append(statuses, generatedArtifactStatus{
+			Kind:      obj.Kind,
+			Name:      obj.Name,
+			Namespace: obj.Namespace,
+			Hash:      hash,
+			Mode:      mode,
+			Applied:   applied,
+		})
+	}
+
+	if len(statuses) == 0 {
+		return nil, nil
+	}
+	if mode != "apply" {
+		return statuses, []agenticFlowCondition{newAgenticFlowCondition(
+			"GeneratedControlsPreviewed",
+			"True",
+			"PreviewReady",
+			"Generated controls are available in compiled.yaml",
+		)}
+	}
+	if len(applyErrors) > 0 {
+		return statuses, []agenticFlowCondition{newAgenticFlowCondition(
+			"GeneratedControlsApplied",
+			"False",
+			"ApplyFailed",
+			strings.Join(applyErrors, "; "),
+		)}
+	}
+	return statuses, []agenticFlowCondition{newAgenticFlowCondition(
+		"GeneratedControlsApplied",
+		"True",
+		"ApplySucceeded",
+		"Requested generated controls were applied",
+	)}
+}
+
+func generatedControlObjects(namespace string, artifacts flow.Artifacts) []generatedControlObject {
+	var out []generatedControlObject
+	for _, obj := range artifacts.NetworkPolicies {
+		out = append(out, generatedControlObject{Kind: obj.Kind, Name: obj.Metadata.Name, Namespace: namespaceOr(obj.Metadata.Namespace, namespace), Object: obj})
+	}
+	for _, obj := range artifacts.IstioAuthorizationPolicies {
+		out = append(out, generatedControlObject{Kind: obj.Kind, Name: obj.Metadata.Name, Namespace: namespaceOr(obj.Metadata.Namespace, namespace), Object: obj})
+	}
+	for _, obj := range artifacts.CiliumNetworkPolicies {
+		out = append(out, generatedControlObject{Kind: obj.Kind, Name: obj.Metadata.Name, Namespace: namespaceOr(obj.Metadata.Namespace, namespace), Object: obj})
+	}
+	for _, obj := range artifacts.LinkerdServers {
+		out = append(out, generatedControlObject{Kind: obj.Kind, Name: obj.Metadata.Name, Namespace: namespaceOr(obj.Metadata.Namespace, namespace), Object: obj})
+	}
+	for _, obj := range artifacts.LinkerdServerAuthorizations {
+		out = append(out, generatedControlObject{Kind: obj.Kind, Name: obj.Metadata.Name, Namespace: namespaceOr(obj.Metadata.Namespace, namespace), Object: obj})
+	}
+	return out
+}
+
+func namespaceOr(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func (w *Watcher) upsertGeneratedControl(ctx context.Context, obj generatedControlObject) error {
+	resource, ok := generatedControlResource(obj.Kind)
+	if !ok {
+		return fmt.Errorf("unsupported generated control kind %q", obj.Kind)
+	}
+	if obj.Namespace == "" {
+		obj.Namespace = w.namespace
+	}
+	url := fmt.Sprintf("%s/apis/%s/namespaces/%s/%s/%s", w.apiBase, resource.apiVersion, obj.Namespace, resource.plural, obj.Name)
+	if existing, err := w.k8sGet(ctx, url); err == nil && existing != nil {
+		return w.k8sPut(ctx, url, obj.Object)
+	}
+	createURL := fmt.Sprintf("%s/apis/%s/namespaces/%s/%s", w.apiBase, resource.apiVersion, obj.Namespace, resource.plural)
+	return w.k8sPost(ctx, createURL, obj.Object)
+}
+
+type generatedControlResourceRef struct {
+	apiVersion string
+	plural     string
+}
+
+func generatedControlResource(kind string) (generatedControlResourceRef, bool) {
+	switch kind {
+	case "NetworkPolicy":
+		return generatedControlResourceRef{apiVersion: "networking.k8s.io/v1", plural: "networkpolicies"}, true
+	case "AuthorizationPolicy":
+		return generatedControlResourceRef{apiVersion: "security.istio.io/v1beta1", plural: "authorizationpolicies"}, true
+	case "CiliumNetworkPolicy":
+		return generatedControlResourceRef{apiVersion: "cilium.io/v2", plural: "ciliumnetworkpolicies"}, true
+	case "Server":
+		return generatedControlResourceRef{apiVersion: "policy.linkerd.io/v1beta3", plural: "servers"}, true
+	case "ServerAuthorization":
+		return generatedControlResourceRef{apiVersion: "policy.linkerd.io/v1beta1", plural: "serverauthorizations"}, true
+	default:
+		return generatedControlResourceRef{}, false
 	}
 }
 

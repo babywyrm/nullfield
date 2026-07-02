@@ -1,6 +1,6 @@
-# Demo 14 — AgenticFlow Kubernetes Reconciliation
+# Demo 14 — AgenticFlow Kubernetes Runtime
 
-This demo shows `AgenticFlow` as a Kubernetes CRD. The nullfield controller watches the CRD, compiles the flow, and writes a managed ConfigMap.
+This demo shows `AgenticFlow` as a Kubernetes CRD, then proves the generated policy is enforced by a live nullfield sidecar. The controller watches the CRD, compiles the flow, writes a managed ConfigMap, and the workload mounts that ConfigMap for runtime MCP enforcement.
 
 It also deploys a tiny echo MCP server with a nullfield sidecar that mounts the generated ConfigMap, then sends real MCP calls through the sidecar.
 
