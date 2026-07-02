@@ -53,6 +53,12 @@ echo "ok: policy.yaml and tools.yaml generated"
 echo
 kubectl -n "$ns" get agenticflow echo-known-path
 kubectl -n "$ns" get configmap nullfield-flow-echo-known-path
+compiled_status="$(kubectl -n "$ns" get agenticflow echo-known-path -o jsonpath='{.status.conditions[?(@.type=="Compiled")].status}')"
+if [[ "$compiled_status" != "True" ]]; then
+  echo "FAIL: expected AgenticFlow Compiled=True, got ${compiled_status:-<empty>}" >&2
+  exit 1
+fi
+echo "ok: AgenticFlow status reports Compiled=True"
 
 echo
 echo "Deploying runtime workload..."
