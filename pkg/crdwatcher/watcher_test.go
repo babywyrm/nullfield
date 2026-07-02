@@ -139,6 +139,7 @@ func TestSyncRegistries_CreateConfigMap(t *testing.T) {
 func TestSyncAgenticFlows_CreateCompiledConfigMap(t *testing.T) {
 	var mu sync.Mutex
 	var created map[string]any
+	var statusPatch map[string]any
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/apis/nullfield.io/v1alpha1/namespaces/default/agenticflows" {
@@ -148,8 +149,9 @@ func TestSyncAgenticFlows_CreateCompiledConfigMap(t *testing.T) {
 						"apiVersion": "nullfield.io/v1alpha1",
 						"kind":       "AgenticFlow",
 						"metadata": map[string]any{
-							"name":      "demo-jira",
-							"namespace": "default",
+							"name":       "demo-jira",
+							"namespace":  "default",
+							"generation": 3,
 						},
 						"spec": map[string]any{
 							"tools": []map[string]any{
@@ -171,6 +173,15 @@ func TestSyncAgenticFlows_CreateCompiledConfigMap(t *testing.T) {
 			json.Unmarshal(body, &created)
 			mu.Unlock()
 			w.WriteHeader(http.StatusCreated)
+			w.Write(body)
+			return
+		}
+		if r.Method == http.MethodPatch && r.URL.Path == "/apis/nullfield.io/v1alpha1/namespaces/default/agenticflows/demo-jira/status" {
+			body, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			json.Unmarshal(body, &statusPatch)
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
 			w.Write(body)
 			return
 		}
@@ -204,6 +215,88 @@ func TestSyncAgenticFlows_CreateCompiledConfigMap(t *testing.T) {
 	}
 	if !strings.Contains(data["tools.yaml"].(string), "kind: ToolRegistry") {
 		t.Fatalf("tools.yaml did not contain compiled registry:\n%s", data["tools.yaml"])
+	}
+	if statusPatch == nil {
+		t.Fatal("expected AgenticFlow status patch")
+	}
+	status := statusPatch["status"].(map[string]any)
+	if status["configMapName"] != "nullfield-flow-demo-jira" {
+		t.Fatalf("configMapName = %v", status["configMapName"])
+	}
+	if status["observedGeneration"] != float64(3) {
+		t.Fatalf("observedGeneration = %v", status["observedGeneration"])
+	}
+	if status["artifactHash"] == "" {
+		t.Fatal("expected artifactHash")
+	}
+	conditions := status["conditions"].([]any)
+	condition := conditions[0].(map[string]any)
+	if condition["type"] != "Compiled" || condition["status"] != "True" {
+		t.Fatalf("condition = %+v", condition)
+	}
+}
+
+func TestSyncAgenticFlows_PatchesCompileFailureStatus(t *testing.T) {
+	var mu sync.Mutex
+	var statusPatch map[string]any
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/apis/nullfield.io/v1alpha1/namespaces/default/agenticflows" {
+			json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"apiVersion": "nullfield.io/v1alpha1",
+						"kind":       "AgenticFlow",
+						"metadata": map[string]any{
+							"name":       "broken-flow",
+							"namespace":  "default",
+							"generation": 7,
+						},
+						"spec": map[string]any{
+							"tools": []map[string]any{
+								{
+									"name":           "mcp-atlassian.search",
+									"action":         "ALLOW",
+									"credentialRefs": []string{"missing"},
+								},
+							},
+						},
+					},
+				},
+			})
+			return
+		}
+		if r.Method == http.MethodPatch && r.URL.Path == "/apis/nullfield.io/v1alpha1/namespaces/default/agenticflows/broken-flow/status" {
+			body, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			json.Unmarshal(body, &statusPatch)
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+			w.Write(body)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+	})
+
+	watcher := testWatcher(handler)
+	watcher.syncAgenticFlows(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	if statusPatch == nil {
+		t.Fatal("expected AgenticFlow failure status patch")
+	}
+	status := statusPatch["status"].(map[string]any)
+	if status["observedGeneration"] != float64(7) {
+		t.Fatalf("observedGeneration = %v", status["observedGeneration"])
+	}
+	conditions := status["conditions"].([]any)
+	condition := conditions[0].(map[string]any)
+	if condition["type"] != "Compiled" || condition["status"] != "False" {
+		t.Fatalf("condition = %+v", condition)
+	}
+	if condition["reason"] != "CompileFailed" {
+		t.Fatalf("reason = %v", condition["reason"])
 	}
 }
 

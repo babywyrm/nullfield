@@ -7,7 +7,9 @@ package crdwatcher
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -322,11 +324,29 @@ func (w *Watcher) syncAgenticFlows(ctx context.Context) {
 		artifacts, err := flow.Compile(doc)
 		if err != nil {
 			w.logger.Warn("failed to compile AgenticFlow", "name", name, "error", err)
+			w.patchAgenticFlowStatus(ctx, ns, name, agenticFlowStatus{
+				ObservedGeneration: resourceGeneration(obj),
+				Conditions: []agenticFlowCondition{newAgenticFlowCondition(
+					"Compiled",
+					"False",
+					"CompileFailed",
+					err.Error(),
+				)},
+			})
 			continue
 		}
 		compiledYAML, err := flow.MarshalArtifactsYAML(artifacts)
 		if err != nil {
 			w.logger.Warn("failed to marshal AgenticFlow artifacts", "name", name, "error", err)
+			w.patchAgenticFlowStatus(ctx, ns, name, agenticFlowStatus{
+				ObservedGeneration: resourceGeneration(obj),
+				Conditions: []agenticFlowCondition{newAgenticFlowCondition(
+					"Compiled",
+					"False",
+					"MarshalFailed",
+					err.Error(),
+				)},
+			})
 			continue
 		}
 		policyYAML, err := yaml.Marshal(artifacts.Policy)
@@ -351,9 +371,87 @@ func (w *Watcher) syncAgenticFlows(ctx context.Context) {
 			"nullfield.io/source-name": name,
 		}); err != nil {
 			w.logger.Warn("failed to sync AgenticFlow ConfigMap", "name", cmName, "error", err)
+			w.patchAgenticFlowStatus(ctx, ns, name, agenticFlowStatus{
+				ObservedGeneration: resourceGeneration(obj),
+				ArtifactHash:       artifactHash(compiledYAML),
+				ConfigMapName:      cmName,
+				Conditions: []agenticFlowCondition{newAgenticFlowCondition(
+					"Compiled",
+					"False",
+					"ConfigMapSyncFailed",
+					err.Error(),
+				)},
+			})
 		} else {
+			w.patchAgenticFlowStatus(ctx, ns, name, agenticFlowStatus{
+				ObservedGeneration: resourceGeneration(obj),
+				ArtifactHash:       artifactHash(compiledYAML),
+				ConfigMapName:      cmName,
+				Conditions: []agenticFlowCondition{newAgenticFlowCondition(
+					"Compiled",
+					"True",
+					"CompileSucceeded",
+					"AgenticFlow compiled and synced to ConfigMap",
+				)},
+			})
 			w.logger.Info("synced AgenticFlow to ConfigMap", "flow", name, "configmap", cmName, "namespace", ns)
 		}
+	}
+}
+
+type agenticFlowStatus struct {
+	ObservedGeneration int64                  `json:"observedGeneration,omitempty"`
+	ArtifactHash       string                 `json:"artifactHash,omitempty"`
+	ConfigMapName      string                 `json:"configMapName,omitempty"`
+	Conditions         []agenticFlowCondition `json:"conditions,omitempty"`
+	LastReconciledAt   string                 `json:"lastReconciledAt,omitempty"`
+}
+
+type agenticFlowCondition struct {
+	Type               string `json:"type"`
+	Status             string `json:"status"`
+	Reason             string `json:"reason,omitempty"`
+	Message            string `json:"message,omitempty"`
+	LastTransitionTime string `json:"lastTransitionTime"`
+}
+
+func newAgenticFlowCondition(conditionType, status, reason, message string) agenticFlowCondition {
+	return agenticFlowCondition{
+		Type:               conditionType,
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		LastTransitionTime: time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+func artifactHash(data []byte) string {
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func resourceGeneration(obj map[string]any) int64 {
+	meta, _ := obj["metadata"].(map[string]any)
+	switch v := meta["generation"].(type) {
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	case float64:
+		return int64(v)
+	case json.Number:
+		n, _ := v.Int64()
+		return n
+	default:
+		return 0
+	}
+}
+
+func (w *Watcher) patchAgenticFlowStatus(ctx context.Context, ns, name string, status agenticFlowStatus) {
+	status.LastReconciledAt = time.Now().UTC().Format(time.RFC3339)
+	url := fmt.Sprintf("%s/apis/nullfield.io/v1alpha1/namespaces/%s/agenticflows/%s/status", w.apiBase, ns, name)
+	if err := w.k8sMergePatch(ctx, url, map[string]any{"status": status}); err != nil {
+		w.logger.Warn("failed to patch AgenticFlow status", "name", name, "error", err)
 	}
 }
 
@@ -528,6 +626,30 @@ func (w *Watcher) k8sPut(ctx context.Context, url string, obj any) error {
 	if resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return fmt.Errorf("PUT %d: %s", resp.StatusCode, string(b))
+	}
+	return nil
+}
+
+func (w *Watcher) k8sMergePatch(ctx context.Context, url string, obj any) error {
+	body, err := json.Marshal(obj)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, url, strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+w.token)
+	req.Header.Set("Content-Type", "application/merge-patch+json")
+
+	resp, err := w.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("PATCH %d: %s", resp.StatusCode, string(b))
 	}
 	return nil
 }

@@ -53,6 +53,24 @@ spec:
                     x-kubernetes-preserve-unknown-fields: true
               required:
                 - tools
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+              properties:
+                observedGeneration:
+                  type: integer
+                  format: int64
+                artifactHash:
+                  type: string
+                configMapName:
+                  type: string
+                lastReconciledAt:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
       additionalPrinterColumns:
         - name: Lane
           type: string
@@ -60,6 +78,9 @@ spec:
         - name: Transport
           type: string
           jsonPath: .spec.transport
+        - name: Compiled
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Compiled")].status
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp

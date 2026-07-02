@@ -36,7 +36,6 @@ Implemented today:
 Next build targets:
 
 - Reconciler apply mode for generated network/mesh artifacts
-- Status conditions on `AgenticFlow` for compile failures and generated artifact hashes
 - Richer credential demos using Vault/K8s Secret/OAuth-style flows
 - More lane-specific examples for human, delegated, machine, chain, and anonymous traffic
 
@@ -155,6 +154,14 @@ These controls are layered because they narrow different dimensions of authority
 - `compiled.yaml` — all generated artifacts
 - `policy.yaml` — compiled `NullfieldPolicy`
 - `tools.yaml` — compiled `ToolRegistry`
+
+The watcher also patches `status` with:
+
+- `conditions[type=Compiled]` — `True` or `False`
+- `observedGeneration`
+- `artifactHash`
+- `configMapName`
+- `lastReconciledAt`
 
 Apply the CRD and an example:
 
