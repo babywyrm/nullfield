@@ -35,6 +35,13 @@ type Config struct {
 	RoutesPath string
 
 	ControllerAddr string
+
+	// ExtAuthzListenAddr is where the ext_authz decision service serves gRPC.
+	// It must match the port in the Istio extensionProvider.
+	ExtAuthzListenAddr string
+	// ExtAuthzMode is no-op, observe, or enforce. Validation lives in
+	// pkg/extauthz, which defaults anything it does not recognise to observe.
+	ExtAuthzMode string
 }
 
 func Load() (*Config, error) {
@@ -55,6 +62,8 @@ func Load() (*Config, error) {
 		TLSKeyFile:          envOr("NULLFIELD_TLS_KEY", ""),
 		RoutesPath:          envOr("NULLFIELD_ROUTES_PATH", ""),
 		ControllerAddr:      envOr("NULLFIELD_CONTROLLER_ADDR", ""),
+		ExtAuthzListenAddr:  envOr("NULLFIELD_EXTAUTHZ_LISTEN_ADDR", ":9191"),
+		ExtAuthzMode:        envOr("NULLFIELD_EXTAUTHZ_MODE", "observe"),
 	}
 
 	maxCalls, err := strconv.Atoi(envOr("NULLFIELD_CIRCUIT_MAX_CALLS", "100"))
