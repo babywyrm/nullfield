@@ -2,6 +2,9 @@ package extauthz
 
 import (
 	"context"
+	"io"
+	"log/slog"
+	"sort"
 
 	authv3 "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
 
@@ -26,6 +29,20 @@ type Config struct {
 	Mode   Mode
 	Engine policy.Engine
 	Audit  audit.Emitter
+
+	// Logger receives peer diagnostics when LogPeer is set. Optional.
+	Logger *slog.Logger
+	// LogPeer logs the source attributes and header names of every check.
+	//
+	// Whether a mesh populates source.principal varies by topology — sidecar
+	// versus waypoint, and by how the peer certificate reaches the filter. When
+	// it arrives empty there is nothing in an audit trail to distinguish "the
+	// caller is outside the mesh" from "this deployment does not deliver peer
+	// identity to ext_authz", and those need opposite fixes. This answers it
+	// without attaching a debugger to a production decision path.
+	//
+	// Off by default: it logs header names on every request.
+	LogPeer bool
 }
 
 // Server answers Envoy's external authorization checks using nullfield's
@@ -33,9 +50,11 @@ type Config struct {
 type Server struct {
 	authv3.UnimplementedAuthorizationServer
 
-	mode   Mode
-	engine policy.Engine
-	audit  audit.Emitter
+	mode    Mode
+	engine  policy.Engine
+	audit   audit.Emitter
+	logger  *slog.Logger
+	logPeer bool
 }
 
 // NewServer builds a decision server. An absent or unrecognised mode becomes
@@ -46,7 +65,39 @@ func NewServer(cfg Config) *Server {
 	if !mode.Valid() {
 		mode = ModeObserve
 	}
-	return &Server{mode: mode, engine: cfg.Engine, audit: cfg.Audit}
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+	}
+	return &Server{
+		mode:    mode,
+		engine:  cfg.Engine,
+		audit:   cfg.Audit,
+		logger:  logger,
+		logPeer: cfg.LogPeer,
+	}
+}
+
+// describePeer logs what the mesh actually delivered about the caller.
+func (s *Server) describePeer(req *authv3.CheckRequest) {
+	if !s.logPeer {
+		return
+	}
+	src := req.GetAttributes().GetSource()
+	attrs := req.GetAttributes().GetRequest().GetHttp()
+
+	names := make([]string, 0, len(attrs.GetHeaders()))
+	for k := range attrs.GetHeaders() {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+
+	s.logger.Info("ext_authz peer",
+		"source_principal", src.GetPrincipal(),
+		"source_service", src.GetService(),
+		"source_address", src.GetAddress().GetSocketAddress().GetAddress(),
+		"destination_principal", req.GetAttributes().GetDestination().GetPrincipal(),
+		"header_names", names)
 }
 
 // Mode reports the mode this server is running in.
@@ -58,6 +109,8 @@ func (s *Server) Mode() Mode { return s.mode }
 // Envoy fall back to its own failure-mode default, which takes the decision out
 // of nullfield's hands entirely — the opposite of the point.
 func (s *Server) Check(ctx context.Context, req *authv3.CheckRequest) (*authv3.CheckResponse, error) {
+	s.describePeer(req)
+
 	translated, err := Translate(req)
 	if err != nil {
 		// The only translation failures are an absent HTTP context and a
@@ -88,11 +141,13 @@ func (s *Server) Check(ctx context.Context, req *authv3.CheckRequest) (*authv3.C
 		Reason:         decision.Reason,
 		Labels:         decision.Labels,
 		Counterfactual: Counterfactual(decision),
-		Attester:       identity.AttesterNone,
-		Assurance:      AssuranceNone,
+		// Record what the mesh actually presented, attested or not. Attester is
+		// what says whether we could make anything of it.
+		WorkloadPrincipal: translated.RawPrincipal,
+		Attester:          identity.AttesterNone,
+		Assurance:         AssuranceNone,
 	}
 	if translated.Attestation != nil {
-		event.WorkloadPrincipal = translated.Attestation.Principal
 		event.Attester = translated.Attestation.Attester
 		event.Assurance = AssuranceAttested
 	}

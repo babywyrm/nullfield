@@ -29,6 +29,30 @@ func checkRequest(principal, body string, headers map[string]string) *authv3.Che
 	}
 }
 
+func TestEnvoysOwnPartialBodyHeaderIsAuthoritative(t *testing.T) {
+	// Observed on live waypoint traffic. Envoy states this directly, so it
+	// outranks anything we could infer from lengths.
+	if !BodyTruncated(0, map[string]string{PartialBodyHeader: "true"}, "whatever fit") {
+		t.Error("partial-body true must read as truncated")
+	}
+	if BodyTruncated(0, map[string]string{PartialBodyHeader: "false"}, "whatever fit") {
+		t.Error("partial-body false must not read as truncated")
+	}
+}
+
+func TestThePartialBodyHeaderOutranksTheLengthSignals(t *testing.T) {
+	// A size attribute disagreeing with the body is exactly what happens when
+	// Envoy buffers a large body it did NOT truncate, so believing size over
+	// Envoy's own answer would deny legitimate traffic.
+	headers := map[string]string{
+		PartialBodyHeader: "false",
+		"content-length":  "20000",
+	}
+	if BodyTruncated(20000, headers, "short") {
+		t.Error("Envoy said the body was complete; the length signals must not override it")
+	}
+}
+
 func TestBodyTruncatedWhenSizeExceedsWhatArrived(t *testing.T) {
 	if !BodyTruncated(20000, map[string]string{}, "only the first 8k of it") {
 		t.Fatal("expected truncation to be detected from the size attribute")

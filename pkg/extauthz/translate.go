@@ -22,7 +22,21 @@ type Translated struct {
 	Policy      policy.Request
 	Attestation *identity.Attestation
 	Headers     identity.MapHeaders
+
+	// RawPrincipal is whatever the mesh put in source.principal, recorded even
+	// when it could not be attested.
+	//
+	// Without it, "assurance: NONE" is indistinguishable between three very
+	// different situations: no principal arrived at all, one arrived in a shape
+	// we do not parse, or the caller is genuinely outside the mesh. That is the
+	// first question anyone debugging a rollout asks, and it should not require
+	// attaching a debugger to answer.
+	RawPrincipal string
 }
+
+// PartialBodyHeader is Envoy's own statement about whether it delivered the
+// whole body. Observed on live waypoint traffic; it is the authoritative signal.
+const PartialBodyHeader = "x-envoy-auth-partial-body"
 
 // BodyTruncated reports whether Envoy delivered less body than the request
 // actually carried.
@@ -33,11 +47,19 @@ type Translated struct {
 // primitive: put the dangerous arguments past the boundary and the gate approves
 // what it never read. Callers must fail closed when this returns true.
 //
-// The `size` attribute is authoritative when Envoy sets it, but it is -1 when
-// unknown and 0 when simply unpopulated, so content-length is the fallback.
-// Neither signal being available is not treated as truncation — chunked requests
-// carry no length, and denying every streamed request would be its own outage.
+// Three signals, in descending order of authority:
+//
+//  1. x-envoy-auth-partial-body, which is Envoy telling us directly.
+//  2. The size attribute, when set. It is -1 when unknown and 0 when simply
+//     unpopulated, so only a positive value means anything.
+//  3. content-length.
+//
+// No signal at all is not treated as truncation: chunked requests carry no
+// length, and denying every streamed request would be its own outage.
 func BodyTruncated(declaredSize int64, headers map[string]string, body string) bool {
+	if partial, ok := headers[PartialBodyHeader]; ok {
+		return partial == "true"
+	}
 	if declaredSize > 0 {
 		return declaredSize > int64(len(body))
 	}
@@ -93,8 +115,9 @@ func Translate(req *authv3.CheckRequest) (*Translated, error) {
 		},
 	}
 
-	if principal := req.GetAttributes().GetSource().GetPrincipal(); principal != "" {
-		if att, ok := (identity.MeshAttester{}).Attest(principal); ok {
+	out.RawPrincipal = req.GetAttributes().GetSource().GetPrincipal()
+	if out.RawPrincipal != "" {
+		if att, ok := (identity.MeshAttester{}).Attest(out.RawPrincipal); ok {
 			out.Attestation = att
 		}
 	}

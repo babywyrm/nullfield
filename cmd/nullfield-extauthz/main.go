@@ -59,6 +59,8 @@ func main() {
 			audit.NewLogEmitter(logger),
 			audit.NewMetricsEmitter(),
 		),
+		Logger:  logger,
+		LogPeer: os.Getenv("NULLFIELD_EXTAUTHZ_LOG_PEER") == "true",
 	})
 
 	listener, err := net.Listen("tcp", cfg.ExtAuthzListenAddr)
