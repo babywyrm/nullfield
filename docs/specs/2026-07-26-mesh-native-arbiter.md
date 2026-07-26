@@ -217,6 +217,27 @@ lanes rather than opt-in per rule.
 `identity.Identity` gains a mesh-principal field and an assurance field. No
 existing field changes meaning.
 
+### Workload identity is attested, not assumed
+
+Workload identity must not be hardcoded to SPIFFE. It is established by a
+`WorkloadAttester`, and the provenance record names which attester answered:
+
+| Attester | Source | Available |
+|---|---|---|
+| `mesh-spiffe` | `source.principal` from mesh mTLS | Now, both lab clusters |
+| `aws-pod-identity` | IRSA / EKS Pod Identity → IAM role | EKS only |
+| `k8s-serviceaccount` | `TokenReview` on a projected SA token | Any cluster; weaker |
+| `none` | No attestation available | Proxy mode, off-cluster agents |
+
+This is an interface decision to make now rather than a later refactor, because
+every decision path and every provenance record depends on it. AWS support is
+not built in the first phases; the seam for it is.
+
+**Corroboration upgrades assurance.** Where two attesters are independently
+available — a SPIFFE ID from the mesh and an IAM role from IRSA — requiring both
+to resolve to the same workload is a stronger guarantee than either alone.
+`STRONG` on EKS should mean corroborated, not merely mesh-derived.
+
 ### Assurance levels
 
 Not all attribution is equally trustworthy, and pretending otherwise is worse
@@ -224,14 +245,27 @@ than recording the difference. Every decision carries an assurance level:
 
 | Level | Conditions |
 |---|---|
-| `STRONG` | Mesh-derived SPIFFE identity, dedicated workload per session, grant bound to both |
-| `MEDIUM` | Mesh-derived identity, grant bound to workload, shared worker serving multiple principals |
-| `WEAK` | No mesh identity (external CI, laptop, FaaS); token-based identity via proxy mode |
+| `STRONG` | Attested workload identity — corroborated where two attesters exist — dedicated workload per session, grant bound to both |
+| `MEDIUM` | Attested workload identity, grant bound to workload, shared worker serving multiple principals |
+| `WEAK` | No attestation available (external CI, laptop, FaaS, Fargate); token-based identity via proxy mode |
 | `NONE` | Unbound workload, or no grant presented |
 
 This absorbs agents running outside the cluster instead of excluding them, and
 it makes "who authorized this" a claim with a confidence rather than one
 indistinguishable from a guess.
+
+Every level above `WEAK` presumes a grant, which phase 2 introduces. Phase 1 can
+therefore reach none of them, and forcing its decisions into `MEDIUM` would
+claim a grant binding that does not exist. Phase 1 emits a fifth, transitional
+level instead:
+
+| Level | Conditions |
+|---|---|
+| `ATTESTED` | Attested workload identity, no grant mechanism yet (phase 1 only) |
+
+`ATTESTED` is retired when phase 2 lands: with grants available, an attested
+workload resolves to `STRONG` or `MEDIUM` by the table above, and the absence of
+a grant becomes `NONE` rather than a phase artifact.
 
 ### Modes
 
