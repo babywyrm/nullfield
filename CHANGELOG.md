@@ -6,6 +6,34 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **`ext_authz` decision service** (`pkg/extauthz`, `cmd/nullfield-extauthz`) — nullfield answers Envoy external authorization checks, a second inbound adapter onto the same decision core the HTTP proxy uses. Deployed and exercised against real waypoint traffic on a k3s + Istio 1.30.1 ambient cluster.
+
+  Only enforce mode can deny; observe and no-op return OK unconditionally, and an unrecognised mode falls back to observe with a warning rather than failing to start, so a typo cannot begin refusing production traffic. Policy outcomes return a `CheckResponse` rather than a gRPC error, because an error makes Envoy apply its own failure-mode default and takes the decision out of nullfield's hands.
+
+  MCP is detected by parsing the request body rather than by URL, since JSON-RPC is not distinguishable by path; anything else classifies as transport B with an operation of method plus path, which is what makes non-MCP traffic expressible in policy at all. The body is read from `raw_body` when `body` is empty, because Envoy populates the former under `pack_as_bytes` — reading only `body` would make every `tools/call` under that configuration parse as ordinary wire traffic, a silent total loss of MCP coverage rather than a visible failure.
+
+  Assurance tops out at `ATTESTED`. `STRONG` and `MEDIUM` both presume a grant bound to the workload, so claiming either now would assert a binding that does not exist.
+
+- **Workload attestation** (`pkg/identity`) — `WorkloadAttester` derives workload identity from transport evidence rather than a self-asserted claim, with the provenance record naming which attester answered. An interface from the first commit rather than a later refactor, because EKS brings IRSA and Pod Identity as independent attesters and, where two agree, the corroboration is worth more than either alone. `Attestation` is deliberately not an `Identity`: one answers what is running, the other whose authority is being exercised, and collapsing them is how a confused deputy happens.
+
+- **Provenance on audit events** — `workload_principal`, `attester`, `assurance`, `transport`, and `counterfactual`, all `omitempty` so proxy-mode events serialize byte-identically and existing consumers see no new keys. The new `arbiter.decision` event type is distinct from `tool.allowed` and `tool.denied` on purpose: in observe mode the arbiter reaches a verdict without applying it, and reporting that as `tool.denied` would tell every dashboard traffic was blocked when none was.
+
+- **Transport, target, and operation in policy requests** — the transport taxonomy previously existed only as a label on generated policy, so no rule could distinguish an MCP call from a wire API call to the same target. All additive with inert zero values.
+
+### Fixed
+
+- **Truncated request bodies are refused instead of authorized** — the reference `ext_authz` configuration pairs `maxRequestBytes: 8192` with `allowPartialMessage: true`, so a decision gets rendered on a body the arbiter cannot fully see. Put the dangerous arguments past the boundary and the gate approves what it never read. nullfield's provider sets `allowPartialMessage: false` and refuses before consulting the engine, trusting Envoy's own `x-envoy-auth-partial-body` header over any inference from `content-length` or the size attribute.
+
+### Known limits
+
+- **Ambient waypoints do not deliver peer identity to `ext_authz`** — measured on brainbox, not inferred. ztunnel logs the caller's SPIFFE ID correctly, but the `CheckRequest` reaching the decision service carries an empty `source.principal`, no `destination.principal`, and no `x-forwarded-client-cert`. This is not a nullfield defect: the OPA provider in the same namespace receives the same empty source, which is why its policy reads an `x-principal` header instead of the peer certificate.
+
+  Until this is resolved, mesh-internal callers reach `NONE` assurance and the `mesh-spiffe` attester never fires in this topology, though detection, classification, decision, and counterfactual recording all work. Options and their trade-offs are recorded in the spec. This is the failure the `WorkloadAttester` interface exists to absorb: whichever option wins becomes a new attester rather than an edit to the decision path.
+
+- **Deploying beside an existing provider needs a feature flag** — Istio rejects multiple `CUSTOM` authorization providers per workload unless `PILOT_ENABLE_MULTIPLE_CUSTOM_AUTHZ_PROVIDERS` is set on istiod. Without it the second policy is silently dropped and the incumbent decides alone.
+
+- **`CUSTOM` policies must name the waypoint in `targetRefs`** — an unbound policy in ambient mode attaches to ztunnel, which is L4 only. The policy is accepted, reports healthy, and never fires.
+
 - **Design: mesh-native arbiter** (`docs/specs/2026-07-26-mesh-native-arbiter.md`) — nullfield becomes a policy *decision* point reached through the service mesh rather than a proxy agents must be configured to use. No code yet; the spec, roadmap, and known limits are recorded first.
 
   Three shifts. nullfield speaks `ext_authz` gRPC behind an Istio waypoint, so the mesh performs interception and nullfield decides — which extends coverage from MCP JSON-RPC to any HTTP-borne agentic traffic, since a CLI calling an API is just HTTP the mesh already sees. Workload identity is derived from mesh mTLS (`source.principal`) instead of the self-asserted `identity_type` claim, whose `openid`-scope fallback can classify a delegated agent as the human it acts for. And an `AgenticFlow` binding becomes required, making the contract the unit of authorization rather than the individual rule.

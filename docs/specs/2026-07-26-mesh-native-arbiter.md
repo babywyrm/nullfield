@@ -217,6 +217,56 @@ lanes rather than opt-in per rule.
 `identity.Identity` gains a mesh-principal field and an assurance field. No
 existing field changes meaning.
 
+### Measured: ambient waypoints do not deliver peer identity to ext_authz
+
+**Status: open blocker for phase 1, found on brainbox 2026-07-26.**
+
+The premise that a waypoint's `ext_authz` check carries the caller's SPIFFE
+identity is false in ambient mode as deployed. Measured, not inferred:
+
+ztunnel knows exactly who the caller is:
+
+```
+src.workload="meshprobe" src.namespace="zerotrust"
+src.identity="spiffe://cluster.local/ns/zerotrust/sa/default"
+dst.identity="spiffe://cluster.local/ns/zerotrust/sa/zerotrust-waypoint"
+```
+
+The `CheckRequest` the waypoint sends to the decision service does not:
+
+```
+source_principal: ""     destination_principal: ""
+source_address:   "10.42.0.x"
+header_names: [:authority :method :path :scheme accept content-length
+               content-type user-agent x-envoy-auth-partial-body
+               x-forwarded-proto x-request-id]
+```
+
+No principal, and no `x-forwarded-client-cert` either. This is not a nullfield
+defect: the OPA provider already running in that namespace receives the same
+empty source, which is why its policy reads an `x-principal` **header** rather
+than the peer certificate. Someone hit this before and worked around it.
+
+The identity exists in the mesh and is simply not plumbed to the filter. Options,
+none yet chosen:
+
+| Option | Assurance | Cost |
+|---|---|---|
+| EnvoyFilter with a Lua filter ordered before ext_authz, setting a header from the downstream peer URI SAN | Equivalent to mTLS, if the SAN is readable at that point | An EnvoyFilter per waypoint; must be verified, not assumed |
+| Resolve `source.address` to a workload via the Kubernetes API | Weaker — pod IPs are reused over time and the lookup races pod churn | Moderate; needs a cache and an API client |
+| Have callers present a signed token, attested separately | Independent of the mesh | Reintroduces the self-asserted claim this design set out to eliminate |
+| Intercept somewhere that does expose peer identity | Full | Reopens the architecture |
+
+Until one is proven on real traffic, phase 1 reaches `NONE` assurance for
+mesh-internal callers and the `mesh-spiffe` attester never fires in this
+topology. Everything else in phase 1 does work: MCP is detected by body parse,
+transport is classified, the decision is reached, and the counterfactual is
+recorded.
+
+This is exactly the failure the `WorkloadAttester` interface was introduced to
+absorb. Whichever option wins becomes a new attester with its own name and
+assurance rather than an edit to the decision path.
+
 ### Workload identity is attested, not assumed
 
 Workload identity must not be hardcoded to SPIFFE. It is established by a
