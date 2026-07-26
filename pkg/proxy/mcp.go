@@ -1,93 +1,57 @@
 package proxy
 
-import (
-	"encoding/json"
-	"fmt"
+import "github.com/babywyrm/nullfield/pkg/mcp"
+
+// The MCP envelope moved to pkg/mcp so the ext_authz decision service can parse
+// a tools/call without importing this package. These aliases keep the entire
+// prior surface of this file intact, so no call site or test changes.
+
+type (
+	JSONRPCRequest  = mcp.JSONRPCRequest
+	JSONRPCResponse = mcp.JSONRPCResponse
+	JSONRPCError    = mcp.JSONRPCError
+	ToolsCallParams = mcp.ToolsCallParams
 )
-
-// JSON-RPC 2.0 envelope for MCP messages.
-type JSONRPCRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      any             `json:"id,omitempty"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-
-type JSONRPCResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      any             `json:"id,omitempty"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *JSONRPCError   `json:"error,omitempty"`
-}
-
-type JSONRPCError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Data    any    `json:"data,omitempty"`
-}
 
 // MCP-specific method constants.
 const (
-	MethodToolsCall      = "tools/call"
-	MethodToolsList      = "tools/list"
-	MethodResourcesRead  = "resources/read"
-	MethodResourcesList  = "resources/list"
-	MethodPromptsGet     = "prompts/get"
-	MethodPromptsList    = "prompts/list"
-	MethodInitialize     = "initialize"
-	MethodPing           = "ping"
+	MethodToolsCall     = mcp.MethodToolsCall
+	MethodToolsList     = mcp.MethodToolsList
+	MethodResourcesRead = mcp.MethodResourcesRead
+	MethodResourcesList = mcp.MethodResourcesList
+	MethodPromptsGet    = mcp.MethodPromptsGet
+	MethodPromptsList   = mcp.MethodPromptsList
+	MethodInitialize    = mcp.MethodInitialize
+	MethodPing          = mcp.MethodPing
 )
-
-// ToolsCallParams is the params object for tools/call.
-type ToolsCallParams struct {
-	Name      string         `json:"name"`
-	Arguments map[string]any `json:"arguments,omitempty"`
-}
-
-// ParseToolsCall extracts tool call parameters from a JSON-RPC request.
-func ParseToolsCall(req *JSONRPCRequest) (*ToolsCallParams, error) {
-	if req.Method != MethodToolsCall {
-		return nil, fmt.Errorf("not a tools/call request: %s", req.Method)
-	}
-	var params ToolsCallParams
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return nil, fmt.Errorf("invalid tools/call params: %w", err)
-	}
-	if params.Name == "" {
-		return nil, fmt.Errorf("tools/call missing tool name")
-	}
-	return &params, nil
-}
-
-// NewErrorResponse builds a JSON-RPC error response.
-func NewErrorResponse(id any, code int, message string) *JSONRPCResponse {
-	return &JSONRPCResponse{
-		JSONRPC: "2.0",
-		ID:      id,
-		Error: &JSONRPCError{
-			Code:    code,
-			Message: message,
-		},
-	}
-}
 
 // Standard JSON-RPC error codes.
 const (
-	ErrCodeParse      = -32700
-	ErrCodeInvalidReq = -32600
-	ErrCodeMethodNF   = -32601
-	ErrCodeInvalidPar = -32602
-	ErrCodeInternal   = -32603
+	ErrCodeParse      = mcp.ErrCodeParse
+	ErrCodeInvalidReq = mcp.ErrCodeInvalidReq
+	ErrCodeMethodNF   = mcp.ErrCodeMethodNF
+	ErrCodeInvalidPar = mcp.ErrCodeInvalidPar
+	ErrCodeInternal   = mcp.ErrCodeInternal
 )
 
 // Nullfield-specific error codes (application-defined range).
 const (
-	ErrCodePolicyDenied   = -32000
-	ErrCodeIdentityFailed = -32001
-	ErrCodeCircuitOpen    = -32002
-	ErrCodeToolUnknown    = -32003
-	ErrCodeRateLimited    = -32004
-	ErrCodeHoldTimeout    = -32005
-	ErrCodeScopeViolation  = -32006
-	ErrCodeInspectionBlock = -32007
+	ErrCodePolicyDenied    = mcp.ErrCodePolicyDenied
+	ErrCodeIdentityFailed  = mcp.ErrCodeIdentityFailed
+	ErrCodeCircuitOpen     = mcp.ErrCodeCircuitOpen
+	ErrCodeToolUnknown     = mcp.ErrCodeToolUnknown
+	ErrCodeRateLimited     = mcp.ErrCodeRateLimited
+	ErrCodeHoldTimeout     = mcp.ErrCodeHoldTimeout
+	ErrCodeScopeViolation  = mcp.ErrCodeScopeViolation
+	ErrCodeInspectionBlock = mcp.ErrCodeInspectionBlock
 )
+
+// ParseToolsCall extracts tool call parameters from a JSON-RPC request.
+func ParseToolsCall(req *JSONRPCRequest) (*ToolsCallParams, error) {
+	return mcp.ParseToolsCall(req)
+}
+
+// NewErrorResponse builds a JSON-RPC error response.
+func NewErrorResponse(id any, code int, message string) *JSONRPCResponse {
+	return mcp.NewErrorResponse(id, code, message)
+}
