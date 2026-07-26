@@ -1,0 +1,96 @@
+# Plumb the caller's mesh identity into the ext_authz check.
+#
+# An ambient waypoint does not populate source.principal in the CheckRequest it
+# sends to an external authorization service. Measured, and the OPA provider in
+# the same namespace sees the same empty source. The identity exists in the mesh
+# (ztunnel logs it correctly); it simply is not delivered to the filter.
+#
+# This inserts a Lua filter immediately before ext_authz that reads the peer
+# identity from the connection and republishes it as a request header, which the
+# check does receive. nullfield attests that header rather than trusting it:
+# it is only meaningful because a workload cannot set it on itself, since the
+# filter strips any inbound value of the same name before writing its own.
+#
+# Every accessor is wrapped, because a Lua error in a request path breaks traffic
+# rather than degrading it, and this runs in front of a live service.
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: nullfield-peer-principal
+  namespace: zerotrust
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: zerotrust-waypoint
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.ext_authz
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: nullfield.peer_principal
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            default_source_code:
+              inline_string: |
+                local HEADER = "x-nullfield-peer-principal"
+                local PROBE = "x-nullfield-peer-source"
+
+                function envoy_on_request(handle)
+                  local ok, err = pcall(function()
+                    -- Strip any inbound value first. Without this a workload
+                    -- could assert its own identity by sending the header,
+                    -- which would be strictly worse than the claim it replaces.
+                    handle:headers():remove(HEADER)
+                    handle:headers():remove(PROBE)
+
+                    local principal = nil
+                    local source = "none"
+
+                    -- Filter state, not the peer certificate. At a waypoint the
+                    -- HBONE connection is terminated upstream of this listener,
+                    -- so the inner stream carries no TLS of its own and
+                    -- downstreamSslConnection() is nil here. Istio publishes the
+                    -- terminated connection's peer identity into filter state
+                    -- instead, which is how AuthorizationPolicy principals work
+                    -- at waypoints. Verified by probing both on live traffic.
+                    local fs = handle:streamInfo():filterState()
+                    if fs ~= nil then
+                      local v = fs:get("io.istio.peer_principal")
+                      if v ~= nil and v ~= "" then
+                        principal = v
+                        source = "filter_state"
+                      end
+                    end
+
+                    -- Sidecar topologies terminate TLS on this listener, so the
+                    -- certificate is readable and filter state is not populated.
+                    -- Keeping both makes one filter serve both deployments.
+                    if principal == nil then
+                      local ssl = handle:streamInfo():downstreamSslConnection()
+                      if ssl ~= nil then
+                        local sans = ssl:uriSanPeerCertificate()
+                        if sans ~= nil and #sans > 0 then
+                          principal = sans[1]
+                          source = "peer_cert"
+                        end
+                      end
+                    end
+
+                    if principal ~= nil and principal ~= "" then
+                      handle:headers():add(HEADER, principal)
+                    end
+                    handle:headers():add(PROBE, source)
+                  end)
+
+                  if not ok then
+                    handle:logWarn("nullfield peer principal: " .. tostring(err))
+                  end
+                end

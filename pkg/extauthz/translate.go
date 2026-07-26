@@ -115,10 +115,25 @@ func Translate(req *authv3.CheckRequest) (*Translated, error) {
 		},
 	}
 
+	// Prefer the peer certificate. Sidecar topologies terminate TLS on the
+	// listener that runs this filter, so it is available and is the stronger
+	// binding.
 	out.RawPrincipal = req.GetAttributes().GetSource().GetPrincipal()
 	if out.RawPrincipal != "" {
 		if att, ok := (identity.MeshAttester{}).Attest(out.RawPrincipal); ok {
 			out.Attestation = att
+		}
+	}
+
+	// Fall back to the header a waypoint republished. An ambient waypoint
+	// terminates HBONE upstream of this listener, so source.principal is empty
+	// there however healthy the mesh is.
+	if out.Attestation == nil {
+		if injected := out.Headers.Get(identity.PeerPrincipalHeader); injected != "" {
+			out.RawPrincipal = injected
+			if att, ok := (identity.MeshHeaderAttester{}).Attest(injected); ok {
+				out.Attestation = att
+			}
 		}
 	}
 

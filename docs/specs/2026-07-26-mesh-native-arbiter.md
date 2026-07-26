@@ -219,7 +219,9 @@ existing field changes meaning.
 
 ### Measured: ambient waypoints do not deliver peer identity to ext_authz
 
-**Status: open blocker for phase 1, found on brainbox 2026-07-26.**
+**Status: found and resolved on brainbox 2026-07-26. Recorded because the
+resolution is a deployment requirement, not a code detail — nullfield cannot
+attest a mesh identity on a waypoint without the filter described below.**
 
 The premise that a waypoint's `ext_authz` check carries the caller's SPIFFE
 identity is false in ambient mode as deployed. Measured, not inferred:
@@ -247,25 +249,58 @@ defect: the OPA provider already running in that namespace receives the same
 empty source, which is why its policy reads an `x-principal` **header** rather
 than the peer certificate. Someone hit this before and worked around it.
 
-The identity exists in the mesh and is simply not plumbed to the filter. Options,
-none yet chosen:
+#### Where the identity actually lives
 
-| Option | Assurance | Cost |
-|---|---|---|
-| EnvoyFilter with a Lua filter ordered before ext_authz, setting a header from the downstream peer URI SAN | Equivalent to mTLS, if the SAN is readable at that point | An EnvoyFilter per waypoint; must be verified, not assumed |
-| Resolve `source.address` to a workload via the Kubernetes API | Weaker — pod IPs are reused over time and the lookup races pod churn | Moderate; needs a cache and an API client |
-| Have callers present a signed token, attested separately | Independent of the mesh | Reintroduces the self-asserted claim this design set out to eliminate |
-| Intercept somewhere that does expose peer identity | Full | Reopens the architecture |
+Probing every source reachable from a Lua filter on that same filter chain,
+against live traffic, gave an unambiguous answer:
 
-Until one is proven on real traffic, phase 1 reaches `NONE` assurance for
-mesh-internal callers and the `mesh-spiffe` attester never fires in this
-topology. Everything else in phase 1 does work: MCP is detected by body parse,
-transport is classified, the decision is reached, and the counterfactual is
-recorded.
+| Source | Result |
+|---|---|
+| `downstreamSslConnection()` | nil — there is no TLS object at all |
+| `downstreamSslConnection():uriSanPeerCertificate()` | unreachable, per the above |
+| `filterState():get("io.istio.peer_principal")` | **the SPIFFE ID** |
+| `dynamicMetadata():get("istio_authn")` | nil |
+| `connection():ssl()` | nil |
 
-This is exactly the failure the `WorkloadAttester` interface was introduced to
-absorb. Whichever option wins becomes a new attester with its own name and
-assurance rather than an edit to the decision path.
+The waypoint terminates HBONE upstream of the listener that runs `ext_authz`, so
+the inner stream carries no certificate of its own. Istio publishes the
+terminated connection's peer identity into Envoy **filter state**, which is how
+`AuthorizationPolicy` principals keep working at waypoints. `ext_authz` does not
+read filter state, which is why the check arrives anonymous.
+
+#### The resolution
+
+`deploy/manifests/peer-principal-envoyfilter.yaml` inserts a Lua filter
+immediately before `ext_authz` that copies the filter-state principal into
+`x-nullfield-peer-principal`, which the check does receive. Confirmed end to end:
+
+```json
+{"tool_name":"secrets.leak_config","transport":"A",
+ "workload_principal":"spiffe://cluster.local/ns/zerotrust/sa/default",
+ "attester":"mesh-header","assurance":"ATTESTED","counterfactual":"DENY"}
+```
+
+Two things this deliberately does not do.
+
+It does not trust the header. The filter strips any inbound value of that name
+before writing its own, so a workload cannot assert its own identity by simply
+sending it. That property lives in the deployed filter, so **a deployment
+without this EnvoyFilter must not treat the header as meaningful** — which is
+why the trust boundary is stated here rather than left implicit in the Lua.
+
+It does not reuse the `mesh-spiffe` attester name. The identity is the same, but
+reading a certificate depends on TLS while reading a header depends on the mesh
+stripping a client-supplied value — a property of a deployed config rather than
+of cryptography. `mesh-header` is a distinct attester so the provenance record
+can say which binding produced the claim. This is the `WorkloadAttester`
+interface doing the job it was introduced for: a new attestation source became a
+new attester rather than an edit to the decision path.
+
+The rejected alternative worth recording: resolving `source.address` to a
+workload through the Kubernetes API. Pod IPs are recycled and the lookup races
+pod churn, so a workload scheduled onto a recently-freed address can inherit
+another's attribution. That is a weaker guarantee than the self-asserted claim
+this design set out to replace.
 
 ### Workload identity is attested, not assumed
 

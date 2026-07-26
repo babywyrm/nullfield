@@ -7,8 +7,18 @@ import "strings"
 // source, and a decision trail that cannot tell them apart is not auditable.
 const (
 	AttesterMeshSPIFFE = "mesh-spiffe"
+	AttesterMeshHeader = "mesh-header"
 	AttesterNone       = "none"
 )
+
+// PeerPrincipalHeader is where a waypoint republishes the caller's identity.
+//
+// An ambient waypoint terminates HBONE upstream of the listener that runs
+// ext_authz, so the inner stream carries no peer certificate and
+// source.principal arrives empty. Istio puts the terminated connection's
+// identity into Envoy filter state, and a Lua filter ordered before ext_authz
+// copies it here. See deploy/manifests/peer-principal-envoyfilter.yaml.
+const PeerPrincipalHeader = "x-nullfield-peer-principal"
 
 // Attestation is a workload identity established by transport evidence rather
 // than asserted by the caller.
@@ -71,4 +81,29 @@ func (MeshAttester) Attest(principal string) (*Attestation, bool) {
 		ServiceAccount: parts[4],
 		Attester:       AttesterMeshSPIFFE,
 	}, true
+}
+
+// MeshHeaderAttester derives identity from a principal a waypoint republished
+// as a request header, for topologies where the peer certificate is not
+// readable at the filter.
+//
+// It is a separate attester rather than a fallback inside MeshAttester because
+// the trust chain genuinely differs. Reading a certificate depends on TLS.
+// Reading a header depends on the mesh stripping any client-supplied value of
+// the same name before writing its own — a property of the deployed filter, not
+// of cryptography. Same identity, weaker binding, and the provenance record has
+// to be able to say which one answered.
+type MeshHeaderAttester struct{}
+
+// Name identifies this attester in the provenance record.
+func (MeshHeaderAttester) Name() string { return AttesterMeshHeader }
+
+// Attest parses the same SPIFFE shape, and reports the different source.
+func (MeshHeaderAttester) Attest(principal string) (*Attestation, bool) {
+	att, ok := (MeshAttester{}).Attest(principal)
+	if !ok {
+		return nil, false
+	}
+	att.Attester = AttesterMeshHeader
+	return att, true
 }

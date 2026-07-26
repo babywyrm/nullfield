@@ -24,11 +24,15 @@ All notable changes to this project will be documented in this file.
 
 - **Truncated request bodies are refused instead of authorized** — the reference `ext_authz` configuration pairs `maxRequestBytes: 8192` with `allowPartialMessage: true`, so a decision gets rendered on a body the arbiter cannot fully see. Put the dangerous arguments past the boundary and the gate approves what it never read. nullfield's provider sets `allowPartialMessage: false` and refuses before consulting the engine, trusting Envoy's own `x-envoy-auth-partial-body` header over any inference from `content-length` or the size attribute.
 
+- **Mesh identity at ambient waypoints** (`deploy/manifests/peer-principal-envoyfilter.yaml`) — an ambient waypoint does not deliver peer identity to an external authorization service. Measured on brainbox, not inferred: ztunnel logs the caller's SPIFFE ID correctly while the `CheckRequest` arrives with an empty `source.principal`, no destination principal, and no `x-forwarded-client-cert`. Not a nullfield defect — the OPA provider in the same namespace receives the same empty source, which is why its policy reads an `x-principal` header rather than the peer certificate.
+
+  Probing every source reachable from that filter chain located it: the waypoint terminates HBONE upstream of the listener running `ext_authz`, so there is no TLS object there at all, and Istio publishes the terminated connection's identity into Envoy **filter state** instead. That is how `AuthorizationPolicy` principals keep working at waypoints; `ext_authz` simply does not read filter state.
+
+  A Lua filter ordered before `ext_authz` copies the filter-state principal into `x-nullfield-peer-principal`. nullfield does not trust that header: the filter strips any inbound value of the same name first, so a workload cannot assert its own identity by sending it. Because that property lives in the deployed filter rather than in cryptography, header-derived identity is a distinct `mesh-header` attester rather than a fallback inside `mesh-spiffe` — same identity, different binding, and the provenance record says which one answered.
+
+  Rejected: resolving `source.address` through the Kubernetes API. Pod IPs are recycled and the lookup races pod churn, so a workload landing on a recently-freed address inherits another's attribution — weaker than the self-asserted claim this replaces.
+
 ### Known limits
-
-- **Ambient waypoints do not deliver peer identity to `ext_authz`** — measured on brainbox, not inferred. ztunnel logs the caller's SPIFFE ID correctly, but the `CheckRequest` reaching the decision service carries an empty `source.principal`, no `destination.principal`, and no `x-forwarded-client-cert`. This is not a nullfield defect: the OPA provider in the same namespace receives the same empty source, which is why its policy reads an `x-principal` header instead of the peer certificate.
-
-  Until this is resolved, mesh-internal callers reach `NONE` assurance and the `mesh-spiffe` attester never fires in this topology, though detection, classification, decision, and counterfactual recording all work. Options and their trade-offs are recorded in the spec. This is the failure the `WorkloadAttester` interface exists to absorb: whichever option wins becomes a new attester rather than an edit to the decision path.
 
 - **Deploying beside an existing provider needs a feature flag** — Istio rejects multiple `CUSTOM` authorization providers per workload unless `PILOT_ENABLE_MULTIPLE_CUSTOM_AUTHZ_PROVIDERS` is set on istiod. Without it the second policy is silently dropped and the incumbent decides alone.
 
