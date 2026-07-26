@@ -1,0 +1,133 @@
+// Package extauthz adapts Envoy's external authorization protocol onto
+// nullfield's existing decision core. It makes the same calls the HTTP proxy
+// makes; only the transport differs.
+package extauthz
+
+import (
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
+
+	authv3 "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
+
+	"github.com/babywyrm/nullfield/pkg/identity"
+	"github.com/babywyrm/nullfield/pkg/mcp"
+	"github.com/babywyrm/nullfield/pkg/policy"
+)
+
+// Translated is everything the decision core needs, extracted from one
+// CheckRequest.
+type Translated struct {
+	Policy      policy.Request
+	Attestation *identity.Attestation
+	Headers     identity.MapHeaders
+}
+
+// BodyTruncated reports whether Envoy delivered less body than the request
+// actually carried.
+//
+// `includeRequestBodyInCheck` buffers up to maxRequestBytes, and with
+// allowPartialMessage: true Envoy forwards whatever fit and lets the check
+// proceed. Authorizing on a body the arbiter cannot fully see is a bypass
+// primitive: put the dangerous arguments past the boundary and the gate approves
+// what it never read. Callers must fail closed when this returns true.
+//
+// The `size` attribute is authoritative when Envoy sets it, but it is -1 when
+// unknown and 0 when simply unpopulated, so content-length is the fallback.
+// Neither signal being available is not treated as truncation — chunked requests
+// carry no length, and denying every streamed request would be its own outage.
+func BodyTruncated(declaredSize int64, headers map[string]string, body string) bool {
+	if declaredSize > 0 {
+		return declaredSize > int64(len(body))
+	}
+	raw, ok := headers["content-length"]
+	if !ok {
+		return false
+	}
+	declared, err := strconv.Atoi(raw)
+	if err != nil {
+		return false
+	}
+	return declared > len(body)
+}
+
+// bodyOf returns the request body from whichever field Envoy populated.
+//
+// Envoy writes RawBody instead of Body when the filter sets pack_as_bytes.
+// Reading only Body would make every request under that configuration look
+// bodiless, so MCP detection would silently stop working and every tools/call
+// would be classified as ordinary wire traffic — a quiet, total loss of
+// coverage rather than a visible failure.
+func bodyOf(attrs *authv3.AttributeContext_HttpRequest) string {
+	if b := attrs.GetBody(); b != "" {
+		return b
+	}
+	return string(attrs.GetRawBody())
+}
+
+// Translate converts an Envoy CheckRequest into a policy request.
+//
+// A truncated body is an error rather than a partial result, because the caller
+// must fail closed: past the buffer boundary is exactly where something worth
+// denying would be placed.
+func Translate(req *authv3.CheckRequest) (*Translated, error) {
+	attrs := req.GetAttributes().GetRequest().GetHttp()
+	if attrs == nil {
+		return nil, fmt.Errorf("check request carries no HTTP attributes")
+	}
+
+	body := bodyOf(attrs)
+	if BodyTruncated(attrs.GetSize(), attrs.GetHeaders(), body) {
+		return nil, fmt.Errorf(
+			"request body truncated by the ext_authz buffer (declared %d bytes, received %d); refusing to decide on partial data",
+			attrs.GetSize(), len(body))
+	}
+
+	out := &Translated{
+		Headers: identity.MapHeaders(attrs.GetHeaders()),
+		Policy: policy.Request{
+			Target:    attrs.GetHost(),
+			Operation: strings.TrimSpace(attrs.GetMethod() + " " + attrs.GetPath()),
+			Transport: policy.TransportWireAPI,
+		},
+	}
+
+	if principal := req.GetAttributes().GetSource().GetPrincipal(); principal != "" {
+		if att, ok := (identity.MeshAttester{}).Attest(principal); ok {
+			out.Attestation = att
+		}
+	}
+
+	// MCP rides on JSON-RPC and is not distinguishable by URL, so detection is
+	// by parse rather than by path.
+	if tc, method, ok := parseMCPToolsCall(body); ok {
+		out.Policy.Transport = policy.TransportMCP
+		out.Policy.Method = method
+		out.Policy.ToolName = tc.Name
+		out.Policy.Arguments = tc.Arguments
+	}
+
+	return out, nil
+}
+
+// parseMCPToolsCall reports whether the body is an MCP tools/call and returns
+// its parameters. A body that is not JSON-RPC is not an error here — it is other
+// traffic the arbiter also covers.
+func parseMCPToolsCall(body string) (*mcp.ToolsCallParams, string, bool) {
+	if body == "" {
+		return nil, "", false
+	}
+	var envelope mcp.JSONRPCRequest
+	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
+		return nil, "", false
+	}
+	if envelope.Method != mcp.MethodToolsCall {
+		return nil, envelope.Method, false
+	}
+	tc, err := mcp.ParseToolsCall(&envelope)
+	if err != nil {
+		return nil, envelope.Method, false
+	}
+	return tc, envelope.Method, true
+}
