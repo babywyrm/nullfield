@@ -16,6 +16,8 @@ All notable changes to this project will be documented in this file.
 
   Verified against the target environment rather than assumed — Istio 1.30.1 in ambient mode with programmed waypoints, an `ext_authz` provider already serving for 35 days, and an Envoy AI Gateway fronting LLM egress. The architecture is proven there with a different decision engine plugged into it.
 
+  Deployment targets are recorded with their asymmetries: two k3s v1.35.5 clusters on the same Istio build, one with camazotz ambient-enrolled and one without — the latter is what makes the proxy-mode regression baseline testable rather than aspirational, and it carries a live Teleport deployment so the Teleport non-goal can be verified instead of asserted. EKS should port, since the design depends on Istio capabilities rather than distribution specifics, with four caveats: Fargate cannot run ambient at all, `istio-cni` must chain with the AWS VPC CNI, apiserver mediation must be re-answered per platform, and `ghcr.io/babywyrm/nullfield` is not anonymously pullable so EKS needs a published image or a pull secret.
+
 - **AgenticFlow least-privilege authoring layer** — new `AgenticFlow` YAML format compiles known acceptable paths into existing nullfield enforcement artifacts:
   - `cmd/nullfield-compile` emits multi-document YAML from an `AgenticFlow`
   - `pkg/flow` compiler emits `NullfieldPolicy`, `ToolRegistry`, optional `NetworkPolicy`, Istio `AuthorizationPolicy`, Cilium `CiliumNetworkPolicy`, and Linkerd `Server` / `ServerAuthorization`

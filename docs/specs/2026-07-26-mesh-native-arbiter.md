@@ -423,28 +423,83 @@ implementation plan.
 
 | Phase | Delivers | Gate to next |
 |---|---|---|
-| **1** | `pkg/extauthz` + SPIFFE identity + provenance records, observe-only, deployed on `bb` beside OPA | Decisions recorded for real traffic with correct workload identity |
+| **0** | Deploy nullfield **as it exists today** — proxy mode, sidecar — against non-ambient camazotz on `system76-pc` | Helm chart and manifests verified against a live cluster; regression baseline captured |
+| **1** | `pkg/extauthz` + SPIFFE identity + provenance records, observe-only, deployed beside OPA | Decisions recorded for real traffic with correct workload identity |
 | **2** | Grants, contract binding, assurance levels, shadow counterfactuals | Shadow diff answers "what would enforcement break" |
 | **3** | External egress: `ServiceEntry` + egress waypoint for one T1 integration (GitHub) | A non-MCP call mediated end to end |
 | **4** | AI Gateway interception of model-proposed tool calls | A dangerous proposed call denied pre-dispatch |
 | **5** | Selective enforcement per binding; upgrade-class denial | — |
 
-Phase 3 is the largest single item: no `ServiceEntry` exists on the cluster
+Phase 0 exists because building the new front door first and *then* discovering
+the existing deployment path had rotted is the expensive order to find out.
+Demo 14 exercised it once on k3s, so re-establishing it should be short, and it
+is what makes regression constraint 1 checkable rather than aspirational.
+
+Phase 3 is the largest single item: no `ServiceEntry` exists on either cluster
 today, so external SaaS egress is currently unregistered and unmediated.
+
+---
+
+## Deployment targets
+
+### Lab clusters
+
+Two k3s clusters, both v1.35.5 with the same Istio 1.30.1 `istiod` build in
+ambient mode (`ztunnel` + `istio-cni`), each with a programmed waypoint and an
+identical `envoyExtAuthzGrpc` provider already configured. Phase 1 therefore
+requires no new mesh infrastructure on either — nullfield registers as a second
+provider beside OPA.
+
+| | `bb` | `system76-pc` (NUC) |
+|---|---|---|
+| Ambient namespaces | `camazotz`, `zerotrust` | `zerotrust` |
+| camazotz | ambient-enrolled | **not** enrolled |
+| Also present | Envoy AI Gateway, Gatekeeper | Teleport, cert-manager, kubegoat, dvmcp |
+| Role | Mesh path; phase 4 AI-gateway work | Phase 0 proxy-mode baseline; Teleport reality check |
+
+The asymmetry is deliberate and worth preserving. The NUC's non-ambient camazotz
+provides a proxy-mode regression baseline in the same lab, which is what makes
+regression constraint 1 testable. Its Teleport deployment lets the Teleport
+non-goal be *verified* rather than asserted. Its long-running cert-manager is a
+candidate PKI for phase 2 grant signing.
+
+### EKS
+
+The design depends on Istio capabilities — ambient, `ext_authz`, mesh mTLS
+SPIFFE — rather than anything distribution-specific, which is the reason for not
+writing bespoke interception. It should port. Four caveats:
+
+- **Fargate cannot run ambient.** `ztunnel` and `istio-cni` are DaemonSets
+  requiring node-level access. This is architectural, not configuration.
+  Fargate workloads fall back to proxy mode at `WEAK` assurance.
+- **`istio-cni` must chain with the AWS VPC CNI.** Generally works; Security
+  Groups for Pods (branch ENIs) is a known friction area for traffic
+  redirection and needs verifying against the actual VPC CNI configuration.
+- **Apiserver mediation may differ.** Open question 3 depends on how the control
+  plane is reached, which is local on k3s and managed behind ENIs on EKS. It
+  must be answered per platform.
+- **Image distribution is a prerequisite.** `ghcr.io/babywyrm/nullfield` is not
+  anonymously pullable (unauthenticated manifest request returns 401). k3s can
+  side-load via `ctr images import`; EKS needs a published image or an
+  `imagePullSecret`. Because no git tag exists, `make docker` currently produces
+  a commit-SHA tag and `:latest`, neither of which is pinnable in a real
+  deployment.
+
+EKS also offers something the lab cannot: IRSA / EKS Pod Identity is a second,
+independent, cryptographically derived workload identity, which can corroborate
+the SPIFFE ID. It also makes T3 credential brokering tractable for AWS targets
+via STS.
+
+Sequence: NUC, then `bb`, then EKS.
 
 ---
 
 ## Verification
 
-`bb` (192.168.x.x) is the test environment: k3s, Istio 1.30.1 ambient,
-camazotz as the vulnerable target, Envoy AI Gateway for LLM egress, Gatekeeper
-for admission, and an OPA ext_authz deployment to run beside and compare
-against.
-
 Each phase must demonstrate on real traffic through a waypoint, not through
 unit-level fakes. The existing `demos/` pattern (14 numbered runnable
-walkthroughs with `test.sh`) is the vehicle; the k3s demo 14 already proves
-CRD → controller → sidecar → runtime enforcement, so the pattern extends.
+walkthroughs with `test.sh`) is the vehicle; demo 14 already proves
+CRD → controller → sidecar → runtime enforcement on k3s, so the pattern extends.
 
 Non-negotiable per phase: a demo that a reviewer can run, and a provenance
 record produced by real traffic.
@@ -487,7 +542,9 @@ Each needs an answer before the phase that depends on it.
    `AuthorizationPolicy`, and is it configurable per policy?** Blocks phase 5.
 3. **Can Kubernetes apiserver traffic be routed through a waypoint** so
    `kubectl` is mediated, given the apiserver is reached via
-   `kubernetes.default.svc`? Blocks the kubectl claim in phase 3.
+   `kubernetes.default.svc`? Blocks the kubectl claim in phase 3. Must be
+   answered **per platform**: the control plane is node-local on k3s and managed
+   behind ENIs on EKS, so a positive result in the lab does not transfer.
 4. **Does the IdP support RFC 8693 token exchange** with audience narrowing for
    the integrations that matter? Determines whether T3 is reachable per
    integration, and whether downstream attribution is ever fixable.

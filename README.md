@@ -485,6 +485,7 @@ HTTP-borne agentic traffic — Kubernetes API, GitHub, Slack, Atlassian, Grafana
 PagerDuty — because a CLI calling an API is just HTTP the mesh already sees.
 Proxy and gateway modes remain the non-mesh deployment path.
 
+- [ ] **v0.11** — Deploy the existing proxy mode against a live k3s cluster to re-verify the Helm chart and manifests and capture a regression baseline, before a second front door is added
 - [ ] **v0.12** — `ext_authz` gRPC mode: decision service behind an Istio waypoint, workload identity derived from mesh mTLS (`source.principal`) instead of a self-asserted `identity_type` claim, provenance records, observe-only
 - [ ] **v0.13** — Authority grants: initiating principal and `act` chain bound to workload identity, session, and contract version; contract binding required; assurance levels; shadow counterfactuals answering "what would enforcement break"
 - [ ] **v0.14** — External egress: `ServiceEntry` plus egress waypoint, one integration at operation-level parsing
