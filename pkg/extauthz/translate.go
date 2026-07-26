@@ -99,13 +99,6 @@ func Translate(req *authv3.CheckRequest) (*Translated, error) {
 		return nil, fmt.Errorf("check request carries no HTTP attributes")
 	}
 
-	body := bodyOf(attrs)
-	if BodyTruncated(attrs.GetSize(), attrs.GetHeaders(), body) {
-		return nil, fmt.Errorf(
-			"request body truncated by the ext_authz buffer (declared %d bytes, received %d); refusing to decide on partial data",
-			attrs.GetSize(), len(body))
-	}
-
 	out := &Translated{
 		Headers: identity.MapHeaders(attrs.GetHeaders()),
 		Policy: policy.Request{
@@ -135,6 +128,19 @@ func Translate(req *authv3.CheckRequest) (*Translated, error) {
 				out.Attestation = att
 			}
 		}
+	}
+
+	// Truncation is checked after attestation, deliberately. Identity does not
+	// come from the body, and bailing first would leave the audit trail unable
+	// to say who sent an oversized request — attribution matters most for
+	// exactly the requests that look like an attempt to get past the buffer.
+	// The Translated is returned alongside the error so the caller can record
+	// provenance for something it is refusing to decide.
+	body := bodyOf(attrs)
+	if BodyTruncated(attrs.GetSize(), attrs.GetHeaders(), body) {
+		return out, fmt.Errorf(
+			"request body truncated by the ext_authz buffer (declared %d bytes, received %d); refusing to decide on partial data",
+			attrs.GetSize(), len(body))
 	}
 
 	// MCP rides on JSON-RPC and is not distinguishable by URL, so detection is

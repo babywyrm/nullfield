@@ -115,7 +115,7 @@ func (s *Server) Check(ctx context.Context, req *authv3.CheckRequest) (*authv3.C
 	if err != nil {
 		// The only translation failures are an absent HTTP context and a
 		// truncated body. Both mean we cannot see what we would be authorizing.
-		s.emit(ctx, audit.Event{
+		event := audit.Event{
 			Type:           audit.EventArbiterDecision,
 			Gate:           "translate",
 			ReasonClass:    "body_truncated",
@@ -123,7 +123,18 @@ func (s *Server) Check(ctx context.Context, req *authv3.CheckRequest) (*authv3.C
 			Attester:       identity.AttesterNone,
 			Assurance:      AssuranceNone,
 			Counterfactual: "DENY",
-		})
+		}
+		// Attribution still applies to a request we are refusing to decide, and
+		// it matters more here than on an ordinary allow.
+		if translated != nil {
+			event.Target = translated.Policy.Target
+			event.WorkloadPrincipal = translated.RawPrincipal
+			if translated.Attestation != nil {
+				event.Attester = translated.Attestation.Attester
+				event.Assurance = AssuranceAttested
+			}
+		}
+		s.emit(ctx, event)
 		return Respond(s.mode, policy.Decision{Allowed: false, Reason: err.Error()}), nil
 	}
 

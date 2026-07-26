@@ -166,13 +166,32 @@ spec:
 # Point a waypoint at the provider. This selects nothing by itself; it becomes
 # active only once an AuthorizationPolicy names it.
 #
-# allowPartialMessage is false, deliberately unlike the reference OPA provider:
-# a body the arbiter cannot fully read must fail closed rather than be authorized
-# on whichever fraction fit inside maxRequestBytes.
+# allowPartialMessage MUST match the mode. This is not a preference, and getting
+# it wrong fails in opposite directions:
+#
+#   observe/no-op -> true.  With false, Envoy rejects any request whose body
+#                           exceeds maxRequestBytes with a 413 *before* calling
+#                           the check. nullfield never sees it and cannot
+#                           observe it, yet the traffic is broken — so a rollout
+#                           declared read-only starts failing large requests.
+#                           Measured, not theorised. With true, Envoy forwards
+#                           what fit plus x-envoy-auth-partial-body, and
+#                           nullfield records a body_truncated counterfactual
+#                           without touching the response.
+#
+#   enforce       -> false. Envoy fails closed at the proxy, which is stronger
+#                           than nullfield denying after the fact, and the
+#                           in-process truncation guard remains as defence in
+#                           depth for anyone who sets true here anyway.
+#
+# The reference OPA provider in this mesh runs true while enforcing, which is
+# the live bypass: a decision gets rendered on the first 8k of a 20k body.
 #
 # Apply by editing the istio ConfigMap under data.mesh.extensionProviders — this
 # block is the fragment to add, not a standalone resource. Keep any existing
-# providers in place.
+# providers in place. Note that Istio drops a second CUSTOM provider unless
+# istiod runs with PILOT_ENABLE_MULTIPLE_CUSTOM_AUTHZ_PROVIDERS=true; without it
+# the incumbent decides alone and nothing says so.
 #
 #   - name: nullfield-ext-authz
 #     envoyExtAuthzGrpc:
@@ -180,7 +199,7 @@ spec:
 #       port: 9191
 #       includeRequestBodyInCheck:
 #         maxRequestBytes: 8192
-#         allowPartialMessage: false
+#         allowPartialMessage: true   # observe; set false when enforcing
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy

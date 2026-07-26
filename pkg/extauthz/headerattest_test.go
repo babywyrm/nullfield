@@ -52,6 +52,38 @@ func TestThePeerCertificateOutranksTheHeader(t *testing.T) {
 	}
 }
 
+func TestATruncatedRequestIsStillAttributedToItsCaller(t *testing.T) {
+	// Attribution matters most for exactly the requests that look like an
+	// attempt to place arguments past the buffer boundary. Refusing to decide
+	// must not also mean refusing to say who asked.
+	req := checkRequest("", "{}", map[string]string{
+		identity.PeerPrincipalHeader: spiffeDefault,
+	})
+	req.Attributes.Request.Http.Size = 20109
+
+	s, eng, rec := newServer(ModeObserve, policy.Decision{Allowed: true})
+	if _, err := s.Check(context.Background(), req); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if eng.calls != 0 {
+		t.Errorf("engine consulted %d times on a body we cannot read; want 0", eng.calls)
+	}
+
+	e := rec.events[0]
+	if e.ReasonClass != "body_truncated" {
+		t.Fatalf("reason_class = %q, want body_truncated", e.ReasonClass)
+	}
+	if e.WorkloadPrincipal != spiffeDefault {
+		t.Errorf("principal = %q, want the caller recorded", e.WorkloadPrincipal)
+	}
+	if e.Attester != identity.AttesterMeshHeader {
+		t.Errorf("attester = %q, want %q", e.Attester, identity.AttesterMeshHeader)
+	}
+	if e.Assurance != AssuranceAttested {
+		t.Errorf("assurance = %q, want %q", e.Assurance, AssuranceAttested)
+	}
+}
+
 func TestAGarbageHeaderDoesNotProduceAnAttestation(t *testing.T) {
 	got, err := Translate(checkRequest("", toolsCallBody, map[string]string{
 		identity.PeerPrincipalHeader: "not-a-spiffe-id",

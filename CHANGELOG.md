@@ -34,6 +34,10 @@ All notable changes to this project will be documented in this file.
 
 ### Known limits
 
+- **`allowPartialMessage` must match the mode, or observe mode breaks traffic** — measured. With `allowPartialMessage: false`, Envoy rejects any body exceeding `maxRequestBytes` with a 413 *before* calling the check: nullfield never sees the request and cannot observe it, yet the traffic is already broken. A rollout declared read-only starts failing large requests. Observe and no-op therefore require `true`, where Envoy forwards what fit plus `x-envoy-auth-partial-body` and nullfield records a `body_truncated` counterfactual without touching the response. Enforce should use `false`, since failing closed at the proxy is stronger than denying after the fact, with the in-process guard remaining as defence in depth.
+
+  The reference OPA provider in the test mesh runs `true` while enforcing, which is the live bypass this guard exists for: confirmed on real traffic, OPA rendered a decision having seen 8192 bytes of a 20109-byte request.
+
 - **Deploying beside an existing provider needs a feature flag** — Istio rejects multiple `CUSTOM` authorization providers per workload unless `PILOT_ENABLE_MULTIPLE_CUSTOM_AUTHZ_PROVIDERS` is set on istiod. Without it the second policy is silently dropped and the incumbent decides alone.
 
 - **`CUSTOM` policies must name the waypoint in `targetRefs`** — an unbound policy in ambient mode attaches to ztunnel, which is L4 only. The policy is accepted, reports healthy, and never fires.
