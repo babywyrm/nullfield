@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Design: mesh-native arbiter** (`docs/specs/2026-07-26-mesh-native-arbiter.md`) — nullfield becomes a policy *decision* point reached through the service mesh rather than a proxy agents must be configured to use. No code yet; the spec, roadmap, and known limits are recorded first.
+
+  Three shifts. nullfield speaks `ext_authz` gRPC behind an Istio waypoint, so the mesh performs interception and nullfield decides — which extends coverage from MCP JSON-RPC to any HTTP-borne agentic traffic, since a CLI calling an API is just HTTP the mesh already sees. Workload identity is derived from mesh mTLS (`source.principal`) instead of the self-asserted `identity_type` claim, whose `openid`-scope fallback can classify a delegated agent as the human it acts for. And an `AgenticFlow` binding becomes required, making the contract the unit of authorization rather than the individual rule.
+
+  The decision core needs no rewrite: `pkg/policy` already exposes a single `Evaluate(ctx, Request) Decision` interface and imports no `net/http`, as do `pkg/registry`, `pkg/budget`, and `pkg/circuit`. `ext_authz` is an adapter onto the same four calls `pkg/proxy/handler.go` already makes. Proxy and gateway modes remain the non-mesh deployment path.
+
+  Recorded as known limits rather than future work, because they are properties of the approach: connection upgrades (`kubectl exec`, streaming MCP over SSE) are authorized once and then invisible; shared workers cap attribution, which is why decisions carry an assurance level instead of an unqualified claim; and attribution stops at the mesh boundary until credentials are brokered per principal.
+
+  Verified against the target environment rather than assumed — Istio 1.30.1 in ambient mode with programmed waypoints, an `ext_authz` provider already serving for 35 days, and an Envoy AI Gateway fronting LLM egress. The architecture is proven there with a different decision engine plugged into it.
+
 - **AgenticFlow least-privilege authoring layer** — new `AgenticFlow` YAML format compiles known acceptable paths into existing nullfield enforcement artifacts:
   - `cmd/nullfield-compile` emits multi-document YAML from an `AgenticFlow`
   - `pkg/flow` compiler emits `NullfieldPolicy`, `ToolRegistry`, optional `NetworkPolicy`, Istio `AuthorizationPolicy`, Cilium `CiliumNetworkPolicy`, and Linkerd `Server` / `ServerAuthorization`
@@ -23,6 +33,10 @@ All notable changes to this project will be documented in this file.
 - `go test ./...`
 - `go run ./cmd/nullfield-compile examples/agentic-flow.yaml`
 - NUC k3s: `bash demos/14-agentic-flow-kubernetes/test.sh camazotz` verifies live CRD reconciliation and runtime MCP enforcement through a nullfield sidecar
+
+### Documented
+
+- **`includeRequestBodyInCheck` truncation is a bypass, not a tuning knob.** The reference `ext_authz` configuration pairs `maxRequestBytes: 8192` with `allowPartialMessage: true`, so a body larger than the limit yields an authorization decision rendered on data the arbiter cannot see. The design spec requires `allowPartialMessage: false` so oversized bodies fail closed. This applies to any existing ext_authz deployment, independent of this work.
 
 ### Changed
 

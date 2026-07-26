@@ -473,15 +473,53 @@ nullfield/
 
 - [ ] **v0.11** — Apply generated network/mesh artifacts from AgenticFlow through an explicit, previewable reconciler mode
 - [ ] **v0.11** — Full credential runtime demos: Vault/K8s Secret/OAuth-style credential paths with proof that credentials attach only to declared tool actions
-- [ ] **v1.0** — Transparent iptables-based proxy (Istio-style), production hardening, ext_authz gRPC mode
+
+### Next — mesh-native arbiter
+
+Design: [`docs/specs/2026-07-26-mesh-native-arbiter.md`](docs/specs/2026-07-26-mesh-native-arbiter.md).
+
+nullfield becomes a policy *decision* point reached through the service mesh,
+rather than a proxy agents must be configured to use. The mesh performs
+interception; nullfield decides. This extends coverage from MCP JSON-RPC to any
+HTTP-borne agentic traffic — Kubernetes API, GitHub, Slack, Atlassian, Grafana,
+PagerDuty — because a CLI calling an API is just HTTP the mesh already sees.
+Proxy and gateway modes remain the non-mesh deployment path.
+
+- [ ] **v0.12** — `ext_authz` gRPC mode: decision service behind an Istio waypoint, workload identity derived from mesh mTLS (`source.principal`) instead of a self-asserted `identity_type` claim, provenance records, observe-only
+- [ ] **v0.13** — Authority grants: initiating principal and `act` chain bound to workload identity, session, and contract version; contract binding required; assurance levels; shadow counterfactuals answering "what would enforcement break"
+- [ ] **v0.14** — External egress: `ServiceEntry` plus egress waypoint, one integration at operation-level parsing
+- [ ] **v0.15** — AI Gateway interception of model-proposed tool calls, before an agent framework dispatches them; consumes stoneburner `atomics toolcall` divergence data as a policy input
+- [ ] **v1.0** — Selective enforcement per binding, connection-upgrade capability class, production hardening
 
 ### Future
 
+- [ ] `ext_proc` mode for SCOPE and response inspection over the mesh (`ext_authz` cannot mutate bodies or observe responses)
+- [ ] Resource-level contract scoping (repository, channel, project, namespace) — required to fully close the confused-deputy case
+- [ ] Forbidden-combination contracts: catching exfiltration composed from individually-authorized calls
+- [ ] Credential brokering, so agents hold no credentials at all
+- [ ] Transparent iptables-based proxy for non-mesh clusters
 - [ ] WASM filter compilation for Envoy (in-process, zero-sidecar)
 - [ ] OPA/Rego policy engine as alternative to first-match rules
 - [ ] Multi-cluster federation (shared policy, distributed audit)
 - [ ] Terraform/Pulumi modules for cloud deployment (ECS, Lambda, Cloud Run)
 - [ ] SDK/middleware for in-process agent frameworks (LangChain, CrewAI, AutoGen)
+
+### Known limits
+
+Stated because they are properties of the approach, not backlog items. Detail in
+the [design spec](docs/specs/2026-07-26-mesh-native-arbiter.md).
+
+- **Authorizing a connection is not authorizing its contents.** `kubectl exec`,
+  `port-forward`, streaming MCP over SSE, and WebSockets are authorized once at
+  upgrade; traffic inside them is not visible to per-request mediation.
+- **Shared workers cap attribution.** One process serving several principals must
+  propagate a per-request grant, and a compromised agent can substitute one.
+  Recorded as an assurance level rather than claimed as strong attribution.
+- **Attribution stops at the mesh boundary.** Until credentials are brokered per
+  principal, the downstream system's own audit log still shows the shared
+  identity.
+- **Non-network work is out of reach.** Subprocess activity that never touches
+  the network is not mediated by any network-level arbiter.
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 See [docs/implementation-guide.md](docs/implementation-guide.md) for cluster adoption guide.

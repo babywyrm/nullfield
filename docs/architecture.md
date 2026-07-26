@@ -2,6 +2,14 @@
 
 How nullfield works internally: the request lifecycle, the decision chain, and what each package is responsible for.
 
+> **Direction of travel.** This document describes proxy mode, which is how
+> nullfield is deployed today and remains the non-mesh deployment path. A second
+> front door is designed in
+> [`specs/2026-07-26-mesh-native-arbiter.md`](specs/2026-07-26-mesh-native-arbiter.md):
+> nullfield as an `ext_authz` decision service behind a service-mesh waypoint,
+> with workload identity derived from mesh mTLS. The decision chain below is
+> unchanged by that work — only what calls it changes.
+
 ---
 
 ## Request Lifecycle
