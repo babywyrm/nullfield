@@ -26,6 +26,14 @@ const (
 	EventInspectionRedact  EventType = "inspection.redact"
 	EventToolDrift         EventType = "tool.drift"
 	EventToolRugPull       EventType = "tool.rug_pull"
+
+	// EventArbiterDecision is a decision reached by the ext_authz decision
+	// service. It is deliberately distinct from tool.allowed and tool.denied,
+	// which the proxy emits for calls it actually allowed or blocked: in observe
+	// mode the arbiter reaches a verdict without applying it, and reporting that
+	// as tool.denied would tell every dashboard traffic was blocked when none
+	// was. Whether the verdict was applied is the Counterfactual field.
+	EventArbiterDecision EventType = "arbiter.decision"
 )
 
 type Event struct {
@@ -46,7 +54,17 @@ type Event struct {
 	Reason      string            `json:"reason,omitempty"`
 	Error       string            `json:"error,omitempty"`
 	Args        map[string]any    `json:"args,omitempty"`
-	Time        time.Time         `json:"timestamp"`
+
+	// Provenance. Empty in proxy mode, where there is no mesh-attested peer, so
+	// existing events serialize byte-identically and current consumers see no
+	// new keys.
+	WorkloadPrincipal string `json:"workload_principal,omitempty"`
+	Attester          string `json:"attester,omitempty"`
+	Assurance         string `json:"assurance,omitempty"`
+	Transport         string `json:"transport,omitempty"`
+	Counterfactual    string `json:"counterfactual,omitempty"`
+
+	Time time.Time `json:"timestamp"`
 }
 
 // Emitter sends audit events to a sink.
