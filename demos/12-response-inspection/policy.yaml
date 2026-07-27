@@ -1,0 +1,38 @@
+# Inspection is per-rule, not global. Three ALLOW rules for three tools that
+# all reach the same upstream, differing only in what they do with what comes
+# back. That difference is the demo.
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: demo-12-inspection
+spec:
+  rules:
+    - id: report-redact
+      action: ALLOW
+      mcpMethod: tools/call
+      toolNames: ["report.fetch"]
+      inspection:
+        enabled: true
+        onFinding: REDACT
+
+    - id: export-deny
+      action: ALLOW
+      mcpMethod: tools/call
+      toolNames: ["export.dump"]
+      inspection:
+        enabled: true
+        onFinding: DENY
+
+    # The negative control. Same upstream, same content coming back, no
+    # inspection block. Without this the demo could not show that inspection is
+    # something a rule opts into rather than something the proxy always does.
+    - id: passthrough-no-inspection
+      action: ALLOW
+      mcpMethod: tools/call
+      toolNames: ["debug.echo"]
+
+    - id: default-deny
+      action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      reason: "not granted by policy"

@@ -1,0 +1,19 @@
+apiVersion: nullfield.io/v1alpha1
+kind: ToolRegistry
+metadata:
+  name: demo-12-tools
+tools:
+  - name: report.fetch
+    description: Fetch a report, whose contents are inspected and redacted
+    allowedScopes: ["reports:read"]
+    maxCallsPerMinute: 60
+
+  - name: export.dump
+    description: Export a dataset, blocked outright if anything sensitive is found
+    allowedScopes: ["reports:read"]
+    maxCallsPerMinute: 60
+
+  - name: debug.echo
+    description: Reflects its arguments with no inspection, as a control
+    allowedScopes: ["debug:read"]
+    maxCallsPerMinute: 60

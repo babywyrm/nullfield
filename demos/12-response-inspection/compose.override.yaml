@@ -1,0 +1,5 @@
+services:
+  nullfield:
+    volumes:
+      - ./demos/12-response-inspection/tools.yaml:/etc/nullfield/tools.yaml:ro
+      - ./demos/12-response-inspection/policy.yaml:/etc/nullfield/policy.yaml:ro
