@@ -1,117 +1,119 @@
-# Demo 03: Anomaly Detection
+# Demo 03 — Anomaly Detection
 
-Detect and respond to suspicious patterns in MCP tool call traffic: session binding violations, token replay, and tool call velocity spikes.
-
-## Patterns covered
-
-### 1. Session binding violation
-
-When `integrity.bindToSession: true`, nullfield tracks which identity is associated with each MCP session. If the identity changes mid-session, the request is rejected.
-
-**How to trigger:**
+Policy answers "may you." These three answer something else: is this the same
+caller, is this the same token, and is this a normal rate. They catch a caller
+misbehaving rather than a caller asking for something it was never granted.
 
 ```bash
-# Start a session with one identity
-curl -s -X POST http://localhost:9090/mcp \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $(cat demos/02-jwt-identity-tracking/human-token.txt)" \
-  -H "Mcp-Session-Id: session-123" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"cost.check_usage","arguments":{}}}'
-
-# Then try to use the same session with a different identity
-curl -s -X POST http://localhost:9090/mcp \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $(cat demos/02-jwt-identity-tracking/agent-token.txt)" \
-  -H "Mcp-Session-Id: session-123" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cost.check_usage","arguments":{}}}'
+demos/03-anomaly-detection/test.sh
 ```
 
-**Expected:** Second request rejected with `-32001` "integrity check failed: identity changed mid-session."
+Tier 1, Docker Compose plus openssl and python3. Gated in CI. The demo mints
+its own throwaway keypair and tokens; it does not borrow demo 02's.
 
-**What this catches:** An LLM or intermediate agent swapping out the caller context to escalate privileges.
+## Session binding
 
-### 2. Token replay
+The first identity to use a session id owns it. A second one is refused —
+`-32001`, an identity failure rather than a policy denial.
 
-When `integrity.detectReplay: true`, nullfield tracks the JTI (JWT ID) of each token. If the same JTI appears twice, the second request is rejected.
+Worth being precise about what is being caught. Mallory's token in this demo is
+completely valid: correctly signed, unexpired, right issuer, right audience. It
+is refused for being the wrong principal on someone else's session. That is a
+stolen-session-id defence, not a bad-token defence, and demo 02 covers the
+other one.
 
-**How to trigger:**
+## Replay detection
 
-```bash
-TOKEN=$(cat demos/02-jwt-identity-tracking/human-token.txt)
+Keyed on the `jti` claim. A token whose `jti` has been seen is refused.
 
-# First use — allowed
-curl -s -X POST http://localhost:9090/mcp \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"cost.check_usage","arguments":{}}}'
+**This makes tokens single-use.** With `detectReplay: true`, a client cannot
+reuse one token across calls — it needs a fresh one per request, and the demo's
+token generator mints them that way. That is the feature working as designed,
+and also why it is not on by default. Turning it on against a client that
+caches its token will refuse every call after the first.
 
-# Same token again — rejected (same JTI)
-curl -s -X POST http://localhost:9090/mcp \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"cost.check_usage","arguments":{}}}'
+### The blind spot
+
+`ReplayDetector.Check` returns nil when `jti` is empty:
+
+```go
+// Empty JTIs are allowed (not all tokens have them).
+if jti == "" {
+    return nil
+}
 ```
 
-**Expected:** Second request rejected with `-32001` "integrity check failed: token replay detected."
+So a token with no `jti` is never checked, and nothing warns. An IdP that does
+not mint `jti` claims silently disables the whole feature — you would have
+`detectReplay: true` in your policy, no errors anywhere, and no replay
+detection. The test asserts this gap explicitly, and is written to fail if it
+is ever closed.
 
-**What this catches:** Captured tokens being reused by an attacker or a compromised agent.
+## Velocity
 
-### 3. Velocity spike (requires anomaly config)
+A sliding one-minute window per subject. Over the threshold, the tracker
+alerts; with `alertAction: DENY` the call is refused with `-32004`.
 
-When anomaly detection is enabled, nullfield tracks the rate of tool calls per identity. If the rate exceeds the threshold, an alert is emitted.
-
-**Policy:** Use the included `demos/03-anomaly-detection/policy.yaml` which has anomaly + integrity already configured:
-
-```bash
-export NULLFIELD_POLICY_PATH=demos/03-anomaly-detection/policy.yaml
+```yaml
+anomaly:
+  enabled: true
+  velocity:
+    threshold: 8
+    alertAction: DENY
 ```
 
-**How to trigger:**
+The test pins the exact call that trips — the 9th, against a threshold of 8 —
+so a silently changed threshold fails here rather than passing vaguely.
 
-```bash
-TOKEN=$(cat demos/02-jwt-identity-tracking/human-token.txt)
-for i in $(seq 1 10); do
-  curl -s -X POST http://localhost:9090/mcp \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $TOKEN" \
-    -d "{\"jsonrpc\":\"2.0\",\"id\":$i,\"method\":\"tools/call\",\"params\":{\"name\":\"cost.check_usage\",\"arguments\":{}}}" &
-done
-wait
+Two things in this demo exist only to make that assertion mean something. The
+registry sets `maxCallsPerMinute: 600` and the circuit breaker allows 100 calls
+per session, both far above the burst, so neither can be what refuses it. Each
+call in the burst also uses a fresh token and its own session id, so replay
+detection and session binding cannot either. What is left is the velocity
+tracker.
+
+Note that it keys on the **subject**, not the session. Spreading a burst across
+sessions does not evade it; using a different identity does.
+
+## The three are independent
+
+| Detection | Config | Refusal | Keyed on |
+|---|---|---|---|
+| Session binding | `integrity.bindToSession` | `-32001` | session id → subject |
+| Replay | `integrity.detectReplay` | `-32001` | `jti` |
+| Velocity | `anomaly.velocity` | `-32004` | subject |
+
+Each is opt-in on its own. The audit trail separates them: velocity alerts
+carry `"gate":"anomaly"` and a `velocity_limit` reason class, integrity
+failures are logged as integrity failures.
+
+## What the test asserts
+
+```
+a session belongs to whoever opened it:
+  ok:  the first caller on a session id is accepted
+  ok:  a valid token for a different subject is refused on that session
+  ok:  and the same caller is fine on a session of its own
+
+a token is good once:
+  ok:  reusing a token that has already been seen is refused
+  ok:  a fresh token for the same subject still works
+  note: detectReplay makes tokens single-use, so callers must mint one per request
+
+what replay detection does not catch:
+  gap: a token with no jti claim is never replay-checked, and nothing warns
+
+an unusual rate is caught even when every call is permitted:
+  ok:  a subject over the velocity threshold is refused with -32004
+  ok:  on the call after the threshold, not sooner or later
+
+the audit trail distinguishes the three:
+  ok:  velocity alerts are recorded against the anomaly gate
+  ok:  with a reason class of their own
+  ok:  and integrity failures are logged separately
 ```
 
-**Expected:** After the 5th call in a minute, audit log shows `anomaly.velocity` events.
+## Related
 
-**What this catches:** Runaway agent loops, automated abuse, compromised credentials being used at scale.
-
-## Audit log patterns
-
-Check the nullfield logs for these event types:
-
-```bash
-# Session binding violations
-kubectl -n camazotz logs -l app=brain-gateway -c nullfield | grep "identity.failed"
-
-# Velocity alerts
-kubectl -n camazotz logs -l app=brain-gateway -c nullfield | grep "anomaly.velocity"
-
-# All denials
-kubectl -n camazotz logs -l app=brain-gateway -c nullfield | grep "tool.denied"
-```
-
-## Prerequisites
-
-- Complete Demo 02 first (generates the test keys and tokens)
-- nullfield running with this demo's policy:
-
-```bash
-export NULLFIELD_POLICY_PATH=demos/03-anomaly-detection/policy.yaml
-export NULLFIELD_REGISTRY_PATH=examples/tools.yaml
-./bin/nullfield
-```
-
-## Key files
-
-- `demos/03-anomaly-detection/policy.yaml` — anomaly + integrity + velocity config
-- `demos/02-jwt-identity-tracking/policy.yaml` — identity-only config (no anomaly)
-- `docs/identity-policy.md` — full configuration guide
-- `docs/observability.md` — metrics and monitoring
+- Demo 02 covers token verification itself, which all of this sits on top of.
+- Demo 01 covers the registry and circuit breaker gates held out of the way here.

@@ -1,41 +1,50 @@
 apiVersion: nullfield.io/v1alpha1
 kind: NullfieldPolicy
 metadata:
-  name: anomaly-demo
+  name: demo-03-anomaly
 spec:
-  rules:
-    - action: ALLOW
-      mcpMethod: tools/call
-      toolNames:
-        - github_create_pr
-        - jira_get_issue
-        - pagerduty_resolve
-      requireIdentity: true
-      maxCallsPerMinute: 30
+  identity:
+    enabled: true
+    providers:
+      - name: test-idp
+        issuer: "nullfield-test"
+        jwksUri: "http://jwks:8888/jwks.json"
+        audiences: ["nullfield"]
+        clockSkew: "30s"
 
-    - action: DENY
-      mcpMethod: tools/call
-      toolNames: ["*"]
-
-  circuitBreaker:
-    maxToolCallsPerSession: 50
-    maxSessionDuration: 120s
-    onTrip: KILL_POD
-
+  # Both are opt-in and independent. detectReplay in particular changes the
+  # contract with callers -- see the README -- so it is not on by default.
   integrity:
+    enabled: true
     bindToSession: true
     detectReplay: true
 
   anomaly:
     enabled: true
     velocity:
-      threshold: 5
-      alertAction: LOG
-    sequences:
-      - name: recon-then-exfil
-        pattern: ["jira_search", "github_get_file", "github_create_pr"]
-        action: DENY
-        reason: "suspicious recon-to-exfil sequence"
+      threshold: 8
+      alertAction: DENY
+
+  rules:
+    - id: allow-read-only
+      action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - cost.check_usage
+        - audit.list_actions
+      requireIdentity: true
+
+    - id: default-deny
+      action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      reason: "not granted by policy"
+
+  # Well above the velocity threshold, so the breaker cannot be what refuses a
+  # burst. Otherwise the velocity assertion would pass for the wrong reason.
+  circuitBreaker:
+    maxToolCallsPerSession: 100
+    maxSessionDuration: 300s
 
   audit:
     logLevel: FULL

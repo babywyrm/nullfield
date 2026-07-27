@@ -1,0 +1,16 @@
+apiVersion: nullfield.io/v1alpha1
+kind: ToolRegistry
+metadata:
+  name: demo-03-tools
+tools:
+  - name: cost.check_usage
+    description: Read spend for the current account
+    allowedScopes: ["billing:read"]
+    # High enough that the per-tool registry limit is never what refuses a
+    # burst -- the velocity tracker has to be the thing that does.
+    maxCallsPerMinute: 600
+
+  - name: audit.list_actions
+    description: List recent actions from the audit trail
+    allowedScopes: ["audit:read"]
+    maxCallsPerMinute: 600

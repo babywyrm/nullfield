@@ -1,0 +1,13 @@
+services:
+  jwks:
+    image: busybox:1.36
+    command: ["httpd", "-f", "-p", "8888", "-h", "/www"]
+    volumes:
+      - ./demos/03-anomaly-detection/.generated:/www:ro
+
+  nullfield:
+    depends_on:
+      - jwks
+    volumes:
+      - ./demos/03-anomaly-detection/tools.yaml:/etc/nullfield/tools.yaml:ro
+      - ./demos/03-anomaly-detection/policy.yaml:/etc/nullfield/policy.yaml:ro
