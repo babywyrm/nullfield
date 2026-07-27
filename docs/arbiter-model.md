@@ -104,6 +104,7 @@ Standard JSON-RPC 2.0 application-defined error codes:
 | -32004 | ErrCodeRateLimited | Budget exhausted or velocity limit exceeded |
 | -32005 | ErrCodeHoldTimeout | HOLD timed out without approval |
 | -32006 | ErrCodeScopeViolation | SCOPE could not safely modify the request |
+| -32007 | ErrCodeInspectionViolation | Response inspection finding triggered DENY |
 
 ---
 

@@ -54,7 +54,11 @@ All notable changes to this project will be documented in this file.
 
 - **The flows are drawn, not only described.** `docs/diagrams/traffic-flow.md` gains the ambient profile, which was the one deployment shape missing from a file whose job is to have all of them. `docs/diagrams/policy-eval.md` gains the two entries into the chain and what each runs. A new `docs/diagrams/mesh-arbiter.md` covers the three things that took measurement to learn: where the caller's identity actually lives, how the three modes diverge, and what happens at the buffer boundary. The spec gains the funnel and the confused-deputy diagrams, having had none in 550 lines.
 
-- **Roadmap corrected.** v0.11 and v0.12 are complete. Recorded against v0.12: identity does not arrive as `source.principal` as the roadmap assumed, and the entry now says so rather than reading as though the plan went to plan.
+- **Roadmap corrected, and moved to [`ROADMAP.md`](ROADMAP.md).** v0.11 and v0.12 are complete. Recorded against v0.12: identity does not arrive as `source.principal` as the roadmap assumed, and the entry now says so rather than reading as though the plan went to plan.
+
+- **README cut from 3,500 words to under 900.** It had accumulated into a reference manual: a roadmap and a directory tree took 41% of it, and the five actions, the policy and registry YAML, and the error codes were each duplicated from `docs/arbiter-model.md` — where the canonical copies had since drifted ahead. What a newcomer needs is a paragraph on what this is, one command that runs, the four deployment shapes, and a routed index; that is what remains. The environment variables moved to a new [`docs/configuration.md`](docs/configuration.md), which also documents the `ext_authz` binary's settings and the port map for the first time. The directory tree is gone rather than relocated: `docs/architecture.md` already carries a package table, and the tree was stale in both directions — it advertised twelve demos against sixteen on disk and listed seven of the eleven files in `docs/`.
+
+  Two stale claims fixed on the way. `-32007` was documented in the README but missing from the error table in `arbiter-model.md`, so the file everything now points to was the incomplete one. The `docs/plans/` scrub had left `make build` and the standalone `docker run` invocation with no home anywhere in the repository once they came out of the README; both are back, under a collapsed section, and every command in the new README was checked against the Makefile rather than copied forward.
 
 ### Fixed
 
