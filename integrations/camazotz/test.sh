@@ -38,7 +38,12 @@ check "initialize returns server info" "camazotz" "$resp"
 
 resp=$(post '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}')
 count=$(echo "$resp" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['result']['tools']))" 2>/dev/null || echo "0")
-check "tools/list returns 139 tools" "139" "$count"
+# Against the registry rather than a literal. A hardcoded count is only true
+# until camazotz ships a tool, and a stale one fails at the door.
+registry_count=$(python3 -c "
+import yaml
+print(len(yaml.safe_load(open('$(dirname "$0")/tools.yaml')).get('tools', [])))" 2>/dev/null || echo "0")
+check "tools/list matches the registry ($registry_count tools)" "$registry_count" "$count"
 
 echo ""
 echo "[tier 1 — read-only tools ALLOWED]"

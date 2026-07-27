@@ -108,11 +108,30 @@ tool_count=$(curl -s -X POST "$BASE" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":0,"method":"tools/list","params":{}}' \
   | python3 -c "import sys,json; print(len(json.load(sys.stdin)['result']['tools']))" 2>/dev/null)
-if [ "$tool_count" = "57" ]; then
-  echo "  ✓ tools/list: $tool_count tools"
+
+# This used to demand exactly 57, a number true of camazotz on the day it was
+# written and of nothing since. The gateway now exposes 139 and the preflight
+# failed at the door, so nobody reached the scenarios below.
+#
+# The count that matters is not a constant, it is whether the registry nullfield
+# enforces still describes the gateway in front of it. Compare against
+# tools.yaml, which sync-tools.sh keeps in step, and say which way they drifted.
+registry_count=$(python3 -c "
+import yaml
+print(len(yaml.safe_load(open('$(dirname "$0")/tools.yaml')).get('tools', [])))" 2>/dev/null)
+
+if [ -z "$tool_count" ]; then
+  echo "  ✗ tools/list: no parseable response from the gateway"
+  FAIL=$((FAIL + 1))
+elif [ -z "$registry_count" ]; then
+  echo "  ✗ tools/list: could not read tools.yaml to compare against"
+  FAIL=$((FAIL + 1))
+elif [ "$tool_count" = "$registry_count" ]; then
+  echo "  ✓ tools/list: $tool_count tools, matching the registry"
   PASS=$((PASS + 1))
 else
-  echo "  ✗ tools/list: expected 57, got $tool_count"
+  echo "  ✗ tools/list: gateway exposes $tool_count tools, registry describes $registry_count"
+  echo "    run sync-tools.sh -- an unregistered tool is refused before policy is consulted"
   FAIL=$((FAIL + 1))
 fi
 

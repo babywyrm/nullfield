@@ -2,7 +2,7 @@
 
 Test nullfield against [camazotz](https://github.com/babywyrm/camazotz), a vulnerable-by-design MCP security training platform with **52 lab modules** mapped to OWASP MCP Top 10 and the MCP Red Team Playbook.
 
-The bundled `policy.yaml` and `tools.yaml` cover all **139 tools** exposed by camazotz's `tools/list` (verified 2026-06-19 against the local Docker Compose deployment with [`sync-tools.sh`](sync-tools.sh)). 57 read-only tools land in tier 1 (ALLOW, 60 calls/min), 55 write/action tools in tier 2 (ALLOW, 20 calls/min), and 26 high-risk tools in tier 3 (DENY). Anything not on this list falls under the trailing `*` default-deny rule.
+The bundled `policy.yaml` and `tools.yaml` cover all **139 tools** exposed by camazotz's `tools/list` (verified 2026-06-19 against the local Docker Compose deployment with [`sync-tools.sh`](sync-tools.sh)). 57 read-only tools land in tier 1 (ALLOW, 60 calls/min), 55 write/action tools in tier 2 (ALLOW, 20 calls/min), and 27 high-risk tools in tier 3 (DENY). 57 + 55 + 27 accounts for every registered tool, with nothing named in the policy that the registry does not describe. Anything outside that set falls under the trailing `*` default-deny rule.
 
 ## Prerequisites
 
@@ -30,7 +30,7 @@ in-sync 2026-06-19):
 |------|--------|-------|------------|-----------|
 | 1 | ALLOW | 57 read-only tools (list, check, read, recall, inspect, get, show, simulate) | 60/min | Safe operations — no state mutation, no credential exposure |
 | 2 | ALLOW | 55 write/action tools (send, issue, invoke, store, submit, delegate, access) | 20/min | State-changing but not inherently dangerous |
-| 3 | DENY | 26 high-risk tools | blocked | SSRF, exfiltration, supply chain, rug pull, prompt injection, shadow webhook, unvalidated plan execution, identity replay, role escalation, subprocess execution, policy mutation, DoS, KB poisoning, shell exec |
+| 3 | DENY | 27 high-risk tools | blocked | SSRF, exfiltration, supply chain, rug pull, prompt injection, shadow webhook, unvalidated plan execution, identity replay, role escalation, subprocess execution, policy mutation, DoS, KB poisoning, shell exec |
 
 ### Tier 3 (blocked) tools
 
