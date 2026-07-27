@@ -14,3 +14,12 @@ NULLFIELD_SUBSTRATE="k3s 1.34 / Istio 1.30.1 ambient" ./demos/run.sh --tier 3 --
 
 | Date | Demo | Tier | Result | Substrate |
 |---|---|---|---|---|
+| 2026-07-27 | 01-basic-tool-filtering | 1 | PASS | unspecified |
+| 2026-07-27 | 02-jwt-identity-tracking | 1 | PASS | unspecified |
+| 2026-07-27 | 03-anomaly-detection | 1 | PASS | unspecified |
+| 2026-07-27 | 06-hold-action | 1 | PASS | unspecified |
+| 2026-07-27 | 07-budget-action | 1 | PASS | unspecified |
+| 2026-07-27 | 08-scope-action | 1 | PASS | unspecified |
+| 2026-07-27 | 09-controller-mode | 1 | PASS | unspecified |
+| 2026-07-27 | 12-response-inspection | 1 | PASS | unspecified |
+| 2026-07-27 | 13-agentic-flow-local | 1 | PASS | unspecified |

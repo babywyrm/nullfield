@@ -27,15 +27,15 @@ they last ran and on what.
 
 | # | Demo | Tier | What it covers |
 |---|---|---|---|
-| 01 | [basic-tool-filtering](01-basic-tool-filtering/) | — | *no assertion script yet* |
-| 02 | [jwt-identity-tracking](02-jwt-identity-tracking/) | — | *no assertion script yet* |
-| 03 | [anomaly-detection](03-anomaly-detection/) | — | *no assertion script yet* |
-| 06 | [hold-action](06-hold-action/) | — | *no assertion script yet* |
-| 07 | [budget-action](07-budget-action/) | — | *no assertion script yet* |
-| 08 | [scope-action](08-scope-action/) | — | *no assertion script yet* |
-| 09 | [controller-mode](09-controller-mode/) | — | *no assertion script yet* |
-| 10 | [crd-policy](10-crd-policy/) | — | *no assertion script yet* |
-| 12 | [response-inspection](12-response-inspection/) | — | *no assertion script yet* |
+| 01 | [basic-tool-filtering](01-basic-tool-filtering/) | 1 | the registry, circuit, and policy gates in the order they actually run |
+| 02 | [jwt-identity-tracking](02-jwt-identity-tracking/) | 1 | signed tokens are actually verified, and identity changes what is allowed |
+| 03 | [anomaly-detection](03-anomaly-detection/) | 1 | session binding, token replay, and velocity, with what each one misses |
+| 06 | [hold-action](06-hold-action/) | 1 | a held call waits for a human and resolves either way |
+| 07 | [budget-action](07-budget-action/) | 1 | the fourth call in an hour is refused and the unbudgeted tool is not |
+| 08 | [scope-action](08-scope-action/) | 1 | arguments are stripped and injected outbound, responses redacted inbound |
+| 09 | [controller-mode](09-controller-mode/) | 1 | the controller sees inventory and decisions, but not yet holds or budgets |
+| 10 | [crd-policy](10-crd-policy/) | 2 | editing a nullfieldpolicy crd changes a running sidecar's mind |
+| 12 | [response-inspection](12-response-inspection/) | 1 | sensitive content in a tool response is redacted or blocked, per rule |
 | 13 | [agentic-flow-local](13-agentic-flow-local/) | 1 | an agenticflow compiles to the policy and registry it claims to |
 | 14 | [agentic-flow-kubernetes](14-agentic-flow-kubernetes/) | 2 | the controller compiles an agenticflow crd and a sidecar enforces it |
 | 15 | [proxy-baseline](15-proxy-baseline/) | 2 | proxy mode decides correctly with no mesh present |

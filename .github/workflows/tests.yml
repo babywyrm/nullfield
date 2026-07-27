@@ -115,10 +115,44 @@ jobs:
           sys.exit(0 if ok else 1)
           PY
 
+  demos:
+    name: Tier 1 demos
+    runs-on: ubuntu-latest
+    needs: go-test
+    # Nine compose stacks, each built, started, exercised and torn down. Around
+    # two minutes locally; the ceiling is here so a demo that hangs waiting for
+    # a container fails the job rather than occupying a runner.
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Every demo asserts its own behaviour, so a green run means the
+      # documented outcomes are the observed ones. Tiers 2 and 3 need a cluster
+      # and a mesh and are run by hand against a real substrate; their results
+      # are recorded in demos/VERIFIED.md.
+      - name: Check every demo declares a valid header
+        run: ./demos/run.sh --audit
+
+      - name: Run tier 1
+        run: ./demos/run.sh --ci
+
+      # The index is generated from the script headers. Regenerating it here
+      # catches a demo whose summary or tier changed without the table being
+      # rebuilt, which is the only way the two can drift.
+      - name: Check demos/README.md is up to date
+        run: |
+          ./demos/run.sh --index
+          if ! git diff --quiet demos/README.md; then
+            echo "::error::demos/README.md is stale. Run ./demos/run.sh --index and commit the result."
+            git --no-pager diff demos/README.md
+            exit 1
+          fi
+
   notify-coherence:
     name: Notify ecosystem coherence workflow
     runs-on: ubuntu-latest
-    needs: [go-test, policy-yaml-lint]
+    needs: [go-test, policy-yaml-lint, demos]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
