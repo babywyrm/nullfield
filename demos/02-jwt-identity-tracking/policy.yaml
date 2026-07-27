@@ -1,14 +1,16 @@
 apiVersion: nullfield.io/v1alpha1
 kind: NullfieldPolicy
 metadata:
-  name: jwt-demo-policy
+  name: demo-02-identity
 spec:
   identity:
     enabled: true
     providers:
+      # `jwks` is the compose service; the generated document is served from
+      # the same directory the token generator wrote it to.
       - name: test-idp
         issuer: "nullfield-test"
-        jwksUri: "http://localhost:8888/jwks.json"
+        jwksUri: "http://jwks:8888/jwks.json"
         audiences: ["nullfield"]
         clockSkew: "30s"
 
@@ -18,44 +20,40 @@ spec:
       requireExpiry: true
       requireAudience: true
 
-  integrity:
-    enabled: true
-    bindToSession: true
-    detectReplay: true
-
   rules:
-    # Humans can use all registered tools
-    - action: ALLOW
+    # A human in mcp-writers gets everything, including the destructive tool.
+    - id: human-writers-all
+      action: ALLOW
       mcpMethod: tools/call
       toolNames: ["*"]
+      requireIdentity: true
       when:
         identity: human
         claims:
           groups: { contains: "mcp-writers" }
-      requireIdentity: true
 
-    # Agents can only use read-only tools
-    - action: ALLOW
+    # An agent gets the read-only subset. Same registry, same upstream, less
+    # authority -- which is the point of attaching identity to a call at all.
+    - id: agent-read-only
+      action: ALLOW
       mcpMethod: tools/call
       toolNames:
         - cost.check_usage
         - audit.list_actions
-        - tenant.list_tenants
-        - rbac.list_agents
+      requireIdentity: true
       when:
         identity: agent
-      requireIdentity: true
 
-    # Autonomous callers are denied everything
-    - action: DENY
+    - id: autonomous-denied
+      action: DENY
       mcpMethod: tools/call
       toolNames: ["*"]
       when:
         identity: autonomous
-      reason: "autonomous agents are not permitted"
+      reason: "autonomous callers are not permitted"
 
-    # Default deny
-    - action: DENY
+    - id: default-deny
+      action: DENY
       mcpMethod: tools/call
       toolNames: ["*"]
       reason: "no matching rule"
@@ -63,7 +61,6 @@ spec:
   circuitBreaker:
     maxToolCallsPerSession: 50
     maxSessionDuration: 300s
-    onTrip: KILL_POD
 
   audit:
     logLevel: FULL

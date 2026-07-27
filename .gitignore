@@ -14,3 +14,8 @@ docs/SESSION-CONTEXT.md
 # while implementing and have no business in a public repository. The durable
 # output belongs in docs/specs, docs/ and the changelog instead.
 docs/plans/
+
+# Throwaway keypairs, JWKS documents and signed tokens for the identity demos.
+# Regenerated on every run by generate-test-jwt.sh, expire in an hour, and are
+# never real -- but a committed private key is a committed private key.
+demos/*/.generated/

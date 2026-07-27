@@ -1,0 +1,21 @@
+apiVersion: nullfield.io/v1alpha1
+kind: ToolRegistry
+metadata:
+  name: demo-02-tools
+tools:
+  - name: cost.check_usage
+    description: Read spend for the current account
+    allowedScopes: ["billing:read"]
+    maxCallsPerMinute: 60
+
+  - name: audit.list_actions
+    description: List recent actions from the audit trail
+    allowedScopes: ["audit:read"]
+    maxCallsPerMinute: 60
+
+  # Registered and reachable only by a human in mcp-writers. The agent rule
+  # does not name it, so it is what separates the two identity types.
+  - name: tenant.delete_tenant
+    description: Delete a tenant and everything in it
+    allowedScopes: ["tenants:write"]
+    maxCallsPerMinute: 5

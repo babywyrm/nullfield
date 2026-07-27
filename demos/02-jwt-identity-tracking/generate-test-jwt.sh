@@ -1,85 +1,91 @@
 #!/usr/bin/env bash
-# Requires: openssl, python3, pip install cryptography
+# Generate a throwaway RSA keypair, a JWKS document, and signed JWTs for the
+# identity demos. Requires openssl and python3 -- no pip packages.
 #
-# Generate test RSA keypair, JWKS, and signed JWTs for nullfield identity demos.
-# Usage: bash generate-test-jwt.sh
+# Everything lands in .generated/, which is gitignored. Nothing here is a real
+# key and nothing here should outlive the demo: the keypair is regenerated on
+# every run and the tokens expire in an hour.
 #
-# Produces:
-#   test-key.pem           RSA 2048 private key
-#   test-key-pub.pem       RSA public key
-#   jwks.json              JWKS file serving the public key
-#   human-token.txt        JWT: identity_type=human, groups=[mcp-writers]
-#   agent-token.txt        JWT: identity_type=agent
-#   autonomous-token.txt   JWT: identity_type=autonomous
-
+# The earlier version needed the `cryptography` package to turn the public key
+# into a JWK. openssl already prints the modulus, and the exponent is checked
+# rather than assumed, so the dependency is gone and this runs in CI.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-echo "Generating RSA 2048 keypair..."
-openssl genrsa -out test-key.pem 2048 2>/dev/null
-openssl rsa -in test-key.pem -pubout -out test-key-pub.pem 2>/dev/null
+out=".generated"
+mkdir -p "$out"
 
-echo "Building JWKS..."
-python3 - <<'PYSCRIPT'
-import json, base64, struct
-from cryptography.hazmat.primitives.serialization import load_pem_public_key
+openssl genrsa -out "$out/test-key.pem" 2048 2>/dev/null
 
-with open("test-key-pub.pem", "rb") as f:
-    pub = load_pem_public_key(f.read())
+# A second key that is never published in the JWKS, used to sign a token that
+# should be rejected. Without it "the signature is checked" is unprovable.
+openssl genrsa -out "$out/wrong-key.pem" 2048 2>/dev/null
 
-numbers = pub.public_numbers()
+exponent="$(openssl rsa -in "$out/test-key.pem" -noout -text 2>/dev/null \
+  | sed -n 's/.*publicExponent: \([0-9]*\).*/\1/p')"
+if [[ "$exponent" != "65537" ]]; then
+  echo "unexpected public exponent $exponent; this script assumes 65537 (AQAB)" >&2
+  exit 1
+fi
 
-def b64url(data):
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+modulus="$(openssl rsa -in "$out/test-key.pem" -noout -modulus 2>/dev/null | sed 's/^Modulus=//')"
 
-n_bytes = numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big")
-e_bytes = numbers.e.to_bytes((numbers.e.bit_length() + 7) // 8, "big")
+MODULUS_HEX="$modulus" python3 - "$out/jwks.json" <<'PY'
+import base64, json, os, sys
 
-jwks = {
+n = bytes.fromhex(os.environ["MODULUS_HEX"])
+jwk = {
     "keys": [{
         "kty": "RSA",
         "kid": "test-key-1",
         "use": "sig",
         "alg": "RS256",
-        "n": b64url(n_bytes),
-        "e": b64url(e_bytes),
+        "n": base64.urlsafe_b64encode(n).rstrip(b"=").decode(),
+        "e": "AQAB",
     }]
 }
+with open(sys.argv[1], "w") as f:
+    json.dump(jwk, f, indent=2)
+PY
 
-with open("jwks.json", "w") as f:
-    json.dump(jwks, f, indent=2)
-print("  wrote jwks.json")
-PYSCRIPT
+# base64url without padding, which is what JWT uses and `base64` does not do.
+b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 
 sign_jwt() {
-  local payload="$1" output="$2"
-
-  local header='{"alg":"RS256","typ":"JWT","kid":"test-key-1"}'
-  local h_b64=$(echo -n "$header" | base64 | tr '+/' '-_' | tr -d '=\n')
-  local p_b64=$(echo -n "$payload" | base64 | tr '+/' '-_' | tr -d '=\n')
-  local unsigned="${h_b64}.${p_b64}"
-  local sig=$(echo -n "$unsigned" | openssl dgst -sha256 -sign test-key.pem | base64 | tr '+/' '-_' | tr -d '=\n')
-
-  echo "${unsigned}.${sig}" > "$output"
+  local payload="$1" output="$2" key="${3:-$out/test-key.pem}" kid="${4:-test-key-1}"
+  local header="{\"alg\":\"RS256\",\"typ\":\"JWT\",\"kid\":\"$kid\"}"
+  local unsigned
+  unsigned="$(printf '%s' "$header" | b64url).$(printf '%s' "$payload" | b64url)"
+  local sig
+  sig="$(printf '%s' "$unsigned" | openssl dgst -sha256 -sign "$key" -binary | b64url)"
+  printf '%s.%s' "$unsigned" "$sig" > "$out/$output"
 }
 
-NOW=$(date +%s)
-EXP=$((NOW + 3600))
+now=$(date +%s)
+exp=$((now + 3600))
+past=$((now - 7200))
 
-echo "Generating tokens..."
+sign_jwt "{\"sub\":\"alice@example.com\",\"iss\":\"nullfield-test\",\"aud\":\"nullfield\",\"iat\":$now,\"exp\":$exp,\"identity_type\":\"human\",\"groups\":[\"mcp-writers\",\"developers\"]}" \
+  human-token.txt
 
-sign_jwt "{\"sub\":\"alice@example.com\",\"iss\":\"nullfield-test\",\"aud\":\"nullfield\",\"iat\":$NOW,\"exp\":$EXP,\"identity_type\":\"human\",\"groups\":[\"mcp-writers\",\"developers\"],\"scope\":\"openid profile\",\"jti\":\"human-$(date +%s)\"}" \
-  "human-token.txt"
-echo "  wrote human-token.txt (identity_type=human, groups=[mcp-writers])"
+sign_jwt "{\"sub\":\"ops-agent-svc\",\"iss\":\"nullfield-test\",\"aud\":\"nullfield\",\"iat\":$now,\"exp\":$exp,\"identity_type\":\"agent\"}" \
+  agent-token.txt
 
-sign_jwt "{\"sub\":\"ops-agent-svc\",\"iss\":\"nullfield-test\",\"aud\":\"nullfield\",\"iat\":$NOW,\"exp\":$EXP,\"identity_type\":\"agent\",\"scope\":\"read\",\"jti\":\"agent-$(date +%s)\"}" \
-  "agent-token.txt"
-echo "  wrote agent-token.txt (identity_type=agent)"
+sign_jwt "{\"sub\":\"cron-scheduler\",\"iss\":\"nullfield-test\",\"aud\":\"nullfield\",\"iat\":$now,\"exp\":$exp,\"identity_type\":\"autonomous\"}" \
+  autonomous-token.txt
 
-sign_jwt "{\"sub\":\"cron-scheduler\",\"iss\":\"nullfield-test\",\"aud\":\"nullfield\",\"iat\":$NOW,\"exp\":$EXP,\"identity_type\":\"autonomous\",\"jti\":\"auto-$(date +%s)\"}" \
-  "autonomous-token.txt"
-echo "  wrote autonomous-token.txt (identity_type=autonomous)"
+# Four tokens that must be refused, one per reason.
+sign_jwt "{\"sub\":\"alice@example.com\",\"iss\":\"nullfield-test\",\"aud\":\"nullfield\",\"iat\":$past,\"exp\":$((past + 60)),\"identity_type\":\"human\",\"groups\":[\"mcp-writers\"]}" \
+  expired-token.txt
 
-echo ""
-echo "Done. Serve JWKS with: python3 -m http.server 8888"
-echo "Tokens expire in 1 hour."
+sign_jwt "{\"sub\":\"alice@example.com\",\"iss\":\"some-other-idp\",\"aud\":\"nullfield\",\"iat\":$now,\"exp\":$exp,\"identity_type\":\"human\",\"groups\":[\"mcp-writers\"]}" \
+  wrong-issuer-token.txt
+
+sign_jwt "{\"sub\":\"alice@example.com\",\"iss\":\"nullfield-test\",\"aud\":\"someone-else\",\"iat\":$now,\"exp\":$exp,\"identity_type\":\"human\",\"groups\":[\"mcp-writers\"]}" \
+  wrong-audience-token.txt
+
+# Correct claims, correct kid, signed by a key the JWKS has never heard of.
+sign_jwt "{\"sub\":\"alice@example.com\",\"iss\":\"nullfield-test\",\"aud\":\"nullfield\",\"iat\":$now,\"exp\":$exp,\"identity_type\":\"human\",\"groups\":[\"mcp-writers\"]}" \
+  forged-token.txt "$out/wrong-key.pem"
+
+echo "wrote $out/: jwks.json and 7 tokens (valid for 1 hour)"

@@ -1,0 +1,16 @@
+services:
+  # A JWKS endpoint is the one thing identity verification cannot be
+  # demonstrated without. busybox httpd serving the generated document is
+  # enough, and keeps the demo to images that are already small and local.
+  jwks:
+    image: busybox:1.36
+    command: ["httpd", "-f", "-p", "8888", "-h", "/www"]
+    volumes:
+      - ./demos/02-jwt-identity-tracking/.generated:/www:ro
+
+  nullfield:
+    depends_on:
+      - jwks
+    volumes:
+      - ./demos/02-jwt-identity-tracking/tools.yaml:/etc/nullfield/tools.yaml:ro
+      - ./demos/02-jwt-identity-tracking/policy.yaml:/etc/nullfield/policy.yaml:ro
