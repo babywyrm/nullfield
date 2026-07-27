@@ -1,91 +1,145 @@
 # Demo 10 — CRD Policy Management
 
-Apply nullfield policies as native Kubernetes Custom Resources instead of
-ConfigMap-mounted files. GitOps-friendly — `kubectl apply` your policies.
+Make `kubectl apply` the control plane for a running sidecar. A
+`NullfieldPolicy` custom resource is reconciled into the ConfigMap a workload
+mounts, so granting a tool is a pull request rather than an exec into a pod.
 
-## Prerequisites
-
-- K8s cluster with nullfield deployed
-- nullfield-controller with `NULLFIELD_CRD_WATCH=true`
-
-## Step 1: Install CRDs
+The payoff is step 5: edit the CRD, re-apply, and watch a sidecar that was
+denying a tool start allowing it, with no restart.
 
 ```bash
-kubectl apply -f deploy/crds/
+demos/10-crd-policy/test.sh                        # against the current cluster
+BUILD_IMAGES=true demos/10-crd-policy/test.sh      # build and import for k3s first
+KEEP=true demos/10-crd-policy/test.sh              # leave the namespace up to poke at
 ```
 
-Verify:
+Tier 2, so it is not gated in CI. Verified on k3s v1.35.
 
-```bash
-kubectl get crd | grep nullfield
-# nullfieldpolicies.nullfield.io
-# toolregistries.nullfield.io
-```
+## The one setting that makes this work
 
-## Step 2: Apply a Policy
+The controller has two ways of reconciling a `NullfieldPolicy`, and only one of
+them reaches a sidecar:
+
+| | What it writes | Who reads it |
+|---|---|---|
+| Default | A ConfigMap per policy, named `nullfield-policy-<name>` | Nothing, unless you wire it up yourself |
+| Active-target bridge | One ConfigMap you nominate, holding the policy you nominate | The sidecar that mounts it |
+
+The bridge is off unless `NULLFIELD_ACTIVE_TARGET_CM` **and**
+`NULLFIELD_ACTIVE_TARGET_LABEL` are both set. Miss either and `kubectl apply`
+appears to succeed, a ConfigMap does appear, and nothing about the running
+sidecar changes — the least helpful kind of failure. `controller.yaml` sets:
 
 ```yaml
-# policy.yaml
-apiVersion: nullfield.io/v1alpha1
-kind: NullfieldPolicy
+- name: NULLFIELD_ACTIVE_TARGET_CM
+  value: "crd-demo-active-policy"      # the ConfigMap the workload mounts
+- name: NULLFIELD_ACTIVE_TARGET_KEY
+  value: "policy.yaml"                 # the key inside it
+- name: NULLFIELD_ACTIVE_TARGET_LABEL
+  value: "crd-demo"                    # selects which policy wins
+```
+
+The label is the selector, so the policy has to opt in:
+
+```yaml
 metadata:
-  name: demo-policy
-  namespace: camazotz
-spec:
-  selector:
-    matchLabels:
-      app: brain-gateway
-  rules:
-    - action: ALLOW
-      mcpMethod: tools/call
-      toolNames: ["cost.check_usage", "audit.list_actions"]
-    - action: HOLD
-      mcpMethod: tools/call
-      toolNames: ["delegation.invoke_agent"]
-      hold:
-        timeout: "5m"
-        onTimeout: DENY
-    - action: DENY
-      mcpMethod: tools/call
-      toolNames: ["*"]
-      reason: "default deny"
+  name: crd-demo
+  labels:
+    nullfield.io/active-for: crd-demo
 ```
 
-```bash
-kubectl apply -f policy.yaml
+The first policy carrying a matching label wins. There is no merging and no
+ordering guarantee, so keep it to one policy per label.
+
+## What the demo deploys
+
+```text
+  kubectl apply -f policy.yaml
+           │
+           ▼
+   NullfieldPolicy CRD ────► controller (polls every 10s)
+                                 │
+                                 ▼
+                     ConfigMap crd-demo-active-policy
+                                 │  (kubelet refreshes the volume)
+                                 ▼
+                  ┌──────────────────────────────┐
+                  │  crd-demo-runtime pod        │
+                  │                              │
+                  │  nullfield ──► echo-server   │
+                  │  :9090         :8080         │
+                  │   ▲  polls policy.yaml /10s  │
+                  └───┼──────────────────────────┘
+                      │
+                 tool calls
 ```
 
-## Step 3: Verify Sync
+- `controller.yaml` — a namespace-scoped controller with the bridge on, plus
+  the RBAC it needs. It has to `create` and `update` ConfigMaps, not just read
+  them.
+- `tools.yaml` — the tool registry, as a plain ConfigMap. Only the policy is
+  CRD-driven here, which keeps the demo to one moving part.
+- `policy.yaml` — the `NullfieldPolicy`. Grants `cost.check_usage` and denies
+  everything else.
+- `workload.yaml` — echo-server with a nullfield sidecar.
 
-The controller creates a ConfigMap from the CRD:
+## How long propagation actually takes
 
-```bash
-kubectl -n camazotz get configmap nullfield-policy-demo-policy
-# Should exist with policy.yaml key
+Roughly **80 seconds**, measured. Three legs, and only the first is yours to
+tune:
+
+| Leg | Default | Tunable |
+|---|---|---|
+| CRD → ConfigMap | 30s poll | Yes, `NULLFIELD_CRD_WATCH_INTERVAL`. This demo sets 10s |
+| ConfigMap → the file in the pod | up to ~60s | Only by kubelet's sync period, cluster-wide |
+| File → sidecar's policy engine | 10s poll | No, it is hardcoded |
+
+Older versions of this page claimed 30 seconds, which was the first leg
+mistaken for the whole trip. If you need this to be fast, the kubelet leg is
+the one that dominates, and no nullfield setting touches it.
+
+## Two things that will bite you
+
+**Do not mount the policy with `subPath`.** kubelet copies a `subPath` mount
+once at container start and never refreshes it, so the sidecar stays pinned to
+whatever the policy said when the pod started, forever, silently.
+`workload.yaml` uses a projected volume to combine the policy and registry
+ConfigMaps into one directory, and projected sources refresh normally.
+
+**The registry does not hot-reload.** `pkg/registry` is safe to reload but
+nothing reloads it, so a `ToolRegistry` change needs a pod restart even though
+a `NullfieldPolicy` change does not. Adding a tool is a rollout; granting an
+already-registered tool is an apply.
+
+## What the test asserts
+
+```
+the crd reaches a sidecar:
+  ok:  the controller renders the labelled CRD into the sidecar's ConfigMap
+  ok:  the ConfigMap records which CRD it came from
+
+the policy in the crd is the policy being enforced:
+  ok:  a tool the CRD grants is allowed
+  ok:  a registered tool the CRD does not grant is refused by policy
+  ok:  audit.list_actions starts out denied
+
+editing the crd changes the running sidecar's mind:
+  ok:  kubectl apply on the CRD flipped a live deny into an allow, with no restart
+       (took 80s to propagate)
+  ok:  no container restarted while that happened
+  ok:  the rest of the policy is unchanged
 ```
 
-The sidecar's hot-reload picks up the ConfigMap change automatically.
+The restart check matters: without it a pod that happened to cycle would make
+the demo pass for the wrong reason and prove nothing about hot-reload.
 
-## Step 4: Test Enforcement
+`secrets.read_config` is registered in `tools.yaml` on purpose so its refusal
+comes from policy (`-32000`) rather than from the registry (`-32003`). A demo
+where every "no" comes from the registry cannot tell the two gates apart.
 
-```bash
-# This should be ALLOWED
-curl -s -X POST http://localhost:9090/mcp \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"cost.check_usage","arguments":{}}}'
+## Related
 
-# This should be DENIED
-curl -s -X POST http://localhost:9090/mcp \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"secrets.leak_config","arguments":{}}}'
-```
-
-## Step 5: Update Policy (GitOps)
-
-Edit the YAML, re-apply, the sidecar hot-reloads:
-
-```bash
-# Add a new ALLOW rule, re-apply
-kubectl apply -f policy.yaml
-# Sidecar picks up the change within 30 seconds (default poll interval)
-```
+- Demo 14 reconciles an `AgenticFlow` instead, which compiles to a policy *and*
+  a registry.
+- Demo 09 covers the controller's other job, aggregating decisions from every
+  sidecar.

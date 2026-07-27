@@ -1,0 +1,33 @@
+# The tool registry stays a plain ConfigMap here. Only the policy is driven by
+# a CRD, which keeps the demo about one moving part. ToolRegistry CRDs work the
+# same way, but the sidecar has no hot-reload for the registry -- see the note
+# in the README.
+#
+# All three tools are registered on purpose. A tool missing from the registry
+# is refused by the registry gate before policy is consulted, which would hide
+# the thing this demo is trying to show.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: crd-demo-tools
+data:
+  tools.yaml: |
+    apiVersion: nullfield.io/v1alpha1
+    kind: ToolRegistry
+    metadata:
+      name: crd-demo-tools
+    tools:
+      - name: cost.check_usage
+        description: Read spend for the current account
+        allowedScopes: ["billing:read"]
+        maxCallsPerMinute: 60
+
+      - name: audit.list_actions
+        description: List recent actions from the audit trail
+        allowedScopes: ["audit:read"]
+        maxCallsPerMinute: 60
+
+      - name: secrets.read_config
+        description: Read configuration including secret material
+        allowedScopes: ["secrets:read"]
+        maxCallsPerMinute: 5

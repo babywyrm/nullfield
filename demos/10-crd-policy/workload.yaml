@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crd-demo-runtime
+  labels:
+    app: crd-demo-runtime
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crd-demo-runtime
+  template:
+    metadata:
+      labels:
+        app: crd-demo-runtime
+    spec:
+      containers:
+        - name: echo-server
+          image: ghcr.io/babywyrm/nullfield-echo:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: app
+              containerPort: 8080
+          env:
+            - name: LISTEN_ADDR
+              value: ":8080"
+
+        - name: nullfield
+          image: ghcr.io/babywyrm/nullfield:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: proxy
+              containerPort: 9090
+            - name: admin
+              containerPort: 9091
+          env:
+            - name: NULLFIELD_LISTEN_ADDR
+              value: ":9090"
+            - name: NULLFIELD_UPSTREAM_ADDR
+              value: "localhost:8080"
+            - name: NULLFIELD_ADMIN_ADDR
+              value: ":9091"
+            - name: NULLFIELD_POLICY_PATH
+              value: "/etc/nullfield/policy.yaml"
+            - name: NULLFIELD_REGISTRY_PATH
+              value: "/etc/nullfield/tools.yaml"
+            # Hot-reload has no switch: the sidecar polls POLICY_PATH every
+            # 10s whenever one is set. There is no equivalent for the registry.
+            - name: NULLFIELD_AUDIT_LOG_LEVEL
+              value: FULL
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nullfield
+              readOnly: true
+      volumes:
+        # A projected volume, not two subPath mounts. subPath copies the file
+        # once at start and kubelet never refreshes it, which would leave the
+        # sidecar pinned to whatever the policy said at pod start and quietly
+        # defeat the whole demo. Projected sources are refreshed like any other
+        # ConfigMap volume.
+        - name: config
+          projected:
+            sources:
+              # Written by the controller's active-target bridge. It does not
+              # exist until a labelled NullfieldPolicy has been reconciled, so
+              # apply the CRD before this deployment.
+              - configMap:
+                  name: crd-demo-active-policy
+                  items:
+                    - key: policy.yaml
+                      path: policy.yaml
+              - configMap:
+                  name: crd-demo-tools
+                  items:
+                    - key: tools.yaml
+                      path: tools.yaml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crd-demo-runtime
+  labels:
+    app: crd-demo-runtime
+spec:
+  selector:
+    app: crd-demo-runtime
+  ports:
+    - name: proxy
+      port: 9090
+      targetPort: proxy
+    - name: admin
+      port: 9091
+      targetPort: admin
+  type: ClusterIP

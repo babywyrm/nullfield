@@ -1,0 +1,27 @@
+# The policy the demo starts from. `audit.list_actions` is deliberately absent
+# from the ALLOW rule so the demo has something to grant later: step 5 adds it,
+# re-applies, and the running sidecar changes its mind without a restart.
+#
+# The nullfield.io/active-for label is what makes any of this reach a sidecar.
+# Without it the controller still renders a per-policy ConfigMap named
+# nullfield-policy-crd-demo, but nothing mounts that, so nothing changes. The
+# label opts this policy into the active-target bridge, which writes it into
+# the single ConfigMap the workload actually mounts.
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: crd-demo
+  labels:
+    nullfield.io/active-for: crd-demo
+spec:
+  rules:
+    - id: read-only-allow
+      action: ALLOW
+      mcpMethod: tools/call
+      toolNames: ["cost.check_usage"]
+
+    - id: default-deny
+      action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      reason: "not granted by the active NullfieldPolicy"

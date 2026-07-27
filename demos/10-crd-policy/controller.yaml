@@ -1,0 +1,107 @@
+# A controller scoped to this demo's namespace, with the active-target bridge
+# switched on. The bridge is the part that makes CRDs reach a running sidecar,
+# and it is off by default: without ACTIVE_TARGET_CM and ACTIVE_TARGET_LABEL
+# the controller renders per-policy ConfigMaps that nothing mounts.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: crd-demo-controller
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: crd-demo-controller
+rules:
+  # The bridge reads policies and writes the ConfigMap the sidecar mounts, so
+  # it needs create and update, not just read.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update"]
+  - apiGroups: ["nullfield.io"]
+    resources: ["nullfieldpolicies", "toolregistries", "agenticflows"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["nullfield.io"]
+    resources: ["agenticflows/status"]
+    verbs: ["patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: crd-demo-controller
+subjects:
+  - kind: ServiceAccount
+    name: crd-demo-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: crd-demo-controller
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crd-demo-controller
+  labels:
+    app: crd-demo-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crd-demo-controller
+  template:
+    metadata:
+      labels:
+        app: crd-demo-controller
+    spec:
+      serviceAccountName: crd-demo-controller
+      containers:
+        - name: controller
+          image: ghcr.io/babywyrm/nullfield-controller:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 9092
+            - name: admin
+              containerPort: 9093
+            - name: health
+              containerPort: 9091
+          env:
+            - name: NULLFIELD_CRD_WATCH
+              value: "true"
+            # Ten seconds rather than the 30s default, so the demo does not
+            # spend most of its time waiting on a poll it could have tightened.
+            - name: NULLFIELD_CRD_WATCH_INTERVAL
+              value: "10s"
+            - name: NULLFIELD_CRD_WATCH_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # The bridge. ACTIVE_TARGET_CM is the ConfigMap the workload
+            # mounts; ACTIVE_TARGET_LABEL selects which policy wins.
+            - name: NULLFIELD_ACTIVE_TARGET_CM
+              value: "crd-demo-active-policy"
+            - name: NULLFIELD_ACTIVE_TARGET_KEY
+              value: "policy.yaml"
+            - name: NULLFIELD_ACTIVE_TARGET_LABEL
+              value: "crd-demo"
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 2
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crd-demo-controller
+spec:
+  selector:
+    app: crd-demo-controller
+  ports:
+    - name: grpc
+      port: 9092
+      targetPort: grpc
+    - name: admin
+      port: 9093
+      targetPort: admin
+  type: ClusterIP
