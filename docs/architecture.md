@@ -113,7 +113,7 @@ Why this order:
 | `pkg/proxy` | Reverse proxy handler with decision chain (`handler.go`). Re-exports `pkg/mcp` types as aliases (`mcp.go`). |
 | `pkg/extauthz` | Envoy `CheckRequest` translation, truncation guard, response construction, gRPC server. |
 | `pkg/identity` | Extract Bearer token from request header. Verify identity (noop in dev, JWKS in prod). Context propagation. Workload attestation from mesh peer identity (`attest.go`). |
-| `pkg/registry` | File-backed tool allowlist. Thread-safe for hot-reload. IsRegistered() is the gate. |
+| `pkg/registry` | File-backed tool allowlist. `IsRegistered()` is the gate. Thread-safe for reload, but nothing reloads it — unlike policy, a registry change needs a restart. |
 | `pkg/circuit` | Per-session call count + duration tracking. Allow/Record/Sweep lifecycle. |
 | `pkg/policy` | Rule engine interface (`engine.go`). First-match ALLOW/DENY evaluator (`rules.go`). YAML policy loader (`loader.go`). |
 | `pkg/audit` | Structured JSON event emitter. Event types: mcp.request, tool.allowed, tool.denied, identity.failed, circuit.tripped. |

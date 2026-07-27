@@ -677,8 +677,9 @@ Constraints that must hold, because the value of the existing work depends on
 them.
 
 1. **Proxy mode keeps working unchanged.** `docker compose up` plus
-   `tests/smoke.sh` (12 checks) must pass throughout. Proxy mode is the
-   non-mesh deployment path, not deprecated.
+   `tests/smoke.sh` must pass throughout — 12 checks when this was written, 14
+   since the suite gained the policy-denial case. Proxy mode is the non-mesh
+   deployment path, not deprecated.
 2. **`policy.Engine` semantics do not change.** First-match, default-deny, and
    the five actions behave identically. Additions to `Request` and `Decision`
    are additive with zero-valued defaults.

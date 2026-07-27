@@ -38,3 +38,13 @@ tools:
     description: Search Jira issues with JQL
     allowedScopes: ["jira:read"]
     maxCallsPerMinute: 20
+
+  # Registered on purpose, and deliberately absent from every ALLOW rule in
+  # policy.yaml. A known tool nobody is authorized to call is what separates the
+  # two gates: the registry answers "does this tool exist", policy answers "may
+  # you call it", and without an entry like this one every refusal in the demo
+  # comes from the registry and the policy engine is never seen saying no.
+  - name: github_delete_repo
+    description: Delete a GitHub repository
+    allowedScopes: ["repo:admin"]
+    maxCallsPerMinute: 1

@@ -93,10 +93,28 @@ resp=$(curl -s -X POST "$BASE" \
 check "jira_get_issue: registered + allowed by policy, forwarded" "echo-server executed" "$resp"
 
 echo ""
+echo "[policy enforcement — registered tool denied by policy]"
+
+# github_delete_repo is in the registry and in no ALLOW rule, so it falls to the
+# DENY * fallthrough. The only case here that reaches the policy engine and is
+# refused by it: every other refusal above stops at the registry, which would
+# leave -32000 untested and a broken rule engine passing the suite.
+resp=$(curl -s -X POST "$BASE" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"github_delete_repo","arguments":{"repo":"prod"}}}' 2>&1 || true)
+check "github_delete_repo: registered but unauthorized, denied by policy" "\-32000" "$resp"
+check "github_delete_repo: refused by policy, not by the registry" "denied by policy" "$resp"
+
+echo ""
 echo "[non-JSON traffic — passed through as-is]"
 
-resp=$(curl -s -o /dev/null -w "%{http_code}" "$BASE" 2>&1 || true)
-check "GET / passed through (non-JSON-RPC, HTTP 200)" "200" "$resp"
+# Asserted on the body, not the status. A GET carries no body, so the echo
+# server cannot parse it as JSON-RPC and answers 400 "not json-rpc" — its own
+# reply, which is the evidence that nullfield forwarded rather than judged.
+# Checking for 200 instead tested the upstream's opinion of an empty body and
+# failed for a reason that had nothing to do with the proxy.
+resp=$(curl -s "$BASE" 2>&1 || true)
+check "GET / reached the upstream (its reply, not a nullfield verdict)" "not json-rpc" "$resp"
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
