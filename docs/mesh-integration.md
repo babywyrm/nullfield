@@ -1,13 +1,31 @@
 # nullfield — Service Mesh Integration Guide
 
-nullfield is a sidecar that operates at the MCP/agentic application layer. Service meshes operate at the network transport layer. They are complementary:
+nullfield decides whether an agentic action is permitted. A service mesh moves and secures the bytes. The division of labour is the same in every profile below:
 
 ```text
 Mesh (Envoy / Linkerd / Cilium)  =  mTLS, traffic routing, network policy, retries
 nullfield                         =  MCP tool registry, policy engine, identity, audit
 ```
 
-This guide covers how to deploy nullfield in clusters running Istio, Linkerd, Cilium, or no mesh at all.
+What differs is **where nullfield sits**, and there are two answers:
+
+**In path, as a proxy.** nullfield is a sidecar; traffic flows through it; it forwards or refuses. This is the original shape and the subject of most of this guide.
+
+**Out of path, as a decision service.** nullfield is a cluster service the mesh *asks*. Envoy calls it over the `ext_authz` gRPC API for each request and acts on the answer. Nothing flows through nullfield.
+
+The second shape is not merely a deployment preference. It changes what nullfield can know and what it can promise:
+
+| | Proxy | Decision service |
+|---|---|---|
+| Caller identity | a token the caller presents | the mesh's mTLS peer identity, which the caller cannot choose |
+| Coverage | whatever is routed through the sidecar | every request the waypoint sees, including non-MCP traffic |
+| Can it read responses? | yes | no — `ext_authz` sees the request only |
+| Failure mode | in the blast radius; if it dies, traffic stops | out of it; Envoy's `failOpen` decides |
+| Can it run read-only? | not meaningfully | yes — observe mode records what enforcement would have done |
+
+Neither supersedes the other. A proxy can rewrite arguments and inspect responses, which `ext_authz` structurally cannot. A decision service gets attested identity and total coverage of a namespace, which a sidecar structurally cannot.
+
+This guide covers deploying nullfield in clusters running Istio (sidecar or ambient), Linkerd, Cilium, or no mesh at all.
 
 ---
 
@@ -19,6 +37,9 @@ This guide covers how to deploy nullfield in clusters running Istio, Linkerd, Ci
 | Istio | 2 (Envoy + nullfield) | Istio | nullfield | `kubectl apply -k meshes/istio/` |
 | Linkerd | 2 (linkerd-proxy + nullfield) | Linkerd | nullfield | `kubectl apply -k meshes/linkerd/` |
 | Cilium | 1 (nullfield) | Cilium eBPF | nullfield | `kubectl apply -k meshes/cilium/` |
+| Istio ambient (`ext_authz`) | 0 | Istio (ztunnel) | nullfield, via the waypoint | `deploy/manifests/extauthz.yaml` + provider registration |
+
+The last row is the decision-service shape: no sidecar is added to any application pod, and nullfield runs once per namespace as an ordinary service.
 
 ---
 
@@ -367,19 +388,103 @@ This profile is independent of the mesh choice above. You can layer Istio, Linke
 | If your cluster runs... | Use profile... | Sidecars | Notes |
 |------------------------|---------------|----------|-------|
 | No mesh | Bare | 1 | Simplest. MCP enforcement only. |
-| Istio | Istio | 2 | Full mesh + MCP enforcement. Most common in enterprise. |
+| Istio (sidecar) | Istio | 2 | Full mesh + MCP enforcement. Most common in enterprise. |
+| Istio (ambient) | `ext_authz` | 0 | Attested identity, whole-namespace coverage, requests only. |
 | Linkerd | Linkerd | 2 | Lighter mesh + MCP enforcement. |
 | Cilium | Cilium | 1 | eBPF mesh + MCP enforcement. No extra sidecar. |
 | Multiple meshes | Pick the one your namespace uses | Varies | nullfield is mesh-agnostic. |
 
+Where Istio ambient is available, prefer the `ext_authz` profile for anything you want *observed*, and the proxy profile for anything you need *modified*. They are not mutually exclusive: the decision service can cover a whole namespace while a proxy sidecar sits in front of the one workload whose responses need redacting.
+
 ---
 
-## Future: ext_authz and WASM
+## Istio ambient — nullfield as an `ext_authz` decision service
 
-Two additional integration patterns are on the roadmap but not yet implemented:
+Verified on k3s with Istio 1.30 ambient. Run `demos/16-mesh-arbiter/test.sh` for a working deployment that asserts everything described here.
 
-**Pattern B — ext_authz filter backend**: nullfield runs as a cluster service (not a sidecar) and Envoy calls it via the `ext_authz` gRPC filter on every request. One sidecar (Envoy), one central nullfield deployment. Reduces per-pod overhead but adds network hop latency.
+### Traffic flow
+
+```text
+Client ──► ztunnel ──HBONE──► waypoint ──► App
+                                 │
+                                 └─gRPC─► nullfield-extauthz  (decides; not in path)
+```
+
+The waypoint pauses the request, calls nullfield with the method, path, headers and body, and applies the answer. nullfield never sees the response and never forwards anything.
+
+### Deploy
+
+```bash
+kubectl apply -f deploy/manifests/extauthz.yaml
+```
+
+That manifest is a reference deployment, not a template: it names a namespace and a waypoint, and both must be changed for your cluster. The `AuthorizationPolicy` in particular carries a `targetRefs` entry naming the waypoint it binds to, and pointing it at one that does not exist fails quietly — see below. `demos/16-mesh-arbiter/arbiter.yaml` is a self-contained copy if you would rather start from a working example.
+
+Then register it as an extension provider in the `istio` ConfigMap under `data.mesh`, and restart istiod:
+
+```yaml
+extensionProviders:
+- name: nullfield-ext-authz
+  envoyExtAuthzGrpc:
+    service: nullfield-extauthz.<namespace>.svc.cluster.local
+    port: 9191
+    includeRequestBodyInCheck:
+      maxRequestBytes: 8192
+      allowPartialMessage: true   # observe; see below
+```
+
+Edit that config by parsing and re-emitting it, not by splicing text. A malformed `extensionProviders` list does not fail the patch — istiod logs `available providers are []` and **every** `CUSTOM` AuthorizationPolicy in the mesh quietly becomes a deny, including ones unrelated to nullfield. `demos/16-mesh-arbiter/register-provider.sh` does this safely.
+
+### Modes
+
+`NULLFIELD_EXTAUTHZ_MODE` takes `no-op`, `observe`, or `enforce`. Observe is the reason this shape exists: it renders a real decision, records what enforcement *would* have done as a `counterfactual` on the audit event, and returns OK. You can run it against production traffic and read the results before granting it authority over anything.
+
+### Four things that fail silently
+
+**`allowPartialMessage` must match the mode.** With `false`, Envoy answers any body over `maxRequestBytes` with a 413 *before* calling the check. nullfield never sees the request and cannot observe it, yet the traffic is already broken — so a rollout you declared read-only starts failing large requests. Use `true` for observe and no-op. Use `false` for enforce, where failing closed at the proxy is stronger than denying after the fact; nullfield's own truncation guard stays as defence in depth.
+
+**A `CUSTOM` AuthorizationPolicy needs `targetRefs`.** Bound by selector instead, it attaches to ztunnel, which is L4 only and cannot run an HTTP filter. The provider is never consulted and nothing reports that it was skipped.
+
+```yaml
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: <your>-waypoint
+  action: CUSTOM
+  provider:
+    name: nullfield-ext-authz
+```
+
+**A second `CUSTOM` provider on the same workload needs a feature flag.** Without `PILOT_ENABLE_MULTIPLE_CUSTOM_AUTHZ_PROVIDERS=true` on istiod, Istio drops one of them and the incumbent decides alone. Relevant when adding nullfield beside an existing OPA deployment.
+
+**The check arrives anonymous without an EnvoyFilter.** A waypoint terminates HBONE upstream of the listener running `ext_authz`, so there is no peer certificate to read there and `source.principal` is empty however healthy the mesh is. Istio publishes the identity into Envoy filter state instead. Apply `deploy/manifests/peer-principal-envoyfilter.yaml`, which copies it into a request header the check does receive.
+
+nullfield does not trust that header — the filter strips any inbound value of the same name before writing its own, so a workload cannot assert its own identity by sending it. **A deployment without this filter must not treat the header as meaningful.** Header-derived identity is reported as the `mesh-header` attester rather than `mesh-spiffe`, because the binding differs even where the identity is the same. See [Identity-Aware Policy](identity-policy.md#workload-attestation) for what that distinction buys you.
+
+### What each layer handles
+
+| Concern | Handled by |
+|---------|-----------|
+| mTLS between workloads | ztunnel |
+| Workload identity (SPIFFE) | Istio, read by nullfield via the waypoint |
+| L7 routing | waypoint |
+| MCP tool policy | nullfield |
+| Audit trail with provenance | nullfield |
+| Response inspection | **nobody** — `ext_authz` cannot see responses |
+
+That last row is the real trade. If you need response redaction or argument rewriting, run the proxy profile, either instead of this one or alongside it.
+
+### Limits
+
+- **Requests only.** `SCOPE` and response inspection need `ext_proc`, which is not yet implemented.
+- **Bodies are capped** at `maxRequestBytes`. nullfield refuses to decide on a truncated body rather than authorizing the part that fit; see above for why the mode must match.
+- **Long-lived connections are authorized once.** A `kubectl exec` stream is one request at setup and invisible afterwards.
+
+---
+
+## Future: WASM
 
 **Pattern C — WASM filter**: nullfield's core MCP parsing and policy logic compiled to WASM and loaded into Envoy as an in-process filter. Zero additional sidecars or services. Lowest latency but requires a significant rewrite and has WASM sandbox limitations (no filesystem, no Vault calls).
 
-These will be documented here when available.
+This will be documented here when available.

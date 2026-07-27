@@ -17,6 +17,59 @@ nullfield's identity features are entirely opt-in. There are four levels of conf
 
 Each level is independent. You can use Level 1 without Level 2 (identity type from a trusted header instead of JWT), or Level 2 without Level 3 (JWT without replay detection).
 
+All four levels answer one question: **whose authority is being exercised?** When nullfield runs as an `ext_authz` decision service it can also answer a second, independent one — **what is actually running?** — from evidence the workload cannot choose. That is [workload attestation](#workload-attestation), and it is not a fifth level; it is a different axis.
+
+---
+
+## Workload Attestation
+
+Every level above derives identity from something the caller *presents*: a JWT, a header, a bearer token. That is the right answer to "on whose behalf is this happening", and the wrong answer to "what is making this call".
+
+The gap between those two questions is where a confused deputy lives. A legitimate job runner holding a legitimate user token is indistinguishable, at the token layer, from a compromised job runner replaying that same token. Both present valid credentials. Both are, as far as levels 0–3 can tell, the same caller.
+
+Attestation closes that gap by establishing the *workload* from transport evidence rather than from a claim:
+
+| | Identity (levels 0–3) | Attestation |
+|---|---|---|
+| Answers | whose authority is being exercised | what is running |
+| Derived from | a token the workload presents | the mesh's mTLS peer identity |
+| Can the workload choose it? | yes, if it holds the token | no |
+| Available in | every mode | `ext_authz` mode |
+
+They are deliberately separate types in the code, and collapsing them would defeat the point: a workload that has stolen a token still cannot forge the identity its own certificate carries.
+
+### Attesters
+
+An attester is a named mechanism for establishing workload identity. The name is recorded on every decision, because "we know who this workload is" means materially different things depending on which one answered.
+
+| Attester | Source | Binding |
+|----------|--------|---------|
+| `mesh-spiffe` | Envoy's `source.principal`, from the peer certificate's URI SAN | mTLS. The workload cannot forge it. |
+| `mesh-header` | A principal a waypoint republished into a request header | The mesh stripping any client-supplied value of that name first |
+| `none` | No workload identity could be established | — |
+
+`mesh-header` exists because an ambient waypoint terminates HBONE upstream of the listener running `ext_authz`, so no peer certificate is readable there and `source.principal` arrives empty however healthy the mesh is. An EnvoyFilter copies the identity out of Envoy filter state into a header the check does receive.
+
+The identity is the same; the binding is weaker. Reading a certificate depends on TLS. Reading a header depends on a filter that strips inbound values before writing its own — a property of deployed configuration rather than of cryptography. **A deployment without that filter must not treat the header as meaningful**, which is exactly why it is a separate attester name rather than a silent fallback inside `mesh-spiffe`.
+
+Where a certificate and a header are both present, the certificate wins.
+
+### Assurance
+
+`assurance` on a decision reports whether a workload identity was established at all: `ATTESTED` or `NONE`. It is intentionally coarse today. Once grants land, it will distinguish how strongly the workload is bound to the authority it is exercising — corroboration from two independent attesters, for instance, is worth more than either alone, which is the case on EKS where IRSA or Pod Identity can be checked alongside the mesh.
+
+### Reading it
+
+```json
+{
+  "workload_principal": "spiffe://cluster.local/ns/agents/sa/job-runner",
+  "attester": "mesh-header",
+  "assurance": "ATTESTED"
+}
+```
+
+An `attester: none` with an empty principal means the EnvoyFilter is absent or the caller is outside the mesh. See [Observability](observability.md#decision-provenance-ext_authz-mode) for how to tell those apart, and [Mesh Integration](mesh-integration.md#istio-ambient--nullfield-as-an-ext_authz-decision-service) for the deployment.
+
 ---
 
 ## Level 0: No Identity (Default)

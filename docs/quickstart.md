@@ -115,6 +115,32 @@ AgenticFlow CRD
 
 ---
 
+## Phase 5b: The Mesh Path (Istio ambient only)
+
+**Goal:** Run nullfield as a decision service the mesh consults, rather than a proxy traffic flows through.
+
+Skip this phase if you are not running Istio in ambient mode; nothing later depends on it.
+
+Run the two demos in order. **[Demo 15 — Proxy Baseline](../demos/15-proxy-baseline/)** exercises the decision core with no mesh present and proves nothing new on purpose: it is the control. **[Demo 16 — Mesh-Native Arbiter](../demos/16-mesh-arbiter/)** then exercises the mesh integration. When 16 fails and 15 passes, the problem is the integration and not the engine — which is the whole reason 15 exists.
+
+```bash
+./demos/15-proxy-baseline/test.sh
+APPLY_MESH_CONFIG=true ./demos/16-mesh-arbiter/test.sh
+```
+
+Demo 16 asserts four things no unit test can establish:
+
+- the caller is identified from the mesh, not from a claim it sent
+- MCP is recognised by parsing the body, since there is no MCP-shaped URL to match
+- a call the policy denies still returns 200 under observe, with `counterfactual: DENY` recorded
+- a body too large to read is refused rather than authorized on the part that fit
+
+Then it flips to enforce and the same call returns 403.
+
+Read [Mesh Integration](mesh-integration.md#istio-ambient--nullfield-as-an-ext_authz-decision-service) before deploying this yourself. Several of its failure modes are silent — notably that `allowPartialMessage: false` makes Envoy reject oversized bodies with a 413 *before* calling the check, so an observe-only rollout breaks traffic while observing nothing.
+
+---
+
 ## Phase 6: Kubernetes Deployment
 
 **Goal:** Deploy nullfield on a real cluster with Helm.

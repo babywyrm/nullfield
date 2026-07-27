@@ -38,6 +38,18 @@ All notable changes to this project will be documented in this file.
 
   Provider registration is opt-in via `APPLY_MESH_CONFIG=true`, because it is the only step that edits mesh-wide config and restarts istiod.
 
+### Documentation
+
+- **The mesh integration guide described the previous architecture.** `docs/mesh-integration.md` opened by defining nullfield as "a sidecar" complementary to meshes at the transport layer, listed four deployment profiles none of which was the one now shipping, and carried a section headed "Future: ext_authz and WASM". It now leads with the two front doors and what each can and cannot promise — attested identity and read-only operation on one side, response inspection and request modification on the other — and documents the `ext_authz` profile alongside the four silent failure modes found deploying it.
+
+- **The audit trail was undocumented.** `docs/observability.md` gains the `arbiter.decision` event, the provenance fields (`workload_principal`, `attester`, `assurance`, `transport`, `counterfactual`), and how to read observe-mode results.
+
+- **`docs/identity-policy.md` gains a workload attestation section.** The existing four levels all answer "whose authority is being exercised" from something the caller presents. Attestation answers "what is running" from evidence it cannot choose, which is the distinction the confused-deputy case turns on, and it was described nowhere outside the spec.
+
+- **`docs/architecture.md` documents both front doors** and why the JSON-RPC envelope lives in `pkg/mcp` rather than in either one.
+
+- **Roadmap corrected.** v0.11 and v0.12 are complete. Recorded against v0.12: identity does not arrive as `source.principal` as the roadmap assumed, and the entry now says so rather than reading as though the plan went to plan.
+
 ### Fixed
 
 - **Mesh config edited by string splicing could corrupt every CUSTOM policy in the mesh** — the first version of the demo's provider registration inserted YAML as formatted text, producing a list whose first item was indented and whose remaining items were not. istiod parsed `extensionProviders` as empty and logged `available providers are []`, at which point every `CUSTOM` AuthorizationPolicy mesh-wide silently converts to a deny — including ones unrelated to the demo. The patch itself succeeds, so the failure surfaces later as unexplained denials. Registration now parses and re-emits the document, verifies it round-trips before sending, and greps istiod's log afterwards rather than assuming.

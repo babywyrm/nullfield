@@ -2,13 +2,38 @@
 
 How nullfield works internally: the request lifecycle, the decision chain, and what each package is responsible for.
 
-> **Direction of travel.** This document describes proxy mode, which is how
-> nullfield is deployed today and remains the non-mesh deployment path. A second
-> front door is designed in
-> [`specs/2026-07-26-mesh-native-arbiter.md`](specs/2026-07-26-mesh-native-arbiter.md):
-> nullfield as an `ext_authz` decision service behind a service-mesh waypoint,
-> with workload identity derived from mesh mTLS. The decision chain below is
-> unchanged by that work — only what calls it changes.
+---
+
+## Two Front Doors
+
+nullfield has two inbound adapters sharing one decision core.
+
+```text
+  HTTP proxy (:9090)  ─┐
+                       ├─►  IDENTITY ─► REGISTRY ─► ... ─► POLICY ─►  Decision
+  ext_authz (:9191)   ─┘
+```
+
+**Proxy mode** puts nullfield in the request path. It reads the JSON-RPC body, runs the chain, and forwards or refuses. This is the original shape, the only one available without a mesh, and the only one that can modify a request or see a response.
+
+**`ext_authz` mode** puts nullfield beside the path. A service-mesh waypoint calls it over gRPC with the request's attributes, and nullfield answers. Nothing flows through it.
+
+The decision chain below is shared and unchanged. What differs is what surrounds it:
+
+| | Proxy | `ext_authz` |
+|---|---|---|
+| Entrypoint | `cmd/nullfield` | `cmd/nullfield-extauthz` |
+| Inbound adapter | `pkg/proxy` | `pkg/extauthz` |
+| Caller identity | a token the caller presents (`pkg/identity`) | attested from the mesh (`pkg/identity.WorkloadAttester`) |
+| Sees the response | yes | no |
+| Can modify the request | yes (`SCOPE`) | no |
+| Read-only operation | not meaningfully | yes — observe mode with counterfactuals |
+
+Both adapters need to read an MCP `tools/call`, which is why the JSON-RPC envelope lives in `pkg/mcp` rather than inside `pkg/proxy`. Having one front door import the other would drag policy, identity, audit and scope along transitively for the sake of two structs and a parse.
+
+Deployment guidance is in [Mesh Integration](mesh-integration.md); the design reasoning is in [`specs/2026-07-26-mesh-native-arbiter.md`](specs/2026-07-26-mesh-native-arbiter.md).
+
+The rest of this document describes proxy mode unless stated otherwise.
 
 ---
 
@@ -82,9 +107,12 @@ Why this order:
 
 | Package | Responsibility |
 |---------|---------------|
-| `cmd/nullfield` | Entrypoint. Loads config, wires dependencies, starts HTTP servers. |
-| `pkg/proxy` | MCP JSON-RPC parsing (`mcp.go`). Reverse proxy handler with decision chain (`handler.go`). |
-| `pkg/identity` | Extract Bearer token from request header. Verify identity (noop in dev, JWKS in prod). Context propagation. |
+| `cmd/nullfield` | Entrypoint for proxy mode. Loads config, wires dependencies, starts HTTP servers. |
+| `cmd/nullfield-extauthz` | Entrypoint for decision-service mode. Serves the Envoy `ext_authz` gRPC API and a health service. |
+| `pkg/mcp` | The JSON-RPC 2.0 envelope MCP rides on. Shared by both front doors, which is why it is not inside `pkg/proxy`. |
+| `pkg/proxy` | Reverse proxy handler with decision chain (`handler.go`). Re-exports `pkg/mcp` types as aliases (`mcp.go`). |
+| `pkg/extauthz` | Envoy `CheckRequest` translation, truncation guard, response construction, gRPC server. |
+| `pkg/identity` | Extract Bearer token from request header. Verify identity (noop in dev, JWKS in prod). Context propagation. Workload attestation from mesh peer identity (`attest.go`). |
 | `pkg/registry` | File-backed tool allowlist. Thread-safe for hot-reload. IsRegistered() is the gate. |
 | `pkg/circuit` | Per-session call count + duration tracking. Allow/Record/Sweep lifecycle. |
 | `pkg/policy` | Rule engine interface (`engine.go`). First-match ALLOW/DENY evaluator (`rules.go`). YAML policy loader (`loader.go`). |

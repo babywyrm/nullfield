@@ -104,6 +104,59 @@ The top-level log fields are intentionally compact. The `payload` contains the f
 | `anomaly.velocity` | Tool call velocity exceeded threshold |
 | `anomaly.sequence` | Suspicious tool call sequence detected |
 | `identity.drift` | Claims (scopes/groups) changed mid-session |
+| `arbiter.decision` | A decision reached as an `ext_authz` service, including ones not acted on |
+
+### Decision provenance (`ext_authz` mode)
+
+An `arbiter.decision` event answers a question the proxy events do not need to: **how much is this attribution worth?** In proxy mode the identity comes from a token the caller presented. As a decision service it comes from the mesh, and the audit trail has to record which mechanism answered — otherwise "we know who did this" means several materially different things that all look alike after the fact.
+
+```json
+{
+  "type": "arbiter.decision",
+  "method": "tools/call",
+  "tool_name": "secrets.leak_config",
+  "target": "mcp-server",
+  "transport": "A",
+  "gate": "policy",
+  "reason_class": "policy_denied",
+  "reason": "denied by rule for tool: secrets.leak_config",
+  "workload_principal": "spiffe://cluster.local/ns/agents/sa/job-runner",
+  "attester": "mesh-header",
+  "assurance": "ATTESTED",
+  "counterfactual": "DENY"
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `workload_principal` | The caller as the mesh reports it, recorded verbatim even when it could not be parsed |
+| `attester` | Which mechanism established it: `mesh-spiffe` (peer certificate), `mesh-header` (waypoint-published, see below), or `none` |
+| `assurance` | `ATTESTED` when a workload identity was established, `NONE` otherwise |
+| `transport` | Traffic class: `A` MCP, `B` wire API, `C` in-process SDK, `D` subprocess, `E` model functions |
+| `counterfactual` | What enforcement would have done. Present when the decision was **not** applied |
+
+`attester` is not cosmetic. `mesh-spiffe` means the identity was read from a peer certificate, which depends on TLS. `mesh-header` means a waypoint republished it into a request header, which depends on that filter stripping any client-supplied value first — a property of deployed config rather than cryptography. Same identity, weaker binding. See [Identity-Aware Policy](identity-policy.md#workload-attestation).
+
+An empty `workload_principal` with `attester: none` is the signal that the EnvoyFilter is missing or the caller is outside the mesh. Set `NULLFIELD_EXTAUTHZ_LOG_PEER=true` to log the raw source attributes and header names of every check, which distinguishes "no principal arrived", "one arrived in a shape we do not parse", and "the caller is genuinely external".
+
+### Reading observe-mode results
+
+`counterfactual` is the point of running in observe. It records the decision that *would* have been enforced while the request was allowed through, so a shadow deployment produces evidence rather than outages:
+
+```bash
+# What would have been blocked, had this been enforcing?
+kubectl -n <ns> logs deploy/nullfield-extauthz \
+  | grep arbiter.decision \
+  | grep '"counterfactual":"DENY"'
+
+# Requests refused because the body exceeded the ext_authz buffer.
+# Still attributed to a caller: this is where someone would place arguments
+# they wanted the arbiter not to read.
+kubectl -n <ns> logs deploy/nullfield-extauthz \
+  | grep '"reason_class":"body_truncated"'
+```
+
+A `counterfactual` on an *applied* decision would be a bug — it would read as though enforcement had been shadowed when it had not.
 
 ### Filtering audit logs
 

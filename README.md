@@ -79,13 +79,15 @@ See [docs/arbiter-model.md](docs/arbiter-model.md) for the full specification.
 
 ## Deployment Model
 
-nullfield is lightweight by design. Three deployment patterns:
+nullfield is lightweight by design. Four deployment patterns:
 
 **Sidecar** — one nullfield container per pod, next to your MCP server. Traffic enters through nullfield before reaching the app. This is the default. Stateless enforcement — policy, registry, identity, circuit breaker.
 
 **Controller** — one nullfield-controller pod per cluster, deployed alongside the sidecars. Handles stateful coordination that doesn't belong in individual sidecars: centralized holds, shared budget counters, webhook alerting, and a unified admin API. Sidecars connect to the controller via gRPC. Opt-in — sidecars work standalone without it.
 
 **Gateway** — one nullfield instance proxying multiple MCP servers with per-upstream policy routing. Define routes by tool name prefix or explicit list. For teams that want centralized enforcement without N sidecars.
+
+**Decision service** (`ext_authz`) — one nullfield per namespace, called by an Istio waypoint over gRPC. Nothing flows through it and no sidecar is added to any pod. Two things this buys that the others cannot: the caller is identified from the mesh rather than from a token it presents, and it can run genuinely read-only, recording what enforcement *would* have done against production traffic. Two it costs: no response inspection and no request modification, because `ext_authz` sees requests only. See [Mesh Integration](docs/mesh-integration.md#istio-ambient--nullfield-as-an-ext_authz-decision-service).
 
 ### What lives in the sidecar (per-pod)
 
@@ -485,8 +487,10 @@ HTTP-borne agentic traffic — Kubernetes API, GitHub, Slack, Atlassian, Grafana
 PagerDuty — because a CLI calling an API is just HTTP the mesh already sees.
 Proxy and gateway modes remain the non-mesh deployment path.
 
-- [ ] **v0.11** — Deploy the existing proxy mode against a live k3s cluster to re-verify the Helm chart and manifests and capture a regression baseline, before a second front door is added
-- [ ] **v0.12** — `ext_authz` gRPC mode: decision service behind an Istio waypoint, workload identity derived from mesh mTLS (`source.principal`) instead of a self-asserted `identity_type` claim, provenance records, observe-only
+- [x] **v0.11** — Deploy the existing proxy mode against a live k3s cluster to re-verify the manifests and capture a regression baseline, before a second front door is added — [demo 15](demos/15-proxy-baseline/)
+- [x] **v0.12** — `ext_authz` gRPC mode: decision service behind an Istio waypoint, workload identity attested from the mesh instead of a self-asserted `identity_type` claim, provenance records, observe-only — [demo 16](demos/16-mesh-arbiter/)
+
+  Verified on k3s with Istio 1.30 ambient. One correction to the plan: identity does **not** arrive as `source.principal`. A waypoint terminates HBONE upstream of the listener running `ext_authz`, so no peer certificate is readable there and the check arrives anonymous. Istio publishes the identity into Envoy filter state, and an EnvoyFilter copies it into a header the check does receive — reported as the `mesh-header` attester, since the binding depends on that filter rather than on TLS.
 - [ ] **v0.13** — Authority grants: initiating principal and `act` chain bound to workload identity, session, and contract version; contract binding required; assurance levels; shadow counterfactuals answering "what would enforcement break"
 - [ ] **v0.14** — External egress: `ServiceEntry` plus egress waypoint, one integration at operation-level parsing
 - [ ] **v0.15** — AI Gateway interception of model-proposed tool calls, before an agent framework dispatches them; consumes stoneburner `atomics toolcall` divergence data as a policy input
