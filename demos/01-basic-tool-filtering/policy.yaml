@@ -1,0 +1,49 @@
+# The point of this policy is the shape, not the tool names. Two tiers of
+# ALLOW, an explicit high-risk DENY, and a trailing default-deny so an
+# unmatched tool is refused rather than waved through.
+#
+# The circuitBreaker block below is decorative. It parses into the spec and
+# nothing reads it: cmd/nullfield builds the breaker from
+# NULLFIELD_CIRCUIT_MAX_CALLS before the policy is even loaded. It is left here
+# deliberately, set to 50, so the demo can prove the env var wins by tripping
+# at 5. See the gap: line in test.sh.
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: demo-01-basic
+spec:
+  rules:
+    - id: tier-1-read-only
+      action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - cost.check_usage
+        - audit.list_actions
+
+    - id: tier-2-writes
+      action: ALLOW
+      mcpMethod: tools/call
+      toolNames:
+        - ticket.create
+
+    # Registered, described, and refused. Naming it explicitly rather than
+    # leaving it to the default-deny means the audit trail says which rule
+    # made the call, which is the difference between a policy you can review
+    # and one you can only observe.
+    - id: tier-3-high-risk
+      action: DENY
+      mcpMethod: tools/call
+      toolNames:
+        - secrets.read_config
+      reason: "high-risk tool, tier 3"
+
+    - id: default-deny
+      action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]
+      reason: "not granted by policy"
+
+  circuitBreaker:
+    maxToolCallsPerSession: 50
+    maxSessionDuration: 300s
+    onTrip: DENY

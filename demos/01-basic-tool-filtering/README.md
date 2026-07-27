@@ -1,90 +1,112 @@
-# Demo 01: Basic Tool Filtering
+# Demo 01 — Basic Tool Filtering
 
-The foundation — tool registry enforcement, tiered allow/deny policy, circuit breaker, and structured audit trail.
-
-## Setup
-
-Start camazotz (or any MCP server) on port 8080, then start nullfield:
+The foundation. Three gates decide whether a tool call reaches its upstream,
+they run in a fixed order, and the error code tells you which one answered.
 
 ```bash
-cd /path/to/nullfield
-
-NULLFIELD_UPSTREAM_ADDR=localhost:8080 \
-NULLFIELD_POLICY_PATH=integrations/camazotz/policy.yaml \
-NULLFIELD_REGISTRY_PATH=integrations/camazotz/tools.yaml \
-./bin/nullfield
+demos/01-basic-tool-filtering/test.sh
 ```
 
-## What to observe
+Tier 1, no dependencies beyond Docker Compose, gated in CI.
 
-### 1. Allowed tool (tier 1 — read-only, 60/min)
+## The gates, in order
 
-```bash
-curl -s -X POST http://localhost:9090/mcp \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"cost.check_usage","arguments":{}}}' | python3 -m json.tool
+```text
+  tools/call
+      │
+      ▼
+  ┌─────────────┐   not described in the registry     ──► -32003
+  │  registry   │
+  └──────┬──────┘
+         ▼
+  ┌─────────────┐   too many calls in this session    ──► -32002
+  │  circuit    │
+  └──────┬──────┘
+         ▼
+  ┌─────────────┐   known, and not granted            ──► -32000
+  │  policy     │
+  └──────┬──────┘
+         ▼
+    upstream
 ```
 
-Expected: real response from camazotz with usage data.
+The order is not cosmetic. Because the registry runs first, **an unregistered
+tool cannot be granted by writing an ALLOW rule for it** — the rule is never
+reached. Registering a tool and granting a tool are two separate acts, and the
+demo proves it by calling something that is both absent from the registry and
+explicitly denied in policy. It comes back `-32003`, not `-32000`.
 
-### 2. Blocked tool (tier 3 — high-risk)
+| Code | Gate | Means |
+|---|---|---|
+| `-32003` | registry | nothing describes this tool |
+| `-32002` | circuit | this session has made too many calls |
+| `-32000` | policy | the tool is known and not granted |
 
-```bash
-curl -s -X POST http://localhost:9090/mcp \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"secrets.leak_config","arguments":{}}}' | python3 -m json.tool
+## Registry and policy do different jobs
+
+`tools.yaml` describes what exists: names, scopes, per-minute ceilings. It is
+the vocabulary.
+
+`policy.yaml` decides who may do what: tiers of ALLOW, an explicit high-risk
+DENY, and a trailing `*` default-deny so an unmatched tool is refused rather
+than waved through.
+
+`secrets.read_config` is in the registry *and* denied by policy, on purpose. A
+demo where every refusal comes from the registry cannot show the two apart.
+
+Denying it by name rather than leaving it to the default-deny is also
+deliberate: the audit trail then names `tier-3-high-risk` as the rule that
+decided, which is the difference between a policy you can review and one you
+can only observe after the fact.
+
+## One thing that does not work
+
+The `circuitBreaker` block in the policy is **decorative**. It parses into the
+spec and nothing reads it — `cmd/nullfield` builds the breaker from
+`NULLFIELD_CIRCUIT_MAX_CALLS` and `NULLFIELD_CIRCUIT_MAX_DURATION` before the
+policy is loaded, and never consults `spec.circuitBreaker`. That is true of
+every policy in this repository, `onTrip: KILL_POD` included, which reads like
+it would do something dramatic and does nothing at all.
+
+So this demo sets the limit where it actually takes effect:
+
+```yaml
+# compose.override.yaml
+environment:
+  NULLFIELD_CIRCUIT_MAX_CALLS: "5"
 ```
 
-Expected: `{"error":{"code":-32000,"message":"denied by policy: ..."}}`
+and its policy asks for 50. The breaker trips on the 6th call, which is how the
+test proves the environment won. That assertion fails if the policy ever starts
+winning, which is the signal to come back and update this page.
 
-### 3. Unregistered tool (not in registry at all)
-
-```bash
-curl -s -X POST http://localhost:9090/mcp \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"admin.drop_tables","arguments":{}}}' | python3 -m json.tool
-```
-
-Expected: `{"error":{"code":-32003,"message":"tool not registered: ..."}}`
-
-### 4. Check the audit trail
-
-In a second terminal:
-
-```bash
-# If running as binary:
-# (audit logs go to stdout)
-
-# If running on K3s:
-kubectl -n camazotz logs -l app=brain-gateway -c nullfield --tail=10
-```
-
-Every request shows: event type (`tool.allowed` / `tool.denied`), tool name, identity, reason.
-
-### 5. Run the full demo script
-
-```bash
-bash integrations/camazotz/demo.sh
-```
-
-17-point automated test covering all tiers.
-
-## How the policy works
+## What the test asserts
 
 ```
-Request arrives
-    │
-    ├── Tool in registry?  NO → -32003 (rejected)
-    ├── Circuit breaker?   OPEN → -32002 (rejected)
-    └── Policy rules (first match wins):
-        ├── Tier 1: 25 read-only tools → ALLOW (60/min)
-        ├── Tier 2: 25 write tools → ALLOW (20/min)
-        ├── Tier 3: 7 high-risk tools → DENY
-        └── Default: DENY everything else
+the three gates, by the code they return:
+  ok:  a granted tool reaches the upstream server
+  ok:  a registered tool denied by policy returns -32000
+  ok:  a tool the registry never described returns -32003
+
+the registry runs before policy:
+  ok:  an unregistered tool is refused by the registry, not by policy
+
+the circuit breaker is per session:
+  ok:  a session over its call limit returns -32002
+  gap: the limit came from the environment; the policy's circuitBreaker block is ignored
+  ok:  a different session is unaffected
+
+every decision is on the record:
+  ok:  the audit trail names the gate that made each decision
+  ok:  and names the rule, not just the outcome
 ```
 
-## Key files
+The breaker is keyed on `Mcp-Session-Id`, so a runaway agent is contained
+without taking down every other caller. The test checks a second session still
+works, which is the half that matters in production.
 
-- `integrations/camazotz/tools.yaml` — 57 registered tools
-- `integrations/camazotz/policy.yaml` — three-tier policy
-- `integrations/camazotz/demo.sh` — 17-point automated test
+## Related
+
+- Demo 06, 07, and 08 cover the decisions policy can make beyond allow and
+  deny: HOLD, BUDGET, and SCOPE.
+- Demo 10 replaces the mounted `policy.yaml` with a Kubernetes custom resource.

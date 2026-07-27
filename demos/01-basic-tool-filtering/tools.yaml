@@ -1,0 +1,28 @@
+# Four tools, all registered. `secrets.read_config` is registered on purpose
+# even though policy denies it: a tool the registry does not know is refused
+# before policy is ever consulted, so without a registered-but-denied tool the
+# demo could not show the two gates apart.
+apiVersion: nullfield.io/v1alpha1
+kind: ToolRegistry
+metadata:
+  name: demo-01-tools
+tools:
+  - name: cost.check_usage
+    description: Read spend for the current account
+    allowedScopes: ["billing:read"]
+    maxCallsPerMinute: 60
+
+  - name: audit.list_actions
+    description: List recent actions from the audit trail
+    allowedScopes: ["audit:read"]
+    maxCallsPerMinute: 60
+
+  - name: ticket.create
+    description: Open a ticket
+    allowedScopes: ["tickets:write"]
+    maxCallsPerMinute: 20
+
+  - name: secrets.read_config
+    description: Read configuration including secret material
+    allowedScopes: ["secrets:read"]
+    maxCallsPerMinute: 5

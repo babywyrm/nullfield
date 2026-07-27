@@ -1,0 +1,10 @@
+services:
+  nullfield:
+    volumes:
+      - ./demos/01-basic-tool-filtering/tools.yaml:/etc/nullfield/tools.yaml:ro
+      - ./demos/01-basic-tool-filtering/policy.yaml:/etc/nullfield/policy.yaml:ro
+    environment:
+      # The only thing that actually configures the breaker. The policy's
+      # circuitBreaker block is parsed and ignored, so this has to be set here
+      # rather than there. Five, so the demo trips it in a couple of seconds.
+      NULLFIELD_CIRCUIT_MAX_CALLS: "5"
