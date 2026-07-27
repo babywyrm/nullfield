@@ -2,11 +2,9 @@
 # ALLOW, an explicit high-risk DENY, and a trailing default-deny so an
 # unmatched tool is refused rather than waved through.
 #
-# The circuitBreaker block below is decorative. It parses into the spec and
-# nothing reads it: cmd/nullfield builds the breaker from
-# NULLFIELD_CIRCUIT_MAX_CALLS before the policy is even loaded. It is left here
-# deliberately, set to 50, so the demo can prove the env var wins by tripping
-# at 5. See the gap: line in test.sh.
+# The circuitBreaker block is set to 5 while compose.override.yaml sets
+# NULLFIELD_CIRCUIT_MAX_CALLS to 50, so tripping on the sixth call proves the
+# policy won. The policy used to be ignored entirely here.
 apiVersion: nullfield.io/v1alpha1
 kind: NullfieldPolicy
 metadata:
@@ -44,6 +42,8 @@ spec:
       reason: "not granted by policy"
 
   circuitBreaker:
-    maxToolCallsPerSession: 50
+    maxToolCallsPerSession: 5
     maxSessionDuration: 300s
+    # Parsed and still unread. Nothing in the codebase acts on onTrip, so this
+    # is not a second behaviour, it is a label. test.sh says so.
     onTrip: DENY

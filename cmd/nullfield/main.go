@@ -180,7 +180,20 @@ func main() {
 			"replayDetection", spec.Integrity.DetectReplay)
 	}
 
-	breaker := circuit.New(cfg.CircuitMaxCalls, cfg.CircuitMaxDuration)
+	// The policy's circuitBreaker block wins over the environment defaults when
+	// it declares anything. Log which source won: a limit that comes from a
+	// file mounted somewhere else is otherwise impossible to account for.
+	//
+	// This is read once at startup. Hot-reload swaps the rule engine, not the
+	// breaker, so changing circuitBreaker in a mounted policy needs a restart.
+	circuitCalls, circuitDuration, circuitFromPolicy := circuit.ResolveLimits(
+		spec.CircuitBreaker.MaxToolCallsPerSession, spec.CircuitBreaker.MaxSessionDuration,
+		cfg.CircuitMaxCalls, cfg.CircuitMaxDuration)
+	breaker := circuit.New(circuitCalls, circuitDuration)
+	logger.Info("circuit breaker configured",
+		"maxCallsPerSession", circuitCalls,
+		"maxSessionDuration", circuitDuration,
+		"source", map[bool]string{true: "policy", false: "environment"}[circuitFromPolicy])
 
 	// Sweep expired sessions and replay entries every 60s.
 	go func() {

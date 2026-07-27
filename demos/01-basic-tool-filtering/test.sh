@@ -88,16 +88,22 @@ done
   || fail "the circuit breaker never opened after 12 calls in one session: $tripped"
 pass "a session over its call limit returns -32002"
 
-# It tripped on the 6th call, which is NULLFIELD_CIRCUIT_MAX_CALLS=5 from
-# compose.override.yaml -- not the 50 this demo's policy asks for. cmd/nullfield
-# builds the breaker from the environment before the policy is loaded and never
-# consults spec.circuitBreaker, so that block is decorative in every policy in
-# the repository, onTrip: KILL_POD included. This assertion fails if the policy
-# ever starts winning, which is the signal to update the demo and the examples.
-if (( calls > 6 )); then
-  fail "the breaker tripped on call $calls, not 6 -- the policy's circuitBreaker may now be honoured, so update this demo"
+# The policy asks for 5 and compose.override.yaml sets the environment to 50,
+# so tripping on the sixth call is the whole assertion: the policy won. Until
+# recently the breaker was built from the environment before the policy was
+# even loaded, and spec.circuitBreaker was parsed and dropped.
+if (( calls != 6 )); then
+  fail "the breaker tripped on call $calls, not 6 -- the policy's limit of 5 is not being honoured over the environment's 50"
 fi
-echo "  gap: the limit came from the environment; the policy's circuitBreaker block is ignored"
+pass "the limit came from the policy, not from the environment's looser value"
+
+# onTrip is the half that is still only a label. Nothing in the codebase reads
+# it, so DENY and KILL_POD behave identically. Asserted here so the claim is
+# checked rather than remembered.
+if grep -rqs 'OnTrip' --include='*.go' pkg cmd; then
+  fail "something now reads OnTrip -- it is no longer decorative, so update this demo"
+fi
+echo "  gap: onTrip is parsed and unread, so DENY and KILL_POD do the same thing"
 
 other="$(call s3 30 cost.check_usage)"
 [[ "$other" == *'echo-server executed'* ]] \

@@ -59,26 +59,40 @@ deliberate: the audit trail then names `tier-3-high-risk` as the rule that
 decided, which is the difference between a policy you can review and one you
 can only observe after the fact.
 
-## One thing that does not work
+## Where the breaker's limits come from
 
-The `circuitBreaker` block in the policy is **decorative**. It parses into the
-spec and nothing reads it — `cmd/nullfield` builds the breaker from
-`NULLFIELD_CIRCUIT_MAX_CALLS` and `NULLFIELD_CIRCUIT_MAX_DURATION` before the
-policy is loaded, and never consults `spec.circuitBreaker`. That is true of
-every policy in this repository, `onTrip: KILL_POD` included, which reads like
-it would do something dramatic and does nothing at all.
-
-So this demo sets the limit where it actually takes effect:
+Two sources, and the policy wins:
 
 ```yaml
-# compose.override.yaml
+# policy.yaml — takes precedence
+circuitBreaker:
+  maxToolCallsPerSession: 5
+
+# compose.override.yaml — the fallback
 environment:
-  NULLFIELD_CIRCUIT_MAX_CALLS: "5"
+  NULLFIELD_CIRCUIT_MAX_CALLS: "50"
 ```
 
-and its policy asks for 50. The breaker trips on the 6th call, which is how the
-test proves the environment won. That assertion fails if the policy ever starts
-winning, which is the signal to come back and update this page.
+The demo sets them to different values on purpose. Tripping on the 6th call is
+what proves the policy won, and the test fails if it trips anywhere else.
+
+A policy that omits `circuitBreaker` leaves the environment in place, so
+existing deployments are unaffected. The fields are independent: declaring only
+`maxToolCallsPerSession` leaves the duration to the environment. Non-positive
+values are treated as unspecified rather than obeyed, because a negative limit
+is a typo and not a request to disable the breaker.
+
+This is read once at startup. Hot-reload swaps the rule engine, not the
+breaker, so changing `circuitBreaker` in a mounted policy needs a restart.
+`nullfield` logs which source won at startup:
+
+```
+circuit breaker configured maxCallsPerSession=5 maxSessionDuration=5m0s source=policy
+```
+
+**`onTrip` is still only a label.** Nothing in the codebase reads it, so `DENY`
+and `KILL_POD` behave identically. The test greps for a reader and fails if one
+appears, so the claim is checked rather than remembered.
 
 ## What the test asserts
 
@@ -93,7 +107,8 @@ the registry runs before policy:
 
 the circuit breaker is per session:
   ok:  a session over its call limit returns -32002
-  gap: the limit came from the environment; the policy's circuitBreaker block is ignored
+  ok:  the limit came from the policy, not from the environment's looser value
+  gap: onTrip is parsed and unread, so DENY and KILL_POD do the same thing
   ok:  a different session is unaffected
 
 every decision is on the record:
