@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# tier: 2
+# requires: kubernetes
+# summary: proxy mode decides correctly with no mesh present
 #
 # Proxy-mode regression baseline.
 #

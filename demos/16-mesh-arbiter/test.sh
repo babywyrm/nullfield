@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# tier: 3
+# requires: mesh
+# summary: waypoint ext_authz with attested spiffe identity, observe then enforce
 #
 # nullfield as a mesh-native arbiter.
 #

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# tier: 1
+# requires: none
+# summary: an agenticflow compiles to the policy and registry it claims to
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."

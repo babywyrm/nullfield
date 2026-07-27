@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# tier: 2
+# requires: kubernetes
+# summary: the controller compiles an agenticflow crd and a sidecar enforces it
 set -euo pipefail
 
 ns="${1:-nullfield-demo}"
