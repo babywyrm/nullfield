@@ -1,13 +1,27 @@
-# Controller Mode — Centralized Holds, Budgets, and Admin
+# Controller Mode — Central Inventory and Events
 
-Deploy the nullfield controller alongside a sidecar to get centralized hold management, shared budget enforcement, and a unified admin API.
+Deploy the nullfield controller alongside a sidecar to get a fleet-wide view of
+what is deployed and what it decided.
+
+> **Read this first.** Controller mode delivers less than its name suggests.
+> The sidecar registers its inventory and streams every decision to the
+> controller, and both work. **Centralized holds and shared budgets do not.**
+> `pkg/hold/remote.go` and `pkg/budget/remote.go` exist and wrap the controller
+> client correctly, but nothing in `cmd/` ever constructs them, and
+> `HandlerOpts.Holds` is a concrete `*hold.Manager` rather than an interface,
+> so the remote implementation could not be substituted even if something
+> tried. In controller mode the local hold manager is deliberately left nil, so
+> a HOLD rule falls through to an outright deny.
+>
+> `test.sh` asserts both gaps and is written to **fail** when either is
+> implemented, so this page cannot quietly go back to overstating things.
 
 ## What you'll learn
 
 - Deploying the controller alongside sidecars using Docker Compose
-- Centralized hold management — approve/deny holds from the controller admin API
-- Shared budget enforcement — a single budget counter regardless of how many sidecars are running
-- Unified admin API — one place to see all events, holds, budgets, and connected sidecars
+- Sidecar registration — every sidecar reports its tool and rule inventory
+- A unified event stream — one place to see what every sidecar decided
+- Where the mode currently stops, and why
 
 ## Architecture
 
@@ -21,7 +35,13 @@ Deploy the nullfield controller alongside a sidecar to get centralized hold mana
                                          └───────────────────────┘
 ```
 
-The sidecar handles all local decisions (registry, identity, circuit breaker, policy evaluation). When a rule triggers HOLD or BUDGET, the sidecar delegates to the controller via gRPC.
+The sidecar makes every decision locally: registry, identity, circuit breaker,
+policy evaluation, holds, and budgets. What travels over gRPC is registration
+and the audit event stream, in that one direction.
+
+Delegating HOLD and BUDGET to the controller is the intent of the design and
+is not yet wired. Until it is, a second sidecar gets its own budget counters
+and its own holds, so the quota is per-replica rather than shared.
 
 ## Prerequisites
 
@@ -82,75 +102,78 @@ Expected (one registered sidecar):
 ]
 ```
 
-## Step 4: Test a HOLD
+## Step 4: See where HOLD stops
 
-The policy puts `delegation.invoke_agent` and `config.update_settings` under a HOLD rule — the request is parked until a human approves or the 5-minute timeout expires.
+The policy puts `delegation.invoke_agent` and `config.update_settings` under a
+HOLD rule. In sidecar-only mode that parks the request until a human resolves
+it. In controller mode it does not.
 
-### 4a. Send a held tool call
-
-In one terminal, send a request that will be held. This call blocks until the hold is resolved:
+### 4a. Send a call the policy wants to hold
 
 ```bash
 curl -s -X POST http://localhost:9090/mcp \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"delegation.invoke_agent","arguments":{"target":"agent-7"}}}' &
-HOLD_PID=$!
-echo "Request is waiting (PID $HOLD_PID)..."
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"delegation.invoke_agent","arguments":{"target":"agent-7"}}}' \
+  | python3 -m json.tool
 ```
 
-### 4b. List holds on the controller
-
-In a second terminal, list the pending holds:
-
-```bash
-curl -s http://localhost:9093/admin/holds | python3 -m json.tool
-```
-
-Expected:
-
-```json
-[
-    {
-        "id": "<hold-id>",
-        "tool": "delegation.invoke_agent",
-        "status": "pending",
-        "created_at": "...",
-        "timeout": "5m0s"
-    }
-]
-```
-
-Copy the `id` value from the response.
-
-### 4c. Approve the hold via the controller
-
-```bash
-curl -s -X POST http://localhost:9093/admin/holds/<hold-id>/approve \
-  -H "X-Approver: demo-admin" | python3 -m json.tool
-```
-
-Expected:
+It returns immediately rather than blocking:
 
 ```json
 {
-    "status": "approved",
-    "hold": "<hold-id>"
+    "jsonrpc": "2.0",
+    "id": 1,
+    "error": {
+        "code": -32000,
+        "message": "denied by policy: requires human approval"
+    }
 }
 ```
 
-The curl from step 4a should now return the echo-server response. The hold was managed entirely through the controller's admin API.
-
-### 4d. Verify the hold resolved
+### 4b. Confirm nothing was parked
 
 ```bash
 curl -s http://localhost:9093/admin/holds | python3 -m json.tool
 ```
 
-Expected: empty list `[]` (or the hold now shows `status: approved`).
+Expected: `[]`.
+
+The sidecar's own `/admin/holds` is not there either — in controller mode the
+hold admin API is never registered, on the assumption the controller owns it:
+
+```bash
+curl -s http://localhost:9091/admin/holds
+# 404 page not found
+```
+
+### 4c. Why
+
+`cmd/nullfield/main.go` only builds a `hold.Manager` when there is no
+controller client, so `h.holds` is nil and the handler's HOLD branch is
+skipped entirely. The request falls through to a deny, which the audit trail
+records honestly with `reason_class: policy_held`:
+
+```bash
+docker compose -f demos/09-controller-mode/docker-compose.yaml logs nullfield \
+  | grep policy_held | tail -1
+```
+
+`pkg/hold/remote.go` is the missing half. It wraps the controller client and
+does the right thing, and nothing constructs it. Substituting it also needs
+`HandlerOpts.Holds` to become an interface rather than a concrete
+`*hold.Manager`, and needs the resolution to travel back to the sidecar so the
+original request can be released.
+
+If you implement this, `test.sh` will start failing on purpose. That is the
+signal to update this page.
 
 ## Step 5: Test BUDGET
 
-The policy limits `llm.generate_summary` to 5 calls per session per hour. This budget is tracked centrally by the controller — adding more sidecars doesn't multiply the quota.
+The policy limits `llm.generate_summary` to 5 calls per session per hour. That
+limit is enforced, but by the sidecar's own tracker: `GET /admin/budgets` on
+the controller stays empty however many calls you make, and a second sidecar
+would get a second quota. Tracking it centrally is the intent and is not yet
+wired.
 
 ### 5a. Use up the budget
 
@@ -183,7 +206,12 @@ Expected: calls 1–5 succeed. Call 6 is rejected:
 curl -s http://localhost:9093/admin/budgets | python3 -m json.tool
 ```
 
-Expected: shows the budget counter at 5/5.
+Expected: `[]`.
+
+The limit was enforced, but by the sidecar's own `budget.Tracker`. The
+controller never sees the counter, so a second sidecar would get a second
+quota rather than sharing this one. `pkg/budget/remote.go` is the missing half
+here, in the same way `pkg/hold/remote.go` is for holds.
 
 ## Step 6: Check the unified event stream
 
@@ -203,11 +231,16 @@ curl -s "http://localhost:9093/admin/events?type=tool.held" | python3 -m json.to
 
 ## Step 7: What's different from sidecar-only mode
 
-| Capability | Sidecar-only | With controller |
-|---|---|---|
-| HOLD management | Local — approve via sidecar's own admin port (`:9091`) | Centralized — approve via controller admin (`:9093`) |
-| BUDGET tracking | Per-sidecar — each sidecar has its own counters | Shared — one counter across all sidecars |
-| Event stream | Per-sidecar logs | Unified — controller aggregates all events |
+| Capability | Sidecar-only | With controller | Status |
+|---|---|---|---|
+| Event stream | Per-sidecar logs | Unified — the controller aggregates every decision | Works |
+| Inventory | None | Every sidecar reports its tool and rule counts to `/admin/targets` | Works |
+| HOLD management | Local — approve via the sidecar's own admin port (`:9091`) | Intended: approve via controller admin (`:9093`) | **Not wired.** The hold manager is nil in controller mode, so HOLD denies outright |
+| BUDGET tracking | Per-sidecar counters | Intended: one counter across all sidecars | **Not wired.** Counters stay local and `/admin/budgets` stays empty |
+
+Sidecar-only mode is the better choice today if you need HOLD, because there
+the hold manager exists and `/admin/holds` on the sidecar works. Demo 06 shows
+that path end to end.
 | Admin dashboard | One per sidecar | One for the entire cluster |
 | Connected sidecars | N/A | `/admin/targets` shows all registered sidecars |
 | Failure mode | Fully independent | Sidecar falls back to local enforcement if controller is unreachable |

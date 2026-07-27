@@ -1,0 +1,52 @@
+# Registry for this demo's tool vocabulary.
+#
+# The demo previously mounted examples/tools.yaml, which registers a GitHub and
+# PagerDuty vocabulary and none of the tools this policy names. Every call was
+# refused by the registry gate with -32003 before policy was ever consulted, so
+# the controller holds this demo exists to show could not happen.
+apiVersion: nullfield.io/v1alpha1
+kind: ToolRegistry
+metadata:
+  name: controller-demo-tools
+tools:
+  - name: cost.check_usage
+    description: Report current spend against budget
+    allowedScopes: ["cost:read"]
+    maxCallsPerMinute: 60
+
+  - name: audit.list_actions
+    description: List recent audited actions
+    allowedScopes: ["audit:read"]
+    maxCallsPerMinute: 60
+
+  - name: tenant.list_tenants
+    description: List tenants
+    allowedScopes: ["tenant:read"]
+    maxCallsPerMinute: 60
+
+  - name: delegation.invoke_agent
+    description: Hand work to a sub-agent
+    allowedScopes: ["agent:invoke"]
+    maxCallsPerMinute: 10
+
+  - name: config.update_settings
+    description: Change runtime configuration
+    allowedScopes: ["config:write"]
+    maxCallsPerMinute: 10
+
+  - name: llm.generate_summary
+    description: Summarise text with a model
+    allowedScopes: ["llm:invoke"]
+    maxCallsPerMinute: 30
+
+  - name: llm.translate_text
+    description: Translate text with a model
+    allowedScopes: ["llm:invoke"]
+    maxCallsPerMinute: 30
+
+  # Registered and deliberately absent from every ALLOW rule, so the demo can
+  # show policy saying no rather than only the registry saying unknown.
+  - name: tenant.delete_tenant
+    description: Delete a tenant
+    allowedScopes: ["tenant:admin"]
+    maxCallsPerMinute: 1

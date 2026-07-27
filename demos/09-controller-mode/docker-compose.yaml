@@ -27,14 +27,16 @@ services:
       NULLFIELD_CONTROLLER_ADDR: "nullfield-controller:9092"
     volumes:
       - ./policy.yaml:/etc/nullfield/policy.yaml:ro
-      - ../../examples/tools.yaml:/etc/nullfield/tools.yaml:ro
+      - ./tools.yaml:/etc/nullfield/tools.yaml:ro
     depends_on:
       echo-server:
         condition: service_started
       nullfield-controller:
         condition: service_healthy
+    # The runtime image is distroless, so there is no wget, curl, or shell to
+    # call. The binary probes itself instead.
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9091/healthz"]
+      test: ["CMD", "/nullfield", "-healthcheck"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -53,7 +55,7 @@ services:
       NULLFIELD_CONTROLLER_ADMIN_ADDR: ":9093"
       NULLFIELD_CONTROLLER_HEALTH_ADDR: ":9091"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9091/healthz"]
+      test: ["CMD", "/nullfield-controller", "-healthcheck"]
       interval: 10s
       timeout: 3s
       retries: 3
