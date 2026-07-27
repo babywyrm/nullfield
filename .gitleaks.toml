@@ -26,6 +26,22 @@ regexes = ['''go build .*/cmd/.*extauthz''']
 
 [[allowlists]]
 description = """
+The planted fixture in demo 12. That demo proves response inspection redacts
+credentials, which requires a credential-shaped string to redact -- so the one
+file whose job is to contain a fake secret is the one file the scanner objects
+to. The value is `hunter2xyz123`, chosen to be transparently synthetic.
+
+Scoped to that literal rather than to the demo's files, for the reason the
+Makefile entry above records: a `paths` exclusion would stop the file being
+scanned at all, so a real credential added to demo 12 later would go unreported
+while the scan still said clean. Any other secret in these files is still
+caught.
+"""
+regexTarget = "line"
+regexes = ['''hunter2xyz123''']
+
+[[allowlists]]
+description = """
 SPIFFE IDs in documentation and manifests. These are workload identities, not
 credentials: they are asserted by the mesh from a certificate and are worthless
 to anyone holding a copy. They appear throughout the identity documentation
