@@ -153,6 +153,25 @@ different maturity levels and some will never be modernized.
 Three interception points, each covering a transport class. One decision core
 behind all of them.
 
+```text
+  BEFORE                              AFTER
+
+  agent ──► nullfield ──► MCP         agent ─┐
+            (proxy)                   CLI ───┤
+                                      SDK ───┼──► mesh ──► nullfield ──► anywhere
+  agent ────────────────► GitHub      job ───┤   (intercepts)  (decides)
+  agent ────────────────► kubectl     model ─┘
+  agent ────────────────► Slack
+        (unmediated)                  one mechanism, N semantic parsers
+
+  covered: MCP only                   covered: anything HTTP-borne
+```
+
+The reduction is the whole argument. What made MCP and CLI look like separate
+problems was that nullfield was a JSON-RPC proxy, so only MCP fit through it.
+`kubectl` is an HTTPS client to the apiserver; so are `gh`, `aws`, and every
+SaaS SDK. The mesh already sees all of it.
+
 | Point | Covers | Mechanism |
 |---|---|---|
 | Waypoint | MCP JSON-RPC, Kubernetes API, GitHub, Slack, Atlassian, Grafana, PagerDuty | `ext_authz` gRPC (decisions), `ext_proc` (mutation) |
@@ -207,6 +226,33 @@ Authorization is decided on the first two. A shared bot token therefore stops
 functioning as a laundering mechanism: the call is permitted only if the grant
 says *this flow, initiated by this principal, may touch this target*, regardless
 of whose credential rides along.
+
+The confused deputy this eliminates, drawn:
+
+```text
+  TODAY - one fact, and the agent controls it
+
+    compromised runner ──► "identity_type: agent" ──► ALLOW
+    legitimate runner  ──► "identity_type: agent" ──► ALLOW
+                            (same claim, and the
+                             agent chose it)
+
+  WITH THREE FACTS - the forgeable one stops deciding
+
+    what is running          on whose behalf         what upstream takes
+    ───────────────          ───────────────         ───────────────────
+    SPIFFE ID                signed grant            bot token
+    from mTLS                initiator + act chain   shared, unchanged
+         │                        │                        │
+         │  cannot forge          │  cannot forge          │  irrelevant to
+         │                        │                        │  the decision
+         └────────────┬───────────┘                        │
+                      ▼                                    ╳
+              authorization decided here
+```
+
+A stolen credential no longer buys authority, because authority was never
+derived from the credential.
 
 `identity_type` demotes from verdict to hint. Classification precedence becomes:
 mesh principal establishes *what* is calling; presence and depth of the `act`

@@ -2,6 +2,10 @@
 
 How nullfield decides whether to forward or reject a `tools/call` request.
 
+Most of this describes proxy mode; see [Two Entries, Different Chains](#two-entries-different-chains)
+for what the `ext_authz` decision service runs instead. Companions:
+[traffic-flow.md](traffic-flow.md) and [mesh-arbiter.md](mesh-arbiter.md).
+
 ---
 
 ## The Nine Gates
@@ -176,3 +180,74 @@ Every gate decision emits a structured audit event:
 | SCOPE | `scope.modified` | `tool.denied` (reason: "scope violation") |
 
 Non-`tools/call` methods emit `mcp.request` and are forwarded without gate evaluation.
+
+---
+
+## Two Entries, Different Chains
+
+Everything above describes **proxy mode**. The `ext_authz` decision service runs
+a deliberately shorter chain, and the difference is not cosmetic — assuming the
+nine gates apply there would be a security error.
+
+```text
+  PROXY MODE (:9090)                    EXT_AUTHZ MODE (:9191)
+  in the request path                   beside it
+
+  HTTP request                          Envoy CheckRequest
+       │                                     │
+       │                                     ▼
+       │                              ┌──────────────┐
+       │                              │  TRANSLATE   │  extract attributes
+       │                              │  ATTEST      │  workload identity
+       │                              │  TRUNCATION  │  is the body whole?
+       │                              └──────┬───────┘  no ──► refuse to decide
+       ▼                                     │
+  1. IDENTITY      (token)              ─────┤  not run
+  2. REGISTRY                           ─────┤  not run
+  3. INTEGRITY                          ─────┤  not run
+  4. CIRCUIT                            ─────┤  not run
+       │                                     │
+  5. POLICY  ◄─── the same engine, ─────►  POLICY
+       │          the same rules            │
+  6. BUDGET                             ─────┤  not run
+  7. VELOCITY                           ─────┤  not run
+       │                                     │
+       ▼                                     ▼
+  8. AUDIT  tool.allowed/denied         AUDIT  arbiter.decision
+       │                                      + provenance
+       ▼                                      + counterfactual
+  9. FORWARD to upstream                      │
+       │                                      ▼
+       ▼                                 OK / Denied to Envoy
+  SCOPE the response                     (Envoy forwards or blocks)
+```
+
+### Why the difference
+
+| Gate | Absent from `ext_authz` because |
+|------|--------------------------------|
+| Identity | Superseded, not missing. The caller is attested from the mesh instead of presenting a token — a stronger claim, established earlier. |
+| Registry | Not wired. `cmd/nullfield-extauthz` builds a policy engine only. A `DENY *` fallthrough rule is currently how you get default-deny. |
+| Integrity, Circuit | Both need per-session state across requests, which this entrypoint does not keep. |
+| Budget, Velocity | Same reason. |
+| SCOPE / response | Structurally impossible: `ext_authz` sees requests only and cannot mutate them. Needs `ext_proc`. |
+
+The practical consequence: **write policies for `ext_authz` mode assuming policy
+rules are the only gate.** A tool that proxy mode would have refused for being
+unregistered will reach the policy engine here, and be allowed unless a rule
+says otherwise.
+
+### Gate values in the audit trail
+
+`arbiter.decision` events carry a `gate` field with one of:
+
+```text
+translate   the request could not be read whole (body_truncated)
+policy      the rule engine decided
+```
+
+Compare with the proxy's richer set above. A `gate` value the proxy can emit but
+this path cannot is a sign the event came from the other front door.
+
+See [mesh-arbiter.md](mesh-arbiter.md) for identity, modes, and the buffer
+boundary.

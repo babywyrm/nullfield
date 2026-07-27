@@ -194,3 +194,16 @@ nullfield implements defense in depth through four layers:
 │  structured audit, rate limiting                     │
 └─────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Diagrams
+
+Visual references, kept separate so they can be read on their own:
+
+| Diagram | Covers |
+|---------|--------|
+| [Traffic flow](diagrams/traffic-flow.md) | Every deployment profile: local, bare, Istio sidecar, Linkerd, Cilium, Istio ambient |
+| [Policy evaluation](diagrams/policy-eval.md) | The nine gates, the five actions, and how the two front doors run different chains |
+| [Mesh arbiter](diagrams/mesh-arbiter.md) | Where attested identity comes from, the three modes, and the request-body boundary |
+| [Agentic flows](agentic-flows.md) | Compiling a least-privilege flow into policy and registry |

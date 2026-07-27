@@ -46,7 +46,9 @@ All notable changes to this project will be documented in this file.
 
 - **`docs/identity-policy.md` gains a workload attestation section.** The existing four levels all answer "whose authority is being exercised" from something the caller presents. Attestation answers "what is running" from evidence it cannot choose, which is the distinction the confused-deputy case turns on, and it was described nowhere outside the spec.
 
-- **`docs/architecture.md` documents both front doors** and why the JSON-RPC envelope lives in `pkg/mcp` rather than in either one.
+- **`docs/architecture.md` documents both front doors** and why the JSON-RPC envelope lives in `pkg/mcp` rather than in either one, and now carries an index of the diagram files — which nothing linked to before, so they were effectively unreachable.
+
+- **The flows are drawn, not only described.** `docs/diagrams/traffic-flow.md` gains the ambient profile, which was the one deployment shape missing from a file whose job is to have all of them. `docs/diagrams/policy-eval.md` gains the two entries into the chain and what each runs. A new `docs/diagrams/mesh-arbiter.md` covers the three things that took measurement to learn: where the caller's identity actually lives, how the three modes diverge, and what happens at the buffer boundary. The spec gains the funnel and the confused-deputy diagrams, having had none in 550 lines.
 
 - **Roadmap corrected.** v0.11 and v0.12 are complete. Recorded against v0.12: identity does not arrive as `source.principal` as the roadmap assumed, and the entry now says so rather than reading as though the plan went to plan.
 
@@ -63,6 +65,12 @@ All notable changes to this project will be documented in this file.
 - **Deploying beside an existing provider needs a feature flag** — Istio rejects multiple `CUSTOM` authorization providers per workload unless `PILOT_ENABLE_MULTIPLE_CUSTOM_AUTHZ_PROVIDERS` is set on istiod. Without it the second policy is silently dropped and the incumbent decides alone.
 
 - **`CUSTOM` policies must name the waypoint in `targetRefs`** — an unbound policy in ambient mode attaches to ztunnel, which is L4 only. The policy is accepted, reports healthy, and never fires.
+
+- **`ext_authz` mode runs one gate, not nine.** `cmd/nullfield-extauthz` wires a policy engine and nothing else: no registry, integrity, circuit breaker, budget, or velocity. Identity is superseded rather than absent — attestation is a stronger claim established earlier — but the rest are genuinely not there. Registry needs wiring; the four stateful gates need per-session state this entrypoint does not keep. **Write policies for this mode assuming rules are the only gate**: an unregistered tool reaches the engine and is allowed unless a rule says otherwise, so default-deny comes from a `DENY *` fallthrough. `NULLFIELD_REGISTRY_PATH` is set in the manifests but not yet consumed, and is commented as such.
+
+- **`deploy/manifests/extauthz.yaml` is a reference deployment, not a template.** It names a namespace and a waypoint, both of which must be changed. A `targetRefs` pointing at a waypoint that does not exist fails quietly. `demos/16-mesh-arbiter/arbiter.yaml` is a self-contained working copy.
+
+- **The cross-compiled build path is not reproducible from a clean checkout.** `Dockerfile.prebuilt`, used to build an image from a locally cross-compiled binary on a machine with no Go toolchain, exists only on the test box. `make build-extauthz-linux` produces the binary; the Dockerfile that consumes it is not in the repository.
 
 - **Design: mesh-native arbiter** (`docs/specs/2026-07-26-mesh-native-arbiter.md`) — nullfield becomes a policy *decision* point reached through the service mesh rather than a proxy agents must be configured to use. No code yet; the spec, roadmap, and known limits are recorded first.
 

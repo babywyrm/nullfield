@@ -2,6 +2,9 @@
 
 How traffic flows through nullfield in each deployment mode.
 
+Companions: [policy-eval.md](policy-eval.md) for what happens once a request is
+inside, and [mesh-arbiter.md](mesh-arbiter.md) for the ambient profile in depth.
+
 ---
 
 ## Local Development (binary or Docker Compose)
@@ -114,3 +117,60 @@ nullfield handles: MCP tool enforcement, policy, registry, audit
 Cilium eBPF (kernel level, no sidecar):
   mTLS (WireGuard/SPIFFE), CiliumNetworkPolicy L7 rules, Hubble observability
 ```
+
+---
+
+## Kubernetes — Istio ambient (`ext_authz` decision service)
+
+The only profile where nullfield is neither inside the pod nor in the request
+path. The waypoint pauses each request, asks nullfield, and acts on the answer.
+
+```text
+┌──────────────┐                          ┌──────────────┐
+│ Client Pod   │                          │ App Pod      │
+│              │                          │              │
+│  (no sidecar)│                          │ (no sidecar) │
+└──────┬───────┘                          └──────▲───────┘
+       │                                         │
+       │ HBONE (mTLS, ztunnel)                   │ plain HTTP
+       ▼                                         │
+┌──────────────────────────────────────────────────────────┐
+│  Waypoint (Envoy, one per namespace)                     │
+│                                                          │
+│    terminate HBONE ──► ext_authz filter ──► route ───────┼──►
+│                              │                           │
+└──────────────────────────────┼───────────────────────────┘
+                               │ gRPC CheckRequest
+                               │ (method, path, headers, body)
+                               ▼
+                    ┌──────────────────────┐
+                    │ nullfield-extauthz   │
+                    │ :9191                │
+                    │                      │
+                    │  ├─ translate        │
+                    │  ├─ attest workload  │
+                    │  ├─ truncation guard │
+                    │  ├─ policy           │
+                    │  └─ audit            │
+                    └──────────────────────┘
+                               │ OK / Denied
+                               └──────────► back to the filter
+
+The response never passes through nullfield. Nothing does.
+```
+
+What each layer handles:
+
+```text
+ztunnel           mTLS, L4 identity, HBONE transport
+waypoint          L7 routing, calls the decision service
+nullfield         MCP tool policy, attested provenance, audit
+nobody            response inspection - ext_authz sees requests only
+```
+
+Deployment count: **one nullfield per namespace**, not one per pod. No
+application pod is modified, which is the operational argument for this profile
+and the reason it can be added to a running namespace.
+
+See [mesh-arbiter.md](mesh-arbiter.md) for how identity reaches the decision
+service, how the three modes differ, and where the buffer boundary sits.

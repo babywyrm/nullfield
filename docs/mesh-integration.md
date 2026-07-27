@@ -412,6 +412,8 @@ Client ──► ztunnel ──HBONE──► waypoint ──► App
 
 The waypoint pauses the request, calls nullfield with the method, path, headers and body, and applies the answer. nullfield never sees the response and never forwards anything.
 
+Drawn in full in [diagrams/traffic-flow.md](diagrams/traffic-flow.md#kubernetes--istio-ambient-ext_authz-decision-service), with the identity path, the three modes and the body boundary in [diagrams/mesh-arbiter.md](diagrams/mesh-arbiter.md).
+
 ### Deploy
 
 ```bash
