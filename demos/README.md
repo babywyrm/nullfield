@@ -25,7 +25,13 @@ Runnable walkthroughs showing how to configure and test nullfield features. Each
 | 12 | [Response Inspection](12-response-inspection/) | Credential/PII/prompt detection and redaction in tool responses |
 | 13 | [AgenticFlow — Local Compile](13-agentic-flow-local/) | Least-privilege flow YAML compiled to policy + registry |
 | 14 | [AgenticFlow — Kubernetes Runtime](14-agentic-flow-kubernetes/) | AgenticFlow CRD compiled by the controller and enforced by a sidecar |
+| 15 | [Proxy Baseline](15-proxy-baseline/) | The in-path proxy with no mesh present — the control for the mesh demos |
+| 16 | [Mesh-Native Arbiter](16-mesh-arbiter/) | Waypoint `ext_authz`, attested SPIFFE identity, observe counterfactuals, enforce |
 
 Demos 01–03 run against a local binary. Demos 04+ deploy nullfield as a containerized sidecar.
+
+Demos 15 and 16 are a pair, and run in that order. 15 exercises the decision core
+with no mesh in the picture; 16 exercises the mesh integration. When 16 fails and
+15 passes, the problem is the integration and not the engine.
 
 Start with the [Quickstart](../docs/quickstart.md) for a guided path through all demos.

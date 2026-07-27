@@ -32,6 +32,16 @@ All notable changes to this project will be documented in this file.
 
   Rejected: resolving `source.address` through the Kubernetes API. Pod IPs are recycled and the lookup races pod churn, so a workload landing on a recently-freed address inherits another's attribution — weaker than the self-asserted claim this replaces.
 
+- **Demo 15, proxy baseline** (`demos/15-proxy-baseline/`) — the in-path proxy in a namespace with no mesh, as the control for the mesh work. It proves nothing new by design: with two deployment shapes now sharing a decision core, the first question when the mesh path misbehaves is whether the core is broken or the integration is, and that should cost one command. The script refuses to run in a meshed namespace, since a waypoint in front of the traffic would change what is measured while every assertion still passed.
+
+- **Demo 16, mesh-native arbiter** (`demos/16-mesh-arbiter/`) — the waypoint path end to end, in its own namespace with no other authorization provider. That isolation is what makes the central claim testable: sharing a waypoint with an enforcing provider means every request returns 403 regardless of what nullfield decided, so "observe mode does not block" cannot be distinguished from "observe blocks and something else got there first." Asserts attested SPIFFE identity for a specific service account, MCP recognised by body parse, a denied call returning 200 with a `DENY` counterfactual under observe, a truncated body refused but still attributed, and the same deployment returning 403 once flipped to enforce.
+
+  Provider registration is opt-in via `APPLY_MESH_CONFIG=true`, because it is the only step that edits mesh-wide config and restarts istiod.
+
+### Fixed
+
+- **Mesh config edited by string splicing could corrupt every CUSTOM policy in the mesh** — the first version of the demo's provider registration inserted YAML as formatted text, producing a list whose first item was indented and whose remaining items were not. istiod parsed `extensionProviders` as empty and logged `available providers are []`, at which point every `CUSTOM` AuthorizationPolicy mesh-wide silently converts to a deny — including ones unrelated to the demo. The patch itself succeeds, so the failure surfaces later as unexplained denials. Registration now parses and re-emits the document, verifies it round-trips before sending, and greps istiod's log afterwards rather than assuming.
+
 ### Known limits
 
 - **`allowPartialMessage` must match the mode, or observe mode breaks traffic** — measured. With `allowPartialMessage: false`, Envoy rejects any body exceeding `maxRequestBytes` with a 413 *before* calling the check: nullfield never sees the request and cannot observe it, yet the traffic is already broken. A rollout declared read-only starts failing large requests. Observe and no-op therefore require `true`, where Envoy forwards what fit plus `x-envoy-auth-partial-body` and nullfield records a `body_truncated` counterfactual without touching the response. Enforce should use `false`, since failing closed at the proxy is stronger than denying after the fact, with the in-process guard remaining as defence in depth.

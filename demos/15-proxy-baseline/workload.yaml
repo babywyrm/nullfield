@@ -1,0 +1,121 @@
+# Proxy mode, standing alone.
+#
+# No mesh, no CRD, no controller: an echo server with nullfield in front of it,
+# configured from a ConfigMap. The point is to exercise the original data path
+# in isolation, so that when a mesh deployment misbehaves the answer to "is the
+# decision core broken, or is this the mesh?" takes one command rather than an
+# afternoon.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nullfield-baseline-config
+data:
+  policy.yaml: |
+    apiVersion: nullfield.io/v1alpha1
+    kind: NullfieldPolicy
+    metadata:
+      name: proxy-baseline
+    spec:
+      rules:
+        - action: ALLOW
+          mcpMethod: tools/call
+          toolNames: [echo]
+          maxCallsPerMinute: 60
+        - action: DENY
+          mcpMethod: tools/call
+          toolNames: ["*"]
+      audit:
+        logLevel: FULL
+
+  tools.yaml: |
+    apiVersion: nullfield.io/v1alpha1
+    kind: ToolRegistry
+    metadata:
+      name: proxy-baseline-tools
+    tools:
+      - name: echo
+        description: Echoes back the input
+      - name: dangerous_tool
+        description: Registered but denied by policy, to separate a policy denial
+          from an unknown tool
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nullfield-baseline
+  labels:
+    app: nullfield-baseline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nullfield-baseline
+  template:
+    metadata:
+      labels:
+        app: nullfield-baseline
+    spec:
+      containers:
+        - name: echo-server
+          image: ghcr.io/babywyrm/nullfield-echo:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: app
+              containerPort: 8080
+          env:
+            - name: LISTEN_ADDR
+              value: ":8080"
+
+        - name: nullfield
+          image: ghcr.io/babywyrm/nullfield:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: proxy
+              containerPort: 9090
+            - name: admin
+              containerPort: 9091
+          env:
+            - name: NULLFIELD_LISTEN_ADDR
+              value: ":9090"
+            - name: NULLFIELD_UPSTREAM_ADDR
+              value: "localhost:8080"
+            - name: NULLFIELD_ADMIN_ADDR
+              value: ":9091"
+            - name: NULLFIELD_POLICY_PATH
+              value: "/etc/nullfield/policy.yaml"
+            - name: NULLFIELD_REGISTRY_PATH
+              value: "/etc/nullfield/tools.yaml"
+            - name: NULLFIELD_AUDIT_LOG_LEVEL
+              value: FULL
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nullfield
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: admin
+            initialDelaySeconds: 2
+            periodSeconds: 3
+      volumes:
+        - name: config
+          configMap:
+            name: nullfield-baseline-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nullfield-baseline
+  labels:
+    app: nullfield-baseline
+spec:
+  selector:
+    app: nullfield-baseline
+  ports:
+    - name: proxy
+      port: 9090
+      targetPort: proxy
+    - name: admin
+      port: 9091
+      targetPort: admin
+  type: ClusterIP
