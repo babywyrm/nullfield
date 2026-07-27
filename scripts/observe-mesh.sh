@@ -162,13 +162,17 @@ for line in sys.stdin:
         try: d={**d, **json.loads(inner)}
         except Exception: pass
     cf=d.get("counterfactual") or ""
-    tag="   would-be "+cf if cf else ""
+    # A counterfactual means this decision was not applied. Seeing one next to
+    # a request that was actually blocked means the arbiter predates the fix
+    # that scoped this field to observe and no-op.
+    tag="   not-applied:"+cf if cf else ""
+    who=(d.get("workload_principal") or "-").replace("spiffe://cluster.local/ns/","")
     print("  "+w.format(
         (d.get("tool_name") or "-")[:18],
         TRANSPORT.get(d.get("transport",""),d.get("transport") or "-")[:9],
         (d.get("reason_class") or "-")[:13],
         (d.get("assurance") or "-")[:9],
-        (d.get("workload_principal") or "-").replace("spiffe://cluster.local/ns/","")[:34]+tag),
+        who[:42]+tag),
         flush=True)
 '
 }
