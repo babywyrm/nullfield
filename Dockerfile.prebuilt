@@ -1,0 +1,20 @@
+# Wrap an already-cross-compiled binary in an image, without a Go toolchain.
+#
+# Dockerfile.extauthz compiles inside the build and is the one to use normally.
+# This one exists for the lab path: build on a workstation where the toolchain
+# lives, ship the binary to a node that has neither Go nor a registry pull, and
+# turn it into an image there.
+#
+#   make build-extauthz-linux
+#   scp bin/nullfield-extauthz-linux-amd64 Dockerfile.prebuilt node:/opt/stage/
+#   ssh node 'cd /opt/stage && docker build -f Dockerfile.prebuilt \
+#              -t ghcr.io/babywyrm/nullfield-extauthz:latest .'
+#
+# The binary must be linux/amd64 regardless of the build host's architecture,
+# or the pod pulls cleanly and then crash-loops with "exec format error" —
+# which reads like a corrupt image rather than a wrong one.
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY nullfield-extauthz-linux-amd64 /nullfield-extauthz
+USER nonroot:nonroot
+EXPOSE 9191
+ENTRYPOINT ["/nullfield-extauthz"]

@@ -5,9 +5,13 @@
 # view below answers a question the prose cannot: is the filter really in the
 # chain, is identity really arriving, what did nullfield really decide.
 #
-#   ./scripts/observe-mesh.sh              # all views
+#   ./scripts/observe-mesh.sh              # all views, once
 #   ./scripts/observe-mesh.sh chain        # one view
+#   ./scripts/observe-mesh.sh follow       # live tail of decisions
+#   ./scripts/observe-mesh.sh send         # generate traffic to look at
 #   NS=zerotrust ./scripts/observe-mesh.sh # a different namespace
+#
+# To watch it work: run `follow` in one terminal and `send` in another.
 #
 # Waypoint pods are distroless: there is no curl inside them. Envoy's admin
 # interface is reached with `pilot-agent request GET <path>` instead, which is
@@ -18,6 +22,8 @@ set -uo pipefail
 NS="${NS:-nullfield-mesh-demo}"
 WAYPOINT="${WAYPOINT:-mesh-demo-waypoint}"
 ARBITER="${ARBITER:-nullfield-extauthz}"
+CLIENT="${CLIENT:-mesh-demo-client}"
+SVC="${SVC:-mcp-echo}"
 VIEW="${1:-all}"
 
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -109,12 +115,20 @@ for d in rows[-12:]:
         (d.get("reason_class") or "-")[:13],
         (d.get("assurance") or "-")[:10],
         (d.get("workload_principal") or "-").replace("spiffe://cluster.local/","")[:44]))
+# A counterfactual means the decision was NOT applied, so these rows are from
+# observe or no-op. Only the non-ALLOW ones would have changed the outcome,
+# which is the number worth quoting before turning enforcement on.
 cf=[d for d in rows if d.get("counterfactual")]
 if cf:
-    print(f"\n  {len(cf)} counterfactual(s) - would have been blocked under enforce:")
-    for d in cf[-5:]:
-        tn = d.get("tool_name") or "-"
-        print("    " + tn.ljust(20) + " -> " + d["counterfactual"])
+    blocking=[d for d in cf if d["counterfactual"] != "ALLOW"]
+    print(f"\n  {len(cf)} decision(s) recorded but not applied (observe/no-op).")
+    if blocking:
+        print(f"  {len(blocking)} would have changed the outcome under enforce:")
+        for d in blocking[-5:]:
+            tn = d.get("tool_name") or "-"
+            print("    " + tn.ljust(20) + " -> " + d["counterfactual"])
+    else:
+        print("  none of them would have been blocked.")
 missing=[d for d in rows if not d.get("workload_principal")]
 if missing:
     print(f"\n  {len(missing)} of {len(rows)} decision(s) carry NO principal.")
@@ -123,6 +137,62 @@ if missing:
 else:
     print(f"\n  all {len(rows)} decision(s) attributed to a caller.")
 '
+}
+
+# --------------------------------------------------------------- follow ----
+# Same parse as `decisions`, but streaming. Run this in one terminal and `send`
+# in another to watch calls being mediated as they happen.
+view_follow() {
+  hdr "Following decisions (Ctrl-C to stop)" \
+      "Run '$0 send' in another terminal to generate traffic."
+  kubectl -n "$NS" logs -f "deploy/$ARBITER" --tail=0 2>/dev/null \
+  | grep --line-buffered arbiter.decision \
+  | python3 -u -c '
+import json,re,sys
+TRANSPORT={"A":"mcp","B":"wire-api","C":"sdk","D":"subprocess","E":"model-fn"}
+w="{:<18} {:<9} {:<13} {:<9} {}"
+print("  "+w.format("TOOL","TRANSPORT","REASON","ASSURANCE","PRINCIPAL"),flush=True)
+for line in sys.stdin:
+    m=re.search(r"\{.*\}", line)
+    if not m: continue
+    try: d=json.loads(m.group(0))
+    except Exception: continue
+    inner=d.get("payload")
+    if isinstance(inner,str):
+        try: d={**d, **json.loads(inner)}
+        except Exception: pass
+    cf=d.get("counterfactual") or ""
+    tag="   would-be "+cf if cf else ""
+    print("  "+w.format(
+        (d.get("tool_name") or "-")[:18],
+        TRANSPORT.get(d.get("transport",""),d.get("transport") or "-")[:9],
+        (d.get("reason_class") or "-")[:13],
+        (d.get("assurance") or "-")[:9],
+        (d.get("workload_principal") or "-").replace("spiffe://cluster.local/ns/","")[:34]+tag),
+        flush=True)
+'
+}
+
+# ----------------------------------------------------------------- send ----
+# Benign calls only. The point is to watch mediation happen, and the demo
+# policy already distinguishes an allowed tool from a denied one.
+view_send() {
+  hdr "Sending test traffic" "Each call is mediated by the waypoint before it reaches $SVC."
+  for tool in echo get_weather; do
+    body="{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"$tool\",\"arguments\":{}}}"
+    code=$(kubectl -n "$NS" exec "$CLIENT" -- curl -s -o /dev/null -w '%{http_code}' \
+      --max-time 10 -X POST "http://$SVC/mcp" \
+      -H 'Content-Type: application/json' -d "$body" 2>/dev/null)
+    case "$code" in
+      200) note="allowed through" ;;
+      403) note="blocked by nullfield (enforce mode)" ;;
+      "")  note="no response - is $CLIENT running?" ;;
+      *)   note="" ;;
+    esac
+    printf '  %-14s HTTP %-4s %s\n' "$tool" "${code:-???}" "$note"
+  done
+  echo
+  echo "  Now look at the decisions:  $0 decisions"
 }
 
 # ------------------------------------------------------------- identity ----
@@ -172,9 +242,11 @@ case "$VIEW" in
   chain)     view_chain ;;
   counters)  view_counters ;;
   decisions) view_decisions ;;
+  follow)    view_follow ;;
+  send)      view_send ;;
   identity)  view_identity ;;
   kiali)     view_kiali ;;
   all)       view_chain; view_counters; view_decisions; view_identity; view_kiali ;;
-  *) echo "usage: $0 [chain|counters|decisions|identity|kiali|all]"; exit 2 ;;
+  *) echo "usage: $0 [chain|counters|decisions|follow|send|identity|kiali|all]"; exit 2 ;;
 esac
 echo
