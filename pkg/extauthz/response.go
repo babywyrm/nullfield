@@ -32,6 +32,21 @@ func (m Mode) Valid() bool {
 	}
 }
 
+// CounterfactualFor names the action enforcement would have taken, but only
+// when this mode did not take it.
+//
+// Enforce applies the decision, so there is nothing counter to fact and the
+// field is empty. Reporting one anyway is not merely redundant: an operator
+// sizing up a rollout filters on this field to ask which calls a shadow
+// deployment *would* have blocked, and enforce-mode events answering that
+// query inflate the count with denials that already happened.
+func CounterfactualFor(mode Mode, d policy.Decision) string {
+	if mode == ModeEnforce {
+		return ""
+	}
+	return Counterfactual(d)
+}
+
 // Counterfactual names the action a decision would produce.
 //
 // HOLD outranks SCOPE because a held call has not happened yet, so the blocking

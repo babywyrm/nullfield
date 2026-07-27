@@ -122,7 +122,7 @@ func (s *Server) Check(ctx context.Context, req *authv3.CheckRequest) (*authv3.C
 			Reason:         err.Error(),
 			Attester:       identity.AttesterNone,
 			Assurance:      AssuranceNone,
-			Counterfactual: "DENY",
+			Counterfactual: CounterfactualFor(s.mode, policy.Decision{Allowed: false}),
 		}
 		// Attribution still applies to a request we are refusing to decide, and
 		// it matters more here than on an ordinary allow.
@@ -151,7 +151,7 @@ func (s *Server) Check(ctx context.Context, req *authv3.CheckRequest) (*authv3.C
 		RuleID:         decision.RuleID,
 		Reason:         decision.Reason,
 		Labels:         decision.Labels,
-		Counterfactual: Counterfactual(decision),
+		Counterfactual: CounterfactualFor(s.mode, decision),
 		// Record what the mesh actually presented, attested or not. Attester is
 		// what says whether we could make anything of it.
 		WorkloadPrincipal: translated.RawPrincipal,

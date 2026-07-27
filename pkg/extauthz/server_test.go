@@ -154,6 +154,79 @@ func TestATruncatedBodyDeniesInEnforceAndRecordsInObserve(t *testing.T) {
 	}
 }
 
+// A counterfactual answers "what would enforcement have done?". In enforce
+// mode it did it, so the field must be absent: an operator filtering on
+// counterfactual to size up a rollout is asking which calls a shadow
+// deployment *would* have blocked, and enforce-mode events answering that
+// query inflate the count with denials that already happened.
+func TestEnforceModeDoesNotLabelAnAppliedDenialACounterfactual(t *testing.T) {
+	s, _, rec := newServer(ModeEnforce, policy.Decision{Allowed: false, Reason: "no matching rule"})
+
+	if _, err := s.Check(context.Background(),
+		checkRequest(spiffeRunner, toolsCallBody, map[string]string{})); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if got := rec.events[0].Counterfactual; got != "" {
+		t.Errorf("counterfactual = %q on an applied denial, want empty", got)
+	}
+	// The decision itself must still be fully recorded.
+	if rec.events[0].ReasonClass == "" && rec.events[0].Reason == "" {
+		t.Error("suppressing the counterfactual must not suppress the decision")
+	}
+}
+
+func TestEnforceModeDoesNotLabelAnAppliedAllowACounterfactual(t *testing.T) {
+	s, _, rec := newServer(ModeEnforce, policy.Decision{Allowed: true})
+
+	if _, err := s.Check(context.Background(),
+		checkRequest(spiffeRunner, toolsCallBody, map[string]string{})); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if got := rec.events[0].Counterfactual; got != "" {
+		t.Errorf("counterfactual = %q on an applied allow, want empty", got)
+	}
+}
+
+func TestNoOpModeRecordsTheCounterfactualItDeclinedToApply(t *testing.T) {
+	s, _, rec := newServer(ModeNoOp, policy.Decision{Allowed: false, Reason: "no matching rule"})
+
+	if _, err := s.Check(context.Background(),
+		checkRequest(spiffeRunner, toolsCallBody, map[string]string{})); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if got := rec.events[0].Counterfactual; got != "DENY" {
+		t.Errorf("counterfactual = %q, want DENY — no-op applies nothing", got)
+	}
+}
+
+// The refusal path builds its event separately, so it needs its own guard.
+func TestEnforceModeRefusingATruncatedBodyRecordsNoCounterfactual(t *testing.T) {
+	truncating := func() *authv3.CheckRequest {
+		r := checkRequest(spiffeRunner, "{}", map[string]string{})
+		r.Attributes.Request.Http.Size = 999999
+		return r
+	}
+
+	enforce, _, rec := newServer(ModeEnforce, policy.Decision{Allowed: true})
+	if _, err := enforce.Check(context.Background(), truncating()); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if got := rec.events[0].Counterfactual; got != "" {
+		t.Errorf("counterfactual = %q on an applied refusal, want empty", got)
+	}
+	if rec.events[0].ReasonClass != "body_truncated" {
+		t.Errorf("reason_class = %q, want body_truncated", rec.events[0].ReasonClass)
+	}
+
+	observe, _, rec2 := newServer(ModeObserve, policy.Decision{Allowed: true})
+	if _, err := observe.Check(context.Background(), truncating()); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if got := rec2.events[0].Counterfactual; got != "DENY" {
+		t.Errorf("observe counterfactual = %q, want DENY", got)
+	}
+}
+
 func TestAnUnattestedPeerIsRecordedAtNoAssurance(t *testing.T) {
 	s, _, rec := newServer(ModeObserve, policy.Decision{Allowed: true})
 
