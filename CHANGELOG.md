@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Documentation
+
+- **Design: demo harness and walkthroughs** (`docs/specs/2026-07-27-demo-harness-and-walkthroughs.md`)
+  — sixteen demos ship, four of them assert anything, and several cannot work
+  as written: 06, 07, and 08 pass `-v` to `docker compose up`, where it means
+  *verbose* rather than a volume mount, so HOLD, BUDGET, and SCOPE each run
+  against the default policy instead of their own. The spec defines a demo
+  contract with infrastructure tiers, a runner that discovers demos from their
+  own headers and generates the index, and three new flows with no coverage
+  today: OBO delegation, credential brokering, and confused deputy. No code
+  yet.
+
 ## [0.12.0] — 2026-07-27
 
 The first tagged release. Everything below from 0.1.0 onward is documented but
