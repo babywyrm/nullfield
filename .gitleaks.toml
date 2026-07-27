@@ -1,0 +1,34 @@
+# Secret-scanning configuration.
+#
+# Scoped deliberately. A broad allowlist would make a clean report meaningless,
+# which is worse than no report at all: it reads as assurance while asserting
+# nothing. Each entry below names one construct, in one place, with the reason
+# it is not a secret.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """
+Build targets for the ext_authz binary. gitleaks' generic-api-key rule keys off
+the substring "auth", so `build-extauthz` trips it while the adjacent
+`build-controller` and `build-injector` lines do not. The matched text is a
+`go build` invocation with no credential in it.
+
+Scoped to the line rather than the file on purpose. `paths` here would have
+been the obvious spelling and is a trap: it excludes a file before its contents
+are scanned at all, so every future secret in the Makefile would go unreported
+while the scan still said clean. Verified by planting a credential in a copy of
+the real Makefile and confirming it is still caught.
+"""
+regexTarget = "line"
+regexes = ['''go build .*/cmd/.*extauthz''']
+
+[[allowlists]]
+description = """
+SPIFFE IDs in documentation and manifests. These are workload identities, not
+credentials: they are asserted by the mesh from a certificate and are worthless
+to anyone holding a copy. They appear throughout the identity documentation
+because the whole point is that they are safe to read.
+"""
+regexes = ['''spiffe://[a-z0-9.\-/]+''']

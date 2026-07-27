@@ -48,6 +48,10 @@ All notable changes to this project will be documented in this file.
 
 - **`docs/architecture.md` documents both front doors** and why the JSON-RPC envelope lives in `pkg/mcp` rather than in either one, and now carries an index of the diagram files — which nothing linked to before, so they were effectively unreachable.
 
+- **Working plans are local-only** (`.gitignore`). They record lab specifics — node addresses, how to reach the test cluster, where credentials are read from — which are useful while implementing and do not belong in a public repository. Specs, guides and this changelog remain the durable record.
+
+- **Secret scanning is configured** (`.gitleaks.toml`), with two narrow allowlists: `go build` lines for the ext_authz binary, which trip `generic-api-key` only because `extauthz` contains the substring `auth`, and SPIFFE IDs, which are workload identities rather than credentials. Scoped to matched lines rather than to paths on purpose — a `paths` entry excludes a file *before* its contents are scanned, so it would have silently hidden every future secret in that file while the report still said clean. Verified by planting a credential in a copy of the real Makefile and confirming it is still caught.
+
 - **The flows are drawn, not only described.** `docs/diagrams/traffic-flow.md` gains the ambient profile, which was the one deployment shape missing from a file whose job is to have all of them. `docs/diagrams/policy-eval.md` gains the two entries into the chain and what each runs. A new `docs/diagrams/mesh-arbiter.md` covers the three things that took measurement to learn: where the caller's identity actually lives, how the three modes diverge, and what happens at the buffer boundary. The spec gains the funnel and the confused-deputy diagrams, having had none in 550 lines.
 
 - **Roadmap corrected.** v0.11 and v0.12 are complete. Recorded against v0.12: identity does not arrive as `source.principal` as the roadmap assumed, and the entry now says so rather than reading as though the plan went to plan.

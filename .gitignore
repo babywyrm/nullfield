@@ -8,3 +8,9 @@ echo-server
 /nullfield
 /nullfield-controller
 docs/SESSION-CONTEXT.md
+
+# Working plans stay local. They record lab specifics - node addresses, how to
+# reach the test cluster, where credentials are read from - that are useful
+# while implementing and have no business in a public repository. The durable
+# output belongs in docs/specs, docs/ and the changelog instead.
+docs/plans/
