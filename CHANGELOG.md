@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-07-27
+
+The first tagged release. Everything below from 0.1.0 onward is documented but
+was never tagged, so this is the repository's first entry in `git tag` and the
+first build whose version string is something other than a commit SHA.
+
+It covers three roadmap milestones that accumulated without a release: v0.10
+(AgenticFlow authoring and CRD reconciliation), v0.11 (proxy mode re-verified
+against a live cluster as a regression baseline), and v0.12 (the mesh-native
+arbiter — nullfield as an Envoy `ext_authz` decision service with identity
+attested by the mesh).
+
 ### Added
 
 - **`ext_authz` decision service** (`pkg/extauthz`, `cmd/nullfield-extauthz`) — nullfield answers Envoy external authorization checks, a second inbound adapter onto the same decision core the HTTP proxy uses. Deployed and exercised against real waypoint traffic on a k3s + Istio 1.30.1 ambient cluster.

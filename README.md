@@ -137,9 +137,9 @@ cannot inspect responses or modify requests. See
 
 ## Status
 
-Working through the [roadmap](ROADMAP.md) toward v1.0. The proxy is the mature
-path; the mesh decision service is newer and currently observe-first. Release
-notes are in [CHANGELOG.md](CHANGELOG.md).
+Current release **v0.12.0**, working through the [roadmap](ROADMAP.md) toward
+v1.0. The proxy is the mature path; the mesh decision service is newer and
+currently observe-first. Release notes are in [CHANGELOG.md](CHANGELOG.md).
 
 Four limits are worth knowing before you adopt it, because they are properties
 of network-level mediation rather than gaps to be closed: authorizing a

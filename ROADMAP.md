@@ -8,6 +8,11 @@ planned.
 
 ## Implemented
 
+Everything below shipped in **v0.12.0**, the first tagged release. The versions
+are development milestones rather than published releases — 0.1.0 through 0.9.0
+were documented in the changelog and never tagged, and 0.10 through 0.12 went
+out together.
+
 - **v0.1** — MCP `tools/call` interception, rule engine, policy-from-file, audit logging, circuit breaker, K8s manifests, Docker Compose, smoke tests
 - **v0.2** — L2 identity-aware policy: JWKS validation, multi-provider support, `when:` conditions (identity type, provider, claims), session binding, replay detection
 - **v0.2** — Prometheus `/metrics` endpoint, velocity anomaly detection, runnable demo walkthroughs
