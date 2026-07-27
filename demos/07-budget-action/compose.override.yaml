@@ -1,0 +1,10 @@
+# Overrides the base stack so this demo's policy is the one nullfield loads.
+#
+# Paths are relative to the repository root because Compose resolves relative
+# volume paths against the directory of the first -f file, which is the root
+# docker-compose.yaml.
+services:
+  nullfield:
+    volumes:
+      - ./examples/tools.yaml:/etc/nullfield/tools.yaml:ro
+      - ./demos/07-budget-action/policy.yaml:/etc/nullfield/policy.yaml:ro

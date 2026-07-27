@@ -21,11 +21,12 @@ rules:
 
 ## Setup
 
-Start the stack with this demo's policy mounted over the default:
+Start the stack with this demo's policy mounted over the default. Compose reads
+`-v` on `up` as `--verbose`, not as a volume mount, so the override goes in a
+compose file rather than on the command line:
 
 ```bash
-docker compose -f docker-compose.yaml up -d \
-  -v $(pwd)/demos/06-hold-action/policy.yaml:/etc/nullfield/policy.yaml:ro
+docker compose -f docker-compose.yaml -f demos/06-hold-action/compose.override.yaml up -d --wait
 ```
 
 Verify both containers are healthy:
