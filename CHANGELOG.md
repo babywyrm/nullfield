@@ -4,6 +4,101 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+Rebuilding the demos so they assert what they describe. Every claim now has a
+script behind it, and running those scripts found five product bugs — four of
+them silent, which is the argument for the exercise.
+
+### Fixed
+
+- **`NULLFIELD_JWKS_URL` validated nothing** (`pkg/identity/select.go`) —
+  setting it selected `HeaderVerifier`, which never fetches the JWKS, never
+  checks a signature, expiry, or issuer, and takes the raw bearer token as the
+  subject. An operator setting a variable named `JWKS_URL` would reasonably
+  believe they had turned on JWKS validation; they had turned on trusting
+  whatever the caller claims. Real validation was only ever reachable through
+  `spec.identity.providers`.
+
+  It now builds a real `JWKSVerifier` from `NULLFIELD_JWKS_ISSUER` and the
+  optional `NULLFIELD_JWKS_AUDIENCE`. An issuer is mandatory — the verifier
+  matches on `iss` and a URL alone cannot validate anything — so a URL without
+  one is a startup failure rather than a silent downgrade to trust. Asking for
+  validation and header-trust together is likewise refused rather than resolved
+  by precedence. Both exit non-zero so Kubernetes surfaces the misconfiguration
+  instead of scheduling a pod that mediates nothing.
+
+  The unverified path remains for local work but must be requested by a name
+  that says what it does, `NULLFIELD_TRUST_HEADER_IDENTITY`, and warns when on.
+  nullfield now logs which of the three identity paths it took at startup;
+  "am I actually validating anything" was previously unanswerable from the
+  outside.
+
+  **Breaking** for any deployment setting `NULLFIELD_JWKS_URL` without an
+  issuer. Those deployments were not validating tokens, so the failure is the
+  point.
+
+- **A policy's `circuitBreaker` block was ignored** (`pkg/circuit/limits.go`) —
+  it parsed, and then the breaker was built from `NULLFIELD_CIRCUIT_MAX_CALLS`
+  and `NULLFIELD_CIRCUIT_MAX_DURATION` regardless. A policy that set a tighter
+  limit than the environment silently got the looser one. Policy now wins where
+  it declares a limit and the environment remains the fallback where it does
+  not, since most policies omit the block and every deployment sets the
+  variables. Non-positive values are treated as unspecified. The resolved
+  limits and their source are logged at startup.
+
+- **Rewritten request bodies broke the upstream call** (`pkg/proxy`) — SCOPE
+  rules that strip or inject arguments changed the body without updating
+  `Content-Length`, and Go's reverse proxy would not send the result. Fixed in
+  both the handler and the gateway with a helper that keeps body and length
+  metadata consistent; covered by a regression test.
+
+- **Same-length policy edits were dropped** (`pkg/crdwatcher`) — the
+  active-target bridge compared a signature built from the serialized length
+  plus the first 64 bytes, which are the `apiVersion`/`kind`/`metadata` header
+  and never vary. Any edit preserving the document's length was silently
+  ignored: `kubectl apply` reported success and the sidecar kept the old
+  policy. It now hashes the whole document.
+
+- **Container health checks never worked** (`internal/healthprobe`) — every
+  Compose health check shelled out to `wget`, which is not in a distroless
+  image, so services reported unhealthy indefinitely and `--wait` was useless.
+  `nullfield` and `nullfield-controller` take a `-healthcheck` flag that probes
+  in-process.
+
+### Added
+
+- **A demo contract and a runner** (`demos/run.sh`) — every demo declares its
+  tier and requirements in its own script header, and the runner discovers
+  them, audits the headers, runs a tier, records verified runs, and generates
+  the index. Tier 1 needs Docker Compose, tier 2 a Kubernetes cluster, tier 3 a
+  mesh. Tested against a synthetic demo tree so the runner is not validated by
+  the demos it runs.
+
+- **CI gates tier 1** — nine self-asserting demos on every push, plus a check
+  that `demos/README.md` matches the script headers. A green build is now
+  evidence the documented outcomes are the observed ones.
+
+### Changed
+
+- **Nine demos rebuilt to assert their own behaviour.** 06, 07, and 08 passed
+  `-v` to `docker compose up`, where it means *verbose* rather than a volume
+  mount, so HOLD, BUDGET, and SCOPE had each been running against the default
+  policy rather than their own. 01 covers gate ordering, 02 proves tokens are
+  verified rather than merely present, 03 covers session binding, replay, and
+  velocity, 12 covers response inspection, and 10 times the CRD-to-sidecar
+  chain on a real cluster.
+
+- **Demos state what does not work.** Where a feature is absent, the script
+  asserts its absence and fails when it lands, so the demo cannot quietly
+  overstate things. Controller mode registers inventory and streams decisions
+  but centralized holds and shared budgets are not wired, so a HOLD rule denies
+  immediately; `circuitBreaker.onTrip` is parsed and never read; response
+  inspection cannot select detection categories per rule; and replay detection
+  skips any token without a `jti`, which means an IdP that does not mint them
+  disables the feature with no error anywhere.
+
+- **Demos 04, 05, and 11 retired**, now covered by the quickstart and the
+  implementation guide.
+
 ### Documentation
 
 - **Design: demo harness and walkthroughs** (`docs/specs/2026-07-27-demo-harness-and-walkthroughs.md`)
