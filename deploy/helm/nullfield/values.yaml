@@ -51,7 +51,15 @@ targets: []
 
 identity:
   header: Authorization
+  # Setting jwksURL requires jwksIssuer. nullfield refuses to start with one
+  # and not the other, because a JWKS URL alone cannot validate a token.
   jwksURL: ""
+  jwksIssuer: ""
+  # Comma-separated. Empty means the audience claim is not checked.
+  jwksAudience: ""
+  # Accepts any bearer token without verifying it and takes the token as the
+  # subject. Development only, and mutually exclusive with jwksURL.
+  trustHeaderIdentity: false
 
 circuit:
   maxCalls: 100

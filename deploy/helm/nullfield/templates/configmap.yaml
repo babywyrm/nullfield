@@ -14,6 +14,9 @@ data:
   NULLFIELD_ADMIN_ADDR: ":{{ $.Values.sidecar.adminPort }}"
   NULLFIELD_IDENTITY_HEADER: {{ ((.identity).header) | default $.Values.identity.header | quote }}
   NULLFIELD_JWKS_URL: {{ ((.identity).jwksURL) | default $.Values.identity.jwksURL | quote }}
+  NULLFIELD_JWKS_ISSUER: {{ ((.identity).jwksIssuer) | default $.Values.identity.jwksIssuer | quote }}
+  NULLFIELD_JWKS_AUDIENCE: {{ ((.identity).jwksAudience) | default $.Values.identity.jwksAudience | quote }}
+  NULLFIELD_TRUST_HEADER_IDENTITY: {{ ((.identity).trustHeaderIdentity) | default $.Values.identity.trustHeaderIdentity | quote }}
   NULLFIELD_CIRCUIT_MAX_CALLS: {{ ((.circuit).maxCalls) | default $.Values.circuit.maxCalls | quote }}
   NULLFIELD_CIRCUIT_MAX_DURATION: {{ ((.circuit).maxDuration) | default $.Values.circuit.maxDuration | quote }}
   NULLFIELD_AUDIT_LOG_LEVEL: {{ ((.audit).logLevel) | default $.Values.audit.logLevel | quote }}

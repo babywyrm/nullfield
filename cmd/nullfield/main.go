@@ -161,11 +161,32 @@ func main() {
 		}
 		verifier = identity.NewMultiVerifier(providers, cfg.IdentityTokenHeader)
 		logger.Info("identity validation enabled", "providers", len(providers))
-	} else if cfg.IdentityJWKSURL != "" {
-		verifier = identity.NewHeaderVerifier(cfg.IdentityTokenHeader)
 	} else {
-		logger.Warn("no identity providers configured, using noop verifier (dev mode)")
-		verifier = &identity.NoopVerifier{}
+		envVerifier, err := identity.VerifierFromEnv(identity.EnvVerifierConfig{
+			JWKSURL:     cfg.IdentityJWKSURL,
+			Issuer:      cfg.IdentityJWKSIssuer,
+			Audiences:   cfg.IdentityJWKSAudiences,
+			Header:      cfg.IdentityTokenHeader,
+			TrustHeader: cfg.IdentityTrustHeader,
+		})
+		if err != nil {
+			logger.Error("identity configuration is incomplete", "error", err)
+			os.Exit(1)
+		}
+
+		switch v := envVerifier.(type) {
+		case nil:
+			logger.Warn("no identity providers configured, using noop verifier (dev mode)")
+			verifier = &identity.NoopVerifier{}
+		case *identity.HeaderVerifier:
+			logger.Warn("NULLFIELD_TRUST_HEADER_IDENTITY is set: bearer tokens are accepted " +
+				"without verification and the token is taken as the subject. Development only.")
+			verifier = v
+		default:
+			verifier = v
+			logger.Info("identity validation enabled from environment",
+				"issuer", cfg.IdentityJWKSIssuer, "jwksUrl", cfg.IdentityJWKSURL)
+		}
 	}
 
 	// Integrity checks — opt-in via policy integrity.enabled.

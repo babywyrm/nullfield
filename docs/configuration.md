@@ -22,12 +22,39 @@ how a process is wired up.
 | Variable | Default | Description |
 |---|---|---|
 | `NULLFIELD_IDENTITY_HEADER` | `Authorization` | Header to extract the bearer token from |
-| `NULLFIELD_JWKS_URL` | _(empty)_ | Enables bearer extraction from the identity header. Empty means the noop verifier — dev only |
+| `NULLFIELD_JWKS_URL` | _(empty)_ | JWKS endpoint to validate tokens against. Requires `NULLFIELD_JWKS_ISSUER` |
+| `NULLFIELD_JWKS_ISSUER` | _(empty)_ | Expected `iss` claim. Mandatory whenever `NULLFIELD_JWKS_URL` is set |
+| `NULLFIELD_JWKS_AUDIENCE` | _(empty)_ | Comma-separated expected `aud` values. Empty means the audience is not checked |
+| `NULLFIELD_TRUST_HEADER_IDENTITY` | `false` | Accept any bearer token unverified, taking the token as the subject. **Development only** |
 
-`NULLFIELD_JWKS_URL` does **not** turn on full JWKS crypto validation. For that,
-configure `spec.identity.providers` in the policy YAML. Leaving this empty in a
-deployment that expects verified identity fails open, quietly: tokens are parsed
-but not validated. See [identity-policy.md](identity-policy.md).
+There are three ways to configure identity, and they are not equivalent:
+
+1. **`spec.identity.providers` in the policy.** The fullest option — multiple
+   issuers, per-provider audiences, clock skew, algorithm allow-lists. Use this
+   when more than one IdP is in play.
+2. **The environment variables above.** One issuer, real validation. Enough for
+   a single IdP.
+3. **Nothing.** The noop verifier, which fabricates `dev-user` for every
+   request. Every identity-conditional rule in your policy matches the same
+   principal.
+
+**Setting `NULLFIELD_JWKS_URL` without an issuer is now a startup failure.** It
+used to select a verifier that never fetched the JWKS and accepted any bearer
+token unverified, taking the raw token as the subject — so the variable that
+reads like it turns on validation turned on trusting the caller. If you were
+relying on that behaviour, ask for it by name with
+`NULLFIELD_TRUST_HEADER_IDENTITY=true`, and only in development.
+
+nullfield logs which path it took at startup, so check that before trusting an
+identity-conditional policy:
+
+```
+identity validation enabled from environment issuer=https://idp.example.com ...
+no identity providers configured, using noop verifier (dev mode)
+NULLFIELD_TRUST_HEADER_IDENTITY is set: bearer tokens are accepted without ...
+```
+
+See [identity-policy.md](identity-policy.md).
 
 ## Limits and audit
 

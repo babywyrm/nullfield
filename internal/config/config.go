@@ -4,29 +4,33 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
 type Config struct {
-	ListenAddr string
+	ListenAddr   string
 	UpstreamAddr string
-	AdminAddr string
+	AdminAddr    string
 
-	PolicyPath string
+	PolicyPath       string
 	ToolRegistryPath string
 
 	AuditEndpoint string
 	AuditLogLevel string
 
-	IdentityTokenHeader string
-	IdentityJWKSURL string
+	IdentityTokenHeader   string
+	IdentityJWKSURL       string
+	IdentityJWKSIssuer    string
+	IdentityJWKSAudiences []string
+	IdentityTrustHeader   bool
 
-	CircuitMaxCalls int
+	CircuitMaxCalls    int
 	CircuitMaxDuration time.Duration
 
-	VaultAddr       string
-	VaultRole       string
-	VaultAuthMethod string
+	VaultAddr          string
+	VaultRole          string
+	VaultAuthMethod    string
 	CredentialCacheTTL time.Duration
 
 	TLSCertFile string
@@ -55,6 +59,8 @@ func Load() (*Config, error) {
 		AuditLogLevel:       envOr("NULLFIELD_AUDIT_LOG_LEVEL", "FULL"),
 		IdentityTokenHeader: envOr("NULLFIELD_IDENTITY_HEADER", "Authorization"),
 		IdentityJWKSURL:     envOr("NULLFIELD_JWKS_URL", ""),
+		IdentityJWKSIssuer:  envOr("NULLFIELD_JWKS_ISSUER", ""),
+		IdentityTrustHeader: envOr("NULLFIELD_TRUST_HEADER_IDENTITY", "") == "true",
 		VaultAddr:           envOr("NULLFIELD_VAULT_ADDR", ""),
 		VaultRole:           envOr("NULLFIELD_VAULT_ROLE", ""),
 		VaultAuthMethod:     envOr("NULLFIELD_VAULT_AUTH_METHOD", ""),
@@ -83,6 +89,14 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid NULLFIELD_CREDENTIAL_CACHE_TTL: %w", err)
 	}
 	c.CredentialCacheTTL = credTTL
+
+	if aud := envOr("NULLFIELD_JWKS_AUDIENCE", ""); aud != "" {
+		for _, a := range strings.Split(aud, ",") {
+			if a = strings.TrimSpace(a); a != "" {
+				c.IdentityJWKSAudiences = append(c.IdentityJWKSAudiences, a)
+			}
+		}
+	}
 
 	if c.UpstreamAddr == "" && c.RoutesPath == "" {
 		return nil, fmt.Errorf("NULLFIELD_UPSTREAM_ADDR or NULLFIELD_ROUTES_PATH is required")

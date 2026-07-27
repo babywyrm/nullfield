@@ -124,6 +124,7 @@ data:
   NULLFIELD_CIRCUIT_MAX_DURATION: "5m"
   NULLFIELD_AUDIT_LOG_LEVEL: "FULL"
   # NULLFIELD_JWKS_URL: "https://your-idp.example.com/.well-known/jwks.json"
+  # NULLFIELD_JWKS_ISSUER: "https://your-idp.example.com"   # required alongside the URL
 ```
 
 **3) A ConfigMap for your tool registry:**
