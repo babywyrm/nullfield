@@ -21,7 +21,7 @@ services:
       - echo-alpha
       - echo-beta
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9091/healthz"]
+      test: ["CMD", "/nullfield", "-healthcheck"]
       interval: 5s
       timeout: 3s
       retries: 3

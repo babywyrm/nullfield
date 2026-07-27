@@ -19,8 +19,10 @@ services:
     depends_on:
       echo-server:
         condition: service_started
+    # The runtime image is distroless, so there is no wget, curl, or shell to
+    # call. The binary probes itself instead.
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9091/healthz"]
+      test: ["CMD", "/nullfield", "-healthcheck"]
       interval: 10s
       timeout: 3s
       retries: 3

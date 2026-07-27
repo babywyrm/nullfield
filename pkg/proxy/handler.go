@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"time"
 
 	v1alpha1 "github.com/babywyrm/nullfield/api/v1alpha1"
@@ -86,12 +87,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.writeJSONRPCError(w, nil, ErrCodeParse, "failed to read request body")
 		return
 	}
-	r.Body = io.NopCloser(bytes.NewReader(body))
+	setRequestBody(r, body)
 
 	var req JSONRPCRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		// Not JSON-RPC — pass through as non-MCP traffic.
-		r.Body = io.NopCloser(bytes.NewReader(body))
+		setRequestBody(r, body)
 		h.upstream.ServeHTTP(w, r)
 		return
 	}
@@ -135,7 +136,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Method:   req.Method,
 		Identity: id.Subject,
 	})
-	r.Body = io.NopCloser(bytes.NewReader(body))
+	setRequestBody(r, body)
 	h.upstream.ServeHTTP(w, r)
 }
 
@@ -346,7 +347,7 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 		Args:     tc.Arguments,
 	}, decision, id))
 
-	r.Body = io.NopCloser(bytes.NewReader(body))
+	setRequestBody(r, body)
 
 	needsIntercept := (scopeResponseCfg != nil && len(scopeResponseCfg.RedactPatterns) > 0) ||
 		h.needsInspection(decision)
@@ -483,6 +484,16 @@ func (r *responseRecorder) Write(b []byte) (int, error) {
 		r.headerWritten = true
 	}
 	return r.body.Write(b)
+}
+
+// setRequestBody replaces the request body and keeps its length metadata in
+// step. ReverseProxy trusts ContentLength over the reader it is handed, so a
+// body rewritten by SCOPE to a different size made it abort the request with
+// "ContentLength=N with Body length M" and return 502 with an empty body.
+func setRequestBody(r *http.Request, body []byte) {
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	r.ContentLength = int64(len(body))
+	r.Header.Set("Content-Length", strconv.Itoa(len(body)))
 }
 
 func (h *Handler) writeJSONRPCError(w http.ResponseWriter, id any, code int, message string) {

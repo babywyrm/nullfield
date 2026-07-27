@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/babywyrm/nullfield/internal/config"
+	"github.com/babywyrm/nullfield/internal/healthprobe"
 	"github.com/babywyrm/nullfield/pkg/anomaly"
 	"github.com/babywyrm/nullfield/pkg/audit"
 	"github.com/babywyrm/nullfield/pkg/budget"
@@ -34,6 +35,12 @@ import (
 )
 
 func main() {
+	// Before anything else, so a container health check does not depend on the
+	// service's configuration being loadable.
+	if healthprobe.Requested(os.Args[1:]) {
+		healthprobe.Run(os.Getenv("NULLFIELD_ADMIN_ADDR"), "9091")
+	}
+
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 

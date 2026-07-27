@@ -71,7 +71,7 @@ func (g *GatewayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSONRPCErr(w, nil, ErrCodeParse, "failed to read request body")
 		return
 	}
-	r.Body = io.NopCloser(bytes.NewReader(body))
+	setRequestBody(r, body)
 
 	var req JSONRPCRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -113,7 +113,7 @@ func (g *GatewayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Method:   req.Method,
 			Identity: id.Subject,
 		})
-		r.Body = io.NopCloser(bytes.NewReader(body))
+		setRequestBody(r, body)
 		g.router.Routes()[0].Upstream.ServeHTTP(w, r)
 		return
 	}
@@ -334,7 +334,7 @@ func (g *GatewayHandler) handleToolsCall(ctx context.Context, w http.ResponseWri
 		Args:     tc.Arguments,
 	}, decision, id))
 
-	r.Body = io.NopCloser(bytes.NewReader(body))
+	setRequestBody(r, body)
 
 	if scopeResponseCfg != nil && len(scopeResponseCfg.RedactPatterns) > 0 {
 		resp, err := http.Post("http://"+route.UpstreamAddr+r.URL.Path, "application/json", io.NopCloser(bytes.NewReader(body)))

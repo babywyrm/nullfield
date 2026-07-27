@@ -22,7 +22,7 @@ services:
       brain-gateway:
         condition: service_started
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9091/healthz"]
+      test: ["CMD", "/nullfield", "-healthcheck"]
       interval: 10s
       timeout: 3s
       retries: 3
