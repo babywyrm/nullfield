@@ -208,12 +208,15 @@ func (w *Watcher) syncActivePolicy(ctx context.Context) {
 		return
 	}
 
-	// Cheap change-detection so we don't churn the ConfigMap (and trigger
-	// pointless sidecar reloads) when nothing changed.
+	// Change-detection so we don't churn the ConfigMap (and trigger pointless
+	// sidecar reloads) when nothing changed. This has to hash the whole
+	// document: a length-plus-prefix signature misses any edit that preserves
+	// the serialized length, and the prefix is the apiVersion/kind header,
+	// which never varies.
 	w.mu.Lock()
 	prev := w.lastActiveSig
 	w.mu.Unlock()
-	sig := pickedName + ":" + fmt.Sprint(len(policyYAML)) + ":" + string(policyYAML[:min(64, len(policyYAML))])
+	sig := pickedName + ":" + artifactHash(policyYAML)
 	if sig == prev {
 		return
 	}
@@ -239,13 +242,6 @@ func (w *Watcher) syncActivePolicy(ctx context.Context) {
 		"configmap", w.activeTargetCM,
 		"key", w.activeTargetCMKey,
 		"label", w.activeTargetLabel)
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func (w *Watcher) syncPolicies(ctx context.Context) {

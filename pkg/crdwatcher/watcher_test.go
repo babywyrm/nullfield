@@ -661,6 +661,133 @@ func TestSyncActivePolicy_NoMatchDoesNotClobber(t *testing.T) {
 	}
 }
 
+// A policy edit that happens to preserve the serialized length must still
+// reach the sidecar. The change-detection signature used to be the policy
+// name, the length, and the first 64 bytes -- and those 64 bytes are the
+// apiVersion/kind/metadata header, which never varies. So swapping one tool
+// name for another of equal length was invisible and the ConfigMap was never
+// rewritten, which is precisely the edit-and-reapply loop demo 10 rests on.
+func TestSyncActivePolicy_DetectsSameLengthEdit(t *testing.T) {
+	var mu sync.Mutex
+	var writes int
+	tool := "alpha.read"
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/apis/nullfield.io/v1alpha1/namespaces/default/nullfieldpolicies" {
+			mu.Lock()
+			current := tool
+			mu.Unlock()
+			json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"metadata": map[string]any{
+							"name":      "same-length",
+							"namespace": "default",
+							"labels":    map[string]any{"nullfield.io/active-for": "brain-gateway"},
+						},
+						"spec": map[string]any{
+							"rules": []map[string]any{
+								{"action": "ALLOW", "toolNames": []string{current}},
+							},
+						},
+					},
+				},
+			})
+			return
+		}
+		if r.Method == http.MethodGet &&
+			r.URL.Path == "/api/v1/namespaces/default/configmaps/nullfield-active-policy" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPost &&
+			r.URL.Path == "/api/v1/namespaces/default/configmaps" {
+			mu.Lock()
+			writes++
+			mu.Unlock()
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+	})
+
+	w := testWatcher(handler)
+	w.activeTargetCM = "nullfield-active-policy"
+	w.activeTargetCMKey = "policy.yaml"
+	w.activeTargetLabel = "brain-gateway"
+
+	w.syncActivePolicy(context.Background())
+
+	// Same number of characters, entirely different authorization.
+	mu.Lock()
+	tool = "omega.drop"
+	mu.Unlock()
+
+	w.syncActivePolicy(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	if writes != 2 {
+		t.Errorf("a same-length policy edit must rewrite the ConfigMap: got %d writes, want 2", writes)
+	}
+}
+
+// The other half of the contract: an unchanged policy must not churn the
+// ConfigMap, because every write restarts the sidecar's reload clock.
+func TestSyncActivePolicy_SkipsUnchangedPolicy(t *testing.T) {
+	var mu sync.Mutex
+	var writes int
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/apis/nullfield.io/v1alpha1/namespaces/default/nullfieldpolicies" {
+			json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{
+						"metadata": map[string]any{
+							"name":      "steady",
+							"namespace": "default",
+							"labels":    map[string]any{"nullfield.io/active-for": "brain-gateway"},
+						},
+						"spec": map[string]any{
+							"rules": []map[string]any{{"action": "ALLOW", "toolNames": []string{"alpha.read"}}},
+						},
+					},
+				},
+			})
+			return
+		}
+		if r.Method == http.MethodGet &&
+			r.URL.Path == "/api/v1/namespaces/default/configmaps/nullfield-active-policy" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPost &&
+			r.URL.Path == "/api/v1/namespaces/default/configmaps" {
+			mu.Lock()
+			writes++
+			mu.Unlock()
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+	})
+
+	w := testWatcher(handler)
+	w.activeTargetCM = "nullfield-active-policy"
+	w.activeTargetCMKey = "policy.yaml"
+	w.activeTargetLabel = "brain-gateway"
+
+	w.syncActivePolicy(context.Background())
+	w.syncActivePolicy(context.Background())
+	w.syncActivePolicy(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	if writes != 1 {
+		t.Errorf("an unchanged policy must be written once, not on every sync: got %d writes", writes)
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || (len(s) > 0 && stringContains(s, sub)))
 }
