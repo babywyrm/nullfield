@@ -266,17 +266,32 @@ they last ran and on what.
 |---|---|---|---|
 HEADER
 
-    while IFS= read -r f; do
-      [[ -n "$f" ]] || continue
-      name="$(demo_name_of "$f")"
+    # Walk directories rather than scripts, so a demo that ships nothing to run
+    # still appears. Omitting it would let the index under-report the tree,
+    # which is the failure this generator exists to prevent.
+    local d scripts
+    for d in "$demos_dir"/*/; do
+      [[ -d "$d" ]] || continue
+      name="$(basename "$d")"
       num="${name%%-*}"
-      tier="$(meta "$f" tier)"
-      summary="$(meta "$f" summary)"
-      ci="$(meta "$f" ci)"
-      [[ "$ci" == "no" ]] && tier="$tier (not in CI)"
-      printf '| %s | [%s](%s/) | %s | %s |\n' \
-        "$num" "${name#*-}" "$name" "$tier" "$summary"
-    done <<<"$(discover)"
+
+      scripts="$(discover | grep "/$name/" || true)"
+      if [[ -z "$scripts" ]]; then
+        printf '| %s | [%s](%s/) | — | *no assertion script yet* |\n' \
+          "$num" "${name#*-}" "$name"
+        continue
+      fi
+
+      while IFS= read -r f; do
+        [[ -n "$f" ]] || continue
+        tier="$(meta "$f" tier)"
+        summary="$(meta "$f" summary)"
+        ci="$(meta "$f" ci)"
+        [[ "$ci" == "no" ]] && tier="$tier (not in CI)"
+        printf '| %s | [%s](%s/) | %s | %s |\n' \
+          "$num" "${name#*-}" "$name" "$tier" "$summary"
+      done <<<"$scripts"
+    done
 
     printf '\n'
   } >"$out"
