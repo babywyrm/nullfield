@@ -106,7 +106,24 @@ The top-level log fields are intentionally compact. The `payload` contains the f
 | `identity.drift` | Claims (scopes/groups) changed mid-session |
 | `arbiter.decision` | A decision reached as an `ext_authz` service, including ones not acted on |
 
-### Decision provenance (`ext_authz` mode)
+### Seeing it live
+
+`scripts/observe-mesh.sh` collects the views that answer questions prose cannot:
+whether the Lua filter really precedes `ext_authz` in the chain, whether
+identity is really arriving, and what was really decided.
+
+```bash
+./scripts/observe-mesh.sh            # every view
+./scripts/observe-mesh.sh chain      # filter order on the waypoint
+./scripts/observe-mesh.sh decisions  # recent decisions with provenance
+NS=zerotrust ./scripts/observe-mesh.sh
+```
+
+Waypoint pods are distroless, so there is no `curl` inside them. Envoy's admin
+interface is reached with `pilot-agent request GET <path>` instead, which is the
+single most useful thing to know when debugging one.
+
+## Decision provenance (`ext_authz` mode)
 
 An `arbiter.decision` event answers a question the proxy events do not need to: **how much is this attribution worth?** In proxy mode the identity comes from a token the caller presented. As a decision service it comes from the mesh, and the audit trail has to record which mechanism answered — otherwise "we know who did this" means several materially different things that all look alike after the fact.
 
