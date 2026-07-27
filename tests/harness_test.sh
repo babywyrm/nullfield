@@ -40,14 +40,7 @@ check_status() {
 }
 
 make_fixture() {
-  # HARNESS_TMPDIR exists so the fixture can be placed somewhere writable when
-  # the default temp directory is not, such as under a sandbox.
-  if [[ -n "${HARNESS_TMPDIR:-}" ]]; then
-    mkdir -p "$HARNESS_TMPDIR"
-    fixture="$(mktemp -d "$HARNESS_TMPDIR/harness.XXXXXX")"
-  else
-    fixture="$(mktemp -d)"
-  fi
+  fixture="$(mktemp -d)"
 
   mkdir -p "$fixture/01-alpha"
   cat >"$fixture/01-alpha/test.sh" <<'EOF'
@@ -100,6 +93,59 @@ check "shows tier"           "$out" "1"
 check "shows requires"       "$out" "compose"
 check "shows summary"        "$out" "alpha passes"
 check "marks ci opt-out"     "$out" "no"
+
+echo
+echo "audit:"
+status=0
+"$run_sh" --audit >/dev/null 2>&1 || status=$?
+check_status "clean tree audits clean" "$status" "0"
+
+mkdir -p "$fixture/04-empty"
+status=0
+out="$("$run_sh" --audit 2>&1)" || status=$?
+check_status "directory with no script fails audit" "$status" "1"
+check "names the empty directory" "$out" "04-empty"
+rmdir "$fixture/04-empty"
+
+mkdir -p "$fixture/05-headerless"
+cat >"$fixture/05-headerless/test.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "no header"
+EOF
+chmod +x "$fixture/05-headerless/test.sh"
+status=0
+out="$("$run_sh" --audit 2>&1)" || status=$?
+check_status "missing header fails audit" "$status" "1"
+check "names the missing field" "$out" "missing header field: tier"
+rm -rf "$fixture/05-headerless"
+
+mkdir -p "$fixture/06-badtier"
+cat >"$fixture/06-badtier/test.sh" <<'EOF'
+#!/usr/bin/env bash
+# tier: 9
+# requires: compose
+# summary: tier nine does not exist
+EOF
+chmod +x "$fixture/06-badtier/test.sh"
+status=0
+out="$("$run_sh" --audit 2>&1)" || status=$?
+check_status "invalid tier fails audit" "$status" "1"
+check "names the bad tier" "$out" "tier: 9"
+rm -rf "$fixture/06-badtier"
+
+mkdir -p "$fixture/07-notexec"
+cat >"$fixture/07-notexec/test.sh" <<'EOF'
+#!/usr/bin/env bash
+# tier: 1
+# requires: none
+# summary: this one is not executable
+EOF
+chmod -x "$fixture/07-notexec/test.sh"
+status=0
+out="$("$run_sh" --audit 2>&1)" || status=$?
+check_status "non-executable script fails audit" "$status" "1"
+check "says it is not executable" "$out" "not executable"
+rm -rf "$fixture/07-notexec"
 
 echo
 echo "results: $pass passed, $fail failed"
