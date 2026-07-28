@@ -55,14 +55,51 @@ fi
 
 # ---------------------------------------------------------------------- deploy
 
+# The arbiter manifest pins :latest, which on a single-node cluster means
+# whatever happens to be in containerd. Without this the demo silently tests
+# whichever build was imported last, which may be months old -- the running
+# binary reported a commit from a different week the first time this was
+# checked.
+if [[ "${BUILD_IMAGES:-false}" == "true" ]]; then
+  echo "building images..."
+  ( cd "$here/../.." \
+    && docker build -q -f Dockerfile.extauthz -t ghcr.io/babywyrm/nullfield-extauthz:latest . >/dev/null \
+    && docker build -q -f tests/echo-server/Dockerfile -t ghcr.io/babywyrm/nullfield-echo:latest . >/dev/null )
+  if command -v k3s >/dev/null 2>&1; then
+    for img in nullfield-extauthz nullfield-echo; do
+      docker save "ghcr.io/babywyrm/$img:latest" | k3s ctr images import - >/dev/null
+    done
+  fi
+fi
+
 kubectl apply -f "$here/mesh.yaml" >/dev/null
 kubectl apply -f "$here/arbiter.yaml" >/dev/null
+
+# Step 4 flips the mode with `kubectl set env`, which writes an inline
+# container env that outranks the ConfigMap and is not removed by a later
+# `apply` -- apply's three-way merge sees no such field in either the manifest
+# or the last-applied annotation, so it leaves the live value alone. The demo
+# was therefore green exactly once per namespace: every rerun started in
+# enforce and failed the observe assertion below.
+#
+# Setting the starting mode explicitly rather than inheriting it makes each
+# phase say what it wants and the whole demo rerunnable.
+kubectl -n "$ns" set env deploy/nullfield-extauthz NULLFIELD_EXTAUTHZ_MODE=observe >/dev/null
 
 kubectl -n "$ns" rollout status deploy/mcp-echo --timeout=120s >/dev/null
 kubectl -n "$ns" rollout status deploy/nullfield-extauthz --timeout=120s >/dev/null
 kubectl -n "$ns" wait --for=condition=Ready pod/mesh-demo-client --timeout=120s >/dev/null
 kubectl -n "$ns" wait --for=condition=Programmed gateway/mesh-demo-waypoint --timeout=180s >/dev/null
-echo "deployed to $ns"
+
+# Confirm the mode the process actually resolved rather than the one the
+# manifest asked for. Otherwise a mode mismatch surfaces later as an
+# unexplained 403 in step 2, which is how this was found.
+started_mode="$(kubectl -n "$ns" logs deploy/nullfield-extauthz --tail=40 2>/dev/null \
+  | grep -o '"mode":"[a-z-]*"' | tail -1 | cut -d'"' -f4)"
+[[ "$started_mode" == "observe" ]] \
+  || fail "the arbiter started in '${started_mode:-unknown}' mode, want observe"
+
+echo "deployed to $ns (mode=observe, image=$(kubectl -n "$ns" logs deploy/nullfield-extauthz --tail=40 2>/dev/null | grep -o '"version":"[a-f0-9]*"' | tail -1 | cut -d'"' -f4))"
 
 # Envoy needs a moment to pick up the new filter chain after the waypoint is
 # programmed; without this the first calls race the config push.
