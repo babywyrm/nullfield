@@ -1,0 +1,90 @@
+# The controller that compiles AgenticFlow CRDs into policy and registry
+# ConfigMaps. Without it nothing reconciles the flow and the demo waits forever
+# on a ConfigMap no one is going to write -- which is exactly what it did
+# before this file existed.
+#
+# No active-target bridge here, unlike demo 10. That bridge aggregates
+# NullfieldPolicy CRDs into one ConfigMap for a sidecar to mount. AgenticFlow
+# reconciliation already writes a per-flow ConfigMap named after the flow, and
+# this demo's workload mounts that directly.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flow-demo-controller
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flow-demo-controller
+rules:
+  # Compiling a flow means writing a ConfigMap, so create and update are
+  # needed rather than read alone.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update"]
+  - apiGroups: ["nullfield.io"]
+    resources: ["nullfieldpolicies", "toolregistries", "agenticflows"]
+    verbs: ["get", "list", "watch"]
+  # The controller reports compilation success or failure back onto the flow,
+  # which is how an author finds out their flow did not compile.
+  - apiGroups: ["nullfield.io"]
+    resources: ["agenticflows/status"]
+    verbs: ["patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flow-demo-controller
+subjects:
+  - kind: ServiceAccount
+    name: flow-demo-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: flow-demo-controller
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flow-demo-controller
+  labels:
+    app: flow-demo-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flow-demo-controller
+  template:
+    metadata:
+      labels:
+        app: flow-demo-controller
+    spec:
+      serviceAccountName: flow-demo-controller
+      containers:
+        - name: controller
+          image: ghcr.io/babywyrm/nullfield-controller:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 9092
+            - name: admin
+              containerPort: 9093
+            - name: health
+              containerPort: 9091
+          env:
+            - name: NULLFIELD_CRD_WATCH
+              value: "true"
+            # Ten seconds rather than the 30s default, so the demo is not
+            # mostly spent waiting on a poll it could have tightened.
+            - name: NULLFIELD_CRD_WATCH_INTERVAL
+              value: "10s"
+            - name: NULLFIELD_CRD_WATCH_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 2
+            periodSeconds: 5

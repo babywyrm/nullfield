@@ -14,15 +14,25 @@ echo "Using namespace: $ns"
 if [[ "$build_images" == "true" ]]; then
   echo "Building local images for single-node clusters..."
   docker build -t ghcr.io/babywyrm/nullfield:latest .
+  docker build -f Dockerfile.controller -t ghcr.io/babywyrm/nullfield-controller:latest .
   docker build -f tests/echo-server/Dockerfile -t ghcr.io/babywyrm/nullfield-echo:latest .
   if command -v k3s >/dev/null 2>&1; then
-    docker save ghcr.io/babywyrm/nullfield:latest | k3s ctr images import -
-    docker save ghcr.io/babywyrm/nullfield-echo:latest | k3s ctr images import -
+    for img in nullfield nullfield-controller nullfield-echo; do
+      docker save "ghcr.io/babywyrm/$img:latest" | k3s ctr images import -
+    done
   fi
 fi
 
 kubectl get namespace "$ns" >/dev/null 2>&1 || kubectl create namespace "$ns"
 kubectl apply -f deploy/crds/agenticflow-crd.yaml
+
+# The controller is what compiles a flow into a ConfigMap. The demo used to
+# apply the CRD and then wait for a ConfigMap with nothing running that could
+# write one, so it could only ever have passed against a cluster that happened
+# to have a controller left over from something else.
+kubectl -n "$ns" apply -f demos/14-agentic-flow-kubernetes/controller.yaml
+kubectl -n "$ns" rollout status deploy/flow-demo-controller --timeout=120s
+
 kubectl -n "$ns" apply -f demos/14-agentic-flow-kubernetes/agentic-flow.yaml
 
 echo "Applied AgenticFlow. Waiting for nullfield-flow-echo-known-path ConfigMap..."
@@ -33,7 +43,18 @@ for _ in $(seq 1 24); do
   sleep 5
 done
 
-kubectl -n "$ns" get configmap nullfield-flow-echo-known-path >/dev/null
+# A bare `kubectl get` here fails with NotFound and nothing else, which says
+# the ConfigMap is missing but not why. The controller's own logs and the
+# flow's status conditions are where the answer is, so print them before
+# giving up.
+if ! kubectl -n "$ns" get configmap nullfield-flow-echo-known-path >/dev/null 2>&1; then
+  echo "FAIL: the controller never compiled the AgenticFlow into a ConfigMap" >&2
+  echo "--- controller logs ---" >&2
+  kubectl -n "$ns" logs deploy/flow-demo-controller --tail=40 >&2 2>/dev/null || true
+  echo "--- flow status ---" >&2
+  kubectl -n "$ns" get agenticflow echo-known-path -o yaml 2>/dev/null | sed -n '/status:/,$p' >&2 || true
+  exit 1
+fi
 
 compiled="$(mktemp)"
 policy="$(mktemp)"
