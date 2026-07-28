@@ -23,3 +23,7 @@ NULLFIELD_SUBSTRATE="k3s 1.34 / Istio 1.30.1 ambient" ./demos/run.sh --tier 3 --
 | 2026-07-27 | 09-controller-mode | 1 | PASS | unspecified |
 | 2026-07-27 | 12-response-inspection | 1 | PASS | unspecified |
 | 2026-07-27 | 13-agentic-flow-local | 1 | PASS | unspecified |
+| 2026-07-27 | 10-crd-policy | 2 | PASS | k3s v1.35.5 / Istio 1.30.1 ambient (brainbox) |
+| 2026-07-27 | 14-agentic-flow-kubernetes | 2 | PASS | k3s v1.35.5 / Istio 1.30.1 ambient (brainbox) |
+| 2026-07-27 | 15-proxy-baseline | 2 | PASS | k3s v1.35.5 / Istio 1.30.1 ambient (brainbox) |
+| 2026-07-27 | 16-mesh-arbiter | 3 | PASS | k3s v1.35.5 / Istio 1.30.1 ambient (brainbox) |

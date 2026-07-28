@@ -99,6 +99,23 @@ them silent, which is the argument for the exercise.
 - **Demos 04, 05, and 11 retired**, now covered by the quickstart and the
   implementation guide.
 
+- **Tiers 2 and 3 verified on a real cluster** — demos 10, 14, 15, and 16 all
+  pass against k3s v1.35.5 with Istio 1.30.1 in ambient mode, recorded in
+  `demos/VERIFIED.md`. Doing so found two more demos that had never actually
+  worked:
+
+  Demo 14 applied an AgenticFlow and waited for the ConfigMap a controller
+  compiles it into, without deploying a controller. It could only have passed
+  against a cluster that happened to have one left over from something else.
+
+  Demo 16 flipped to enforce mode with `kubectl set env`, which writes an
+  inline container env that outranks the ConfigMap and is not removed by a
+  later `apply`. It was green exactly once per namespace; every rerun started
+  in enforce and failed the observe assertion with a 403 that looked like a
+  product regression. It also never built the image it deployed, so on a
+  single-node cluster it tested whichever build was imported last — a binary
+  from a different week, when this was checked.
+
 ### Documentation
 
 - **Design: demo harness and walkthroughs** (`docs/specs/2026-07-27-demo-harness-and-walkthroughs.md`)
