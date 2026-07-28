@@ -99,7 +99,12 @@ started_mode="$(kubectl -n "$ns" logs deploy/nullfield-extauthz --tail=40 2>/dev
 [[ "$started_mode" == "observe" ]] \
   || fail "the arbiter started in '${started_mode:-unknown}' mode, want observe"
 
-echo "deployed to $ns (mode=observe, image=$(kubectl -n "$ns" logs deploy/nullfield-extauthz --tail=40 2>/dev/null | grep -o '"version":"[a-f0-9]*"' | tail -1 | cut -d'"' -f4))"
+# A locally built image reports "dev" rather than a commit, so this cannot
+# assume a hex string. Printing it either way is the point: it says which build
+# the run below is actually about.
+started_version="$(kubectl -n "$ns" logs deploy/nullfield-extauthz --tail=40 2>/dev/null \
+  | grep -o '"version":"[^"]*"' | tail -1 | cut -d'"' -f4)"
+echo "deployed to $ns (mode=observe, build=${started_version:-unknown})"
 
 # Envoy needs a moment to pick up the new filter chain after the waypoint is
 # programmed; without this the first calls race the config push.
