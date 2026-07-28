@@ -43,13 +43,27 @@ resp=$(post '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}')
 check "initialize returns server info" "camazotz" "$resp"
 
 resp=$(post '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}')
-count=$(echo "$resp" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['result']['tools']))" 2>/dev/null || echo "0")
-# Against the registry rather than a literal. A hardcoded count is only true
-# until camazotz ships a tool, and a stale one fails at the door.
-registry_count=$(python3 -c "
-import yaml
-print(len(yaml.safe_load(open('$(dirname "$0")/tools.yaml')).get('tools', [])))" 2>/dev/null || echo "0")
-check "tools/list matches the registry ($registry_count tools)" "$registry_count" "$count"
+
+# The invariant is containment, not equality: every tool camazotz advertises
+# must be in the registry, and the registry may hold more.
+#
+# Equality is the tempting spelling and it is wrong. The registry deliberately
+# carries tools that tools/list does not advertise -- tool.hidden_exec is the
+# rug-pull lab's payload, which only appears after tool.mutate_behavior is
+# called, and registering it in advance is the whole point so nullfield can
+# refuse it the moment it surfaces. A count check reads that as drift.
+#
+# The direction that matters is the other one. A live tool missing from the
+# registry is refused at the door with -32003 whatever the policy says, so this
+# names the offenders rather than reporting a number.
+unregistered=$(echo "$resp" | REGISTRY="$(dirname "$0")/tools.yaml" python3 -c "
+import json, os, sys, yaml
+live = {t['name'] for t in json.load(sys.stdin)['result']['tools']}
+known = {t['name'] for t in yaml.safe_load(open(os.environ['REGISTRY'])).get('tools', [])}
+missing = sorted(live - known)
+print(' '.join(missing) if missing else 'none')
+" 2>/dev/null || echo "unreadable")
+check "every advertised tool is registered" "none" "$unregistered"
 
 echo ""
 echo "[tier 1 — read-only tools ALLOWED]"
