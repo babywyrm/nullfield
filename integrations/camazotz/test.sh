@@ -7,8 +7,14 @@
 #   NULLFIELD_POLICY_PATH=integrations/camazotz/policy.yaml \
 #   NULLFIELD_REGISTRY_PATH=integrations/camazotz/tools.yaml \
 #   ./bin/nullfield
+#
+# Against a cluster rather than a local process, point BASE at the policed
+# service. On k3s that is the NodePort in front of the sidecar, not the
+# gateway's own port -- the unpoliced one bypasses nullfield entirely and would
+# report every deny as a failure:
+#   BASE=http://localhost:30090/mcp integrations/camazotz/test.sh
 
-BASE="http://localhost:9090/mcp"
+BASE="${BASE:-http://localhost:9090/mcp}"
 PASS=0
 FAIL=0
 
