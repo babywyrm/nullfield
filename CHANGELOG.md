@@ -8,6 +8,29 @@ Rebuilding the demos so they assert what they describe. Every claim now has a
 script behind it, and running those scripts found five product bugs — four of
 them silent, which is the argument for the exercise.
 
+### Security
+
+- **Eight reachable dependency vulnerabilities patched.** `govulncheck`
+  found eight advisories whose vulnerable functions are reachable from
+  nullfield's own code — not merely present in the module graph. Seven are
+  HTTP/2 server-side denial of service in `golang.org/x/net` and
+  `google.golang.org/grpc`. Those land on the surface nullfield exposes by
+  design: the proxy listener and the ext_authz gRPC server both sit in the
+  request path, so a client able to open a connection could exhaust the
+  process. In a mesh deployment that is an availability failure rather than a
+  policy bypass — Istio's `envoyExtAuthzGrpc` defaults `failOpen` to false, so
+  an authorizer that stops answering denies requests instead of admitting
+  them — but an authorizer that can be taken down is still an outage of
+  everything behind it.
+
+  `golang.org/x/net` v0.60.0 is the lowest version carrying the fix and it
+  declares `go 1.26.0`, so there is no patch-only path: the toolchain floor
+  moves to 1.26 for the `go` directive, the builder images, and the CI matrix.
+
+  CI now runs `govulncheck`, which is the control that would have caught all
+  eight. It reports reachability rather than mere presence, and that is the
+  distinction that separates an urgent finding from noise.
+
 ### Fixed
 
 - **`NULLFIELD_JWKS_URL` validated nothing** (`pkg/identity/select.go`) —
@@ -76,6 +99,17 @@ them silent, which is the argument for the exercise.
 - **CI gates tier 1** — nine self-asserting demos on every push, plus a check
   that `demos/README.md` matches the script headers. A green build is now
   evidence the documented outcomes are the observed ones.
+
+- **Automated dependency updates** (`.github/dependabot.yml`) — weekly PRs for
+  Go modules, Docker base images, and GitHub Actions. The otel packages and the
+  grpc/protobuf/genproto set are each grouped into a single PR because they are
+  released against one another; a PR bumping one member alone does not compile,
+  which reads as a broken dependency rather than an incomplete update.
+
+  Dependabot rather than Renovate: native to GitHub, no app to install, and it
+  covers every ecosystem this repo has. Renovate remains the better tool for
+  digest-pinning base images and is the upgrade path if that becomes a
+  requirement.
 
 ### Changed
 

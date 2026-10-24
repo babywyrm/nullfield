@@ -1,0 +1,76 @@
+# Automated dependency updates.
+#
+# Dependabot rather than Renovate: it is native to GitHub, needs no app
+# installed, and covers all three ecosystems this repo actually has. Renovate
+# is the better tool for pinning base images by digest and for complex
+# scheduling, and is the upgrade path if we outgrow this file -- but a config
+# that works today beats a better one behind an install step.
+#
+# Nothing here replaces govulncheck in CI. Dependabot raises a PR when an
+# advisory names a dependency; govulncheck reports whether our code actually
+# reaches the vulnerable function. The second question is the one that decides
+# urgency, and only the scanner answers it.
+
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    labels: ["dependencies", "go"]
+    groups:
+      # These four move in lockstep. The otel packages share a version and
+      # reference each other's types, so a PR that bumps otel/sdk without
+      # otel/trace does not compile -- which looks like a broken dependency
+      # rather than an incomplete update.
+      - group-name: opentelemetry
+        patterns: ["go.opentelemetry.io/*"]
+
+      # grpc, protobuf and the generated genproto stubs are released against
+      # each other. Bumping grpc alone tends to drag an incompatible genproto
+      # in as an indirect anyway, so it is cleaner to review them together.
+      - group-name: grpc-and-protobuf
+        patterns:
+          - "google.golang.org/grpc"
+          - "google.golang.org/protobuf"
+          - "google.golang.org/genproto/*"
+
+      # Everything else individually. Separate PRs are easier to revert, and
+      # the remaining direct dependencies are unrelated to one another.
+
+  - package-ecosystem: docker
+    # One entry covers all five root Dockerfiles: Dependabot's docker fetcher
+    # matches any filename containing "dockerfile" case-insensitively, so
+    # Dockerfile.controller, Dockerfile.extauthz, Dockerfile.injector and
+    # Dockerfile.prebuilt are all picked up alongside Dockerfile.
+    #
+    # It also reads image references out of YAML, so the deploy manifests and
+    # demo workloads are in scope. Expect no PRs for the ghcr.io/babywyrm
+    # images: they are ours and tagged :latest, which has no version to bump.
+    directories:
+      - "/"
+      - "/tests/echo-server"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    labels: ["dependencies", "docker"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    labels: ["dependencies", "ci"]
