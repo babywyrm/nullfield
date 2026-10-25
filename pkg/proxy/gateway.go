@@ -16,6 +16,7 @@ import (
 	"github.com/babywyrm/nullfield/pkg/budget"
 	"github.com/babywyrm/nullfield/pkg/circuit"
 	"github.com/babywyrm/nullfield/pkg/credentials"
+	"github.com/babywyrm/nullfield/pkg/gates"
 	"github.com/babywyrm/nullfield/pkg/hold"
 	"github.com/babywyrm/nullfield/pkg/identity"
 	"github.com/babywyrm/nullfield/pkg/policy"
@@ -29,10 +30,8 @@ type GatewayHandler struct {
 	auditor     audit.Emitter
 	verifier    identity.Verifier
 	integrity   *identity.IntegrityChecker
-	velocity    *anomaly.VelocityTracker
-	budgets     *budget.Tracker
+	gates       gates.Gates // Registry is per route, set per call.
 	holds       *hold.Manager
-	breaker     *circuit.Breaker
 	credentials *credentials.MultiProvider
 	logger      *slog.Logger
 }
@@ -56,10 +55,8 @@ func NewGatewayHandler(opts GatewayHandlerOpts) *GatewayHandler {
 		auditor:     opts.Auditor,
 		verifier:    opts.Verifier,
 		integrity:   opts.Integrity,
-		velocity:    opts.Velocity,
-		budgets:     opts.Budgets,
+		gates:       gates.Gates{Breaker: opts.Breaker, Budgets: opts.Budgets, Velocity: opts.Velocity},
 		holds:       opts.Holds,
-		breaker:     opts.Breaker,
 		credentials: opts.Credentials,
 		logger:      opts.Logger,
 	}
@@ -143,30 +140,23 @@ func (g *GatewayHandler) handleToolsCall(ctx context.Context, w http.ResponseWri
 
 	g.logger.InfoContext(ctx, "routed tool call", "tool", tc.Name, "route", route.Name, "upstream", route.UpstreamAddr)
 
-	if !route.Registry.IsRegistered(tc.Name) {
-		g.auditor.Emit(ctx, eventWithIdentity(audit.Event{
-			Type:        audit.EventToolDenied,
-			Method:      req.Method,
-			ToolName:    tc.Name,
-			Gate:        "registry",
-			ReasonClass: "tool_not_registered",
-			Route:       route.Name,
-			Reason:      fmt.Sprintf("tool not registered in route %q", route.Name),
-		}, id))
-		writeJSONRPCErr(w, req.ID, ErrCodeToolUnknown, fmt.Sprintf("tool not registered in route %q: %s", route.Name, tc.Name))
-		return
+	gs := g.gates
+	gs.Registry = route.Registry
+	call := gates.Call{Tool: tc.Name, Subject: id.Subject, Session: id.SessionID}
+	refuse := func(r *gates.Refusal, decision policy.Decision) {
+		e := gateEvent(r, req.Method, tc.Name)
+		e.Route = route.Name
+		g.auditor.Emit(ctx, eventWithDecision(e, decision, id))
+		if r.Gate == gates.GateRegistry {
+			writeJSONRPCErr(w, req.ID, ErrCodeToolUnknown, fmt.Sprintf("tool not registered in route %q: %s", route.Name, tc.Name))
+			return
+		}
+		code, msg := gateError(r, tc.Name)
+		writeJSONRPCErr(w, req.ID, code, msg)
 	}
 
-	if !g.breaker.Allow(id.SessionID) {
-		g.auditor.Emit(ctx, eventWithIdentity(audit.Event{
-			Type:        audit.EventCircuitTripped,
-			Method:      req.Method,
-			ToolName:    tc.Name,
-			Gate:        "circuit",
-			ReasonClass: "circuit_open",
-			Route:       route.Name,
-		}, id))
-		writeJSONRPCErr(w, req.ID, ErrCodeCircuitOpen, "circuit breaker open — session limit exceeded")
+	if r := gs.Admit(call); r != nil {
+		refuse(r, policy.Decision{RuleIndex: -1})
 		return
 	}
 
@@ -273,57 +263,15 @@ func (g *GatewayHandler) handleToolsCall(ctx context.Context, w http.ResponseWri
 		}, decision, id))
 	}
 
-	// Budget check.
-	if g.budgets != nil && decision.MatchedRule != nil && decision.MatchedRule.Budget != nil {
-		bc := decision.MatchedRule.Budget
-		var perID, perSess *budget.Limits
-		if bc.PerIdentity != nil {
-			perID = &budget.Limits{
-				MaxCallsPerHour: bc.PerIdentity.MaxCallsPerHour,
-				MaxCallsPerDay:  bc.PerIdentity.MaxCallsPerDay,
-				MaxTokensPerDay: bc.PerIdentity.MaxTokensPerDay,
-			}
-		}
-		if bc.PerSession != nil {
-			perSess = &budget.Limits{
-				MaxCallsPerHour: bc.PerSession.MaxCallsPerHour,
-				MaxCallsPerDay:  bc.PerSession.MaxCallsPerDay,
-				MaxTokensPerDay: bc.PerSession.MaxTokensPerDay,
-			}
-		}
-		if err := g.budgets.CheckAndRecord(id.Subject, id.SessionID, perID, perSess); err != nil {
-			g.auditor.Emit(ctx, eventWithDecision(audit.Event{
-				Type:        audit.EventToolDenied,
-				Method:      req.Method,
-				ToolName:    tc.Name,
-				Gate:        "budget",
-				ReasonClass: "budget_exhausted",
-				Route:       route.Name,
-				Reason:      "budget exhausted: " + err.Error(),
-			}, decision, id))
-			writeJSONRPCErr(w, req.ID, ErrCodeRateLimited, "budget exhausted: "+err.Error())
-			return
-		}
+	refusal, warning := gs.Charge(call, decision.MatchedRule)
+	if refusal != nil {
+		refuse(refusal, decision)
+		return
 	}
-
-	g.breaker.Record(id.SessionID)
-
-	if g.velocity != nil {
-		if alert := g.velocity.Record(id.Subject, tc.Name); alert != nil {
-			g.auditor.Emit(ctx, eventWithDecision(audit.Event{
-				Type:        audit.EventAnomalyVelocity,
-				Method:      req.Method,
-				ToolName:    tc.Name,
-				Gate:        "anomaly",
-				ReasonClass: "velocity_limit",
-				Route:       route.Name,
-				Reason:      fmt.Sprintf("velocity %d/min exceeds threshold %d", alert.CallsPerMin, alert.Threshold),
-			}, decision, id))
-			if alert.Action == anomaly.AlertActionDeny {
-				writeJSONRPCErr(w, req.ID, ErrCodeRateLimited, fmt.Sprintf("velocity limit exceeded: %d calls/min", alert.CallsPerMin))
-				return
-			}
-		}
+	if warning != nil {
+		e := gateEvent(warning, req.Method, tc.Name)
+		e.Route = route.Name
+		g.auditor.Emit(ctx, eventWithDecision(e, decision, id))
 	}
 
 	g.auditor.Emit(ctx, eventWithDecision(audit.Event{

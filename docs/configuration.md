@@ -96,9 +96,11 @@ Two things that are easy to get wrong here:
 An unrecognised or empty mode falls back to `observe`, never to `enforce`. A
 typo therefore costs you enforcement rather than costing you an outage.
 
-`NULLFIELD_REGISTRY_PATH` is accepted but **not consumed** by this binary — it
-builds a policy engine only, so there is no registry gate and an unregistered
-tool reaches the rules. Default-deny comes from a `DENY *` fallthrough rule. See
+`NULLFIELD_REGISTRY_PATH` turns on the registry gate only when it is set
+explicitly; this binary ignores the proxy's default. When it is set, a file that
+cannot be read stops the binary from starting. The registry applies only to MCP
+calls, so default-deny for other traffic still comes from a `DENY *`
+fallthrough rule. See
 [policy-eval.md](diagrams/policy-eval.md#two-entries-different-chains).
 
 The mode is a nullfield setting, but truncation behaviour is an Istio one, and

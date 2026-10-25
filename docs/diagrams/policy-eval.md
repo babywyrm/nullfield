@@ -3,7 +3,7 @@
 How nullfield decides whether to forward or reject a `tools/call` request.
 
 Most of this describes proxy mode; see [Two Entries, Different Chains](#two-entries-different-chains)
-for what the `ext_authz` decision service runs instead. Companions:
+for which gates the `ext_authz` decision service shares with it. Companions:
 [traffic-flow.md](traffic-flow.md) and [mesh-arbiter.md](mesh-arbiter.md).
 
 ---
@@ -186,8 +186,9 @@ Non-`tools/call` methods emit `mcp.request` and are forwarded without gate evalu
 ## Two Entries, Different Chains
 
 Everything above describes **proxy mode**. The `ext_authz` decision service runs
-a deliberately shorter chain, and the difference is not cosmetic — assuming the
-nine gates apply there would be a security error.
+the same registry, policy, budget and velocity gates — one implementation,
+`pkg/gates`, shared by both — but not the rest, and the difference is not
+cosmetic: assuming all nine apply there would be a security error.
 
 ```text
   PROXY MODE (:9090)                    EXT_AUTHZ MODE (:9191)
@@ -203,14 +204,14 @@ nine gates apply there would be a security error.
        │                              └──────┬───────┘  no ──► refuse to decide
        ▼                                     │
   1. IDENTITY      (token)              ─────┤  not run
-  2. REGISTRY                           ─────┤  not run
+  2. REGISTRY  ◄──────────────────────────►  REGISTRY  (MCP calls only)
   3. INTEGRITY                          ─────┤  not run
   4. CIRCUIT                            ─────┤  not run
        │                                     │
   5. POLICY  ◄─── the same engine, ─────►  POLICY
        │          the same rules            │
-  6. BUDGET                             ─────┤  not run
-  7. VELOCITY                           ─────┤  not run
+  6. BUDGET    ◄──────────────────────────►  BUDGET    (per workload)
+  7. VELOCITY  ◄──────────────────────────►  VELOCITY  (per workload)
        │                                     │
        ▼                                     ▼
   8. AUDIT  tool.allowed/denied         AUDIT  arbiter.decision
@@ -227,15 +228,18 @@ nine gates apply there would be a security error.
 | Gate | Absent from `ext_authz` because |
 |------|--------------------------------|
 | Identity | Superseded, not missing. The caller is attested from the mesh instead of presenting a token — a stronger claim, established earlier. |
-| Registry | Not wired. `cmd/nullfield-extauthz` builds a policy engine only. A `DENY *` fallthrough rule is currently how you get default-deny. |
-| Integrity, Circuit | Both need per-session state across requests, which this entrypoint does not keep. |
-| Budget, Velocity | Same reason. |
+| Integrity, Circuit | Both are keyed on the MCP session, which the mesh does not carry. |
 | SCOPE / response | Structurally impossible: `ext_authz` sees requests only and cannot mutate them. Needs `ext_proc`. |
 
-The practical consequence: **write policies for `ext_authz` mode assuming policy
-rules are the only gate.** A tool that proxy mode would have refused for being
-unregistered will reach the policy engine here, and be allowed unless a rule
-says otherwise.
+The gates that do run differ in two ways:
+
+- **Registry** runs only when `NULLFIELD_REGISTRY_PATH` is set, and only on calls
+  that name an MCP tool. A direct API call names none, so it reaches policy.
+- **Budget and velocity** are charged to the attested workload principal. A rule
+  whose budget is `perSession` refuses every call here, because there is no
+  session to charge it to; so does a `perIdentity` budget when the caller could
+  not be attested. A limit that cannot be charged refuses the call rather than
+  being skipped.
 
 ### Gate values in the audit trail
 
@@ -243,11 +247,15 @@ says otherwise.
 
 ```text
 translate   the request could not be read whole (body_truncated)
+registry    the tool is not in the registry
 policy      the rule engine decided
+budget      the matched rule's budget is exhausted or cannot be charged
+anomaly     call velocity exceeded a DENY threshold
 ```
 
-Compare with the proxy's richer set above. A `gate` value the proxy can emit but
-this path cannot is a sign the event came from the other front door.
+A `velocity_limit` alert that only logs is a separate `anomaly.velocity` event.
+A `gate` value the proxy can emit but this path cannot (`circuit`, `hold`,
+`inspection`) is a sign the event came from the other front door.
 
 See [mesh-arbiter.md](mesh-arbiter.md) for identity, modes, and the buffer
 boundary.

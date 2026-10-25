@@ -9,6 +9,7 @@ import (
 	authv3 "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
 
 	"github.com/babywyrm/nullfield/pkg/audit"
+	"github.com/babywyrm/nullfield/pkg/gates"
 	"github.com/babywyrm/nullfield/pkg/identity"
 	"github.com/babywyrm/nullfield/pkg/policy"
 )
@@ -29,6 +30,9 @@ type Config struct {
 	Mode   Mode
 	Engine policy.Engine
 	Audit  audit.Emitter
+	// Gates are the same registry, breaker, budget and velocity checks the
+	// proxy runs around policy. The zero value runs none of them.
+	Gates gates.Gates
 
 	// Logger receives peer diagnostics when LogPeer is set. Optional.
 	Logger *slog.Logger
@@ -52,6 +56,7 @@ type Server struct {
 
 	mode    Mode
 	engine  policy.Engine
+	gates   gates.Gates
 	audit   audit.Emitter
 	logger  *slog.Logger
 	logPeer bool
@@ -72,6 +77,7 @@ func NewServer(cfg Config) *Server {
 	return &Server{
 		mode:    mode,
 		engine:  cfg.Engine,
+		gates:   cfg.Gates,
 		audit:   cfg.Audit,
 		logger:  logger,
 		logPeer: cfg.LogPeer,
@@ -138,7 +144,7 @@ func (s *Server) Check(ctx context.Context, req *authv3.CheckRequest) (*authv3.C
 		return Respond(s.mode, policy.Decision{Allowed: false, Reason: err.Error()}), nil
 	}
 
-	decision := s.engine.Evaluate(ctx, translated.Policy)
+	decision := s.decide(ctx, translated)
 
 	event := audit.Event{
 		Type:           audit.EventArbiterDecision,
@@ -165,6 +171,52 @@ func (s *Server) Check(ctx context.Context, req *authv3.CheckRequest) (*authv3.C
 	s.emit(ctx, event)
 
 	return Respond(s.mode, decision), nil
+}
+
+// decide runs the gates around policy in the order the proxy does: registry and
+// circuit first, then policy, then budget, circuit accounting and velocity for
+// a call policy allowed.
+func (s *Server) decide(ctx context.Context, t *Translated) policy.Decision {
+	call := gates.Call{Tool: t.Policy.ToolName}
+	// Charge only an attested principal. RawPrincipal is whatever the mesh
+	// presented, parseable or not, and a value nobody vouched for is not an
+	// identity to bill.
+	if t.Attestation != nil {
+		call.Subject = t.Attestation.Principal
+	}
+
+	if r := s.gates.Admit(call); r != nil {
+		return refuse(policy.Decision{RuleIndex: -1}, r)
+	}
+	decision := s.engine.Evaluate(ctx, t.Policy)
+	if !decision.Allowed {
+		return decision
+	}
+	r, warning := s.gates.Charge(call, decision.MatchedRule)
+	if r != nil {
+		return refuse(decision, r)
+	}
+	// A refusal lands on the decision event. A warning has nowhere else to go.
+	if warning != nil {
+		s.emit(ctx, audit.Event{
+			Type:              audit.EventAnomalyVelocity,
+			ToolName:          t.Policy.ToolName,
+			Target:            t.Policy.Target,
+			Gate:              warning.Gate,
+			ReasonClass:       warning.ReasonClass,
+			Reason:            warning.Reason,
+			WorkloadPrincipal: t.RawPrincipal,
+		})
+	}
+	return decision
+}
+
+// refuse turns a decision into a refusal by a gate, keeping the rule that
+// matched so the audit trail says whose budget or limit it was.
+func refuse(d policy.Decision, r *gates.Refusal) policy.Decision {
+	d.Allowed, d.Held, d.Scoped = false, false, false
+	d.Gate, d.ReasonClass, d.Reason = r.Gate, r.ReasonClass, r.Reason
+	return d
 }
 
 func (s *Server) emit(ctx context.Context, e audit.Event) {

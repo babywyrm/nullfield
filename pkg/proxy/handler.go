@@ -19,6 +19,7 @@ import (
 	"github.com/babywyrm/nullfield/pkg/budget"
 	"github.com/babywyrm/nullfield/pkg/circuit"
 	"github.com/babywyrm/nullfield/pkg/credentials"
+	"github.com/babywyrm/nullfield/pkg/gates"
 	"github.com/babywyrm/nullfield/pkg/hold"
 	"github.com/babywyrm/nullfield/pkg/identity"
 	"github.com/babywyrm/nullfield/pkg/inspection"
@@ -35,11 +36,8 @@ type Handler struct {
 	auditor      audit.Emitter
 	verifier     identity.Verifier
 	integrity    *identity.IntegrityChecker
-	velocity     *anomaly.VelocityTracker
-	budgets      *budget.Tracker
+	gates        gates.Gates
 	holds        *hold.Manager
-	registry     *registry.Registry
-	breaker      *circuit.Breaker
 	credentials  *credentials.MultiProvider
 	inspector    *inspection.Inspector
 	logger       *slog.Logger
@@ -70,14 +68,12 @@ func NewHandler(opts HandlerOpts) *Handler {
 		auditor:      opts.Auditor,
 		verifier:     opts.Verifier,
 		integrity:    opts.Integrity,
-		velocity:     opts.Velocity,
-		budgets:      opts.Budgets,
-		holds:        opts.Holds,
-		registry:     opts.Registry,
-		breaker:      opts.Breaker,
-		credentials:  opts.Credentials,
-		inspector:    opts.Inspector,
-		logger:       opts.Logger,
+		gates: gates.Gates{Registry: opts.Registry, Breaker: opts.Breaker,
+			Budgets: opts.Budgets, Velocity: opts.Velocity},
+		holds:       opts.Holds,
+		credentials: opts.Credentials,
+		inspector:   opts.Inspector,
+		logger:      opts.Logger,
 	}
 }
 
@@ -147,28 +143,11 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 		return
 	}
 
-	if !h.registry.IsRegistered(tc.Name) {
-		h.auditor.Emit(ctx, eventWithIdentity(audit.Event{
-			Type:        audit.EventToolDenied,
-			Method:      req.Method,
-			ToolName:    tc.Name,
-			Gate:        "registry",
-			ReasonClass: "tool_not_registered",
-			Reason:      "tool not registered",
-		}, id))
-		h.writeJSONRPCError(w, req.ID, ErrCodeToolUnknown, "tool not registered: "+tc.Name)
-		return
-	}
-
-	if !h.breaker.Allow(id.SessionID) {
-		h.auditor.Emit(ctx, eventWithIdentity(audit.Event{
-			Type:        audit.EventCircuitTripped,
-			Method:      req.Method,
-			ToolName:    tc.Name,
-			Gate:        "circuit",
-			ReasonClass: "circuit_open",
-		}, id))
-		h.writeJSONRPCError(w, req.ID, ErrCodeCircuitOpen, "circuit breaker open — session limit exceeded")
+	call := gates.Call{Tool: tc.Name, Subject: id.Subject, Session: id.SessionID}
+	if r := h.gates.Admit(call); r != nil {
+		h.auditor.Emit(ctx, eventWithIdentity(gateEvent(r, req.Method, tc.Name), id))
+		code, msg := gateError(r, tc.Name)
+		h.writeJSONRPCError(w, req.ID, code, msg)
 		return
 	}
 
@@ -289,55 +268,15 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 		}, decision, id))
 	}
 
-	// Budget check — if the matched rule has a budget config, enforce it.
-	if h.budgets != nil && decision.MatchedRule != nil && decision.MatchedRule.Budget != nil {
-		bc := decision.MatchedRule.Budget
-		var perID, perSess *budget.Limits
-		if bc.PerIdentity != nil {
-			perID = &budget.Limits{
-				MaxCallsPerHour: bc.PerIdentity.MaxCallsPerHour,
-				MaxCallsPerDay:  bc.PerIdentity.MaxCallsPerDay,
-				MaxTokensPerDay: bc.PerIdentity.MaxTokensPerDay,
-			}
-		}
-		if bc.PerSession != nil {
-			perSess = &budget.Limits{
-				MaxCallsPerHour: bc.PerSession.MaxCallsPerHour,
-				MaxCallsPerDay:  bc.PerSession.MaxCallsPerDay,
-				MaxTokensPerDay: bc.PerSession.MaxTokensPerDay,
-			}
-		}
-		if err := h.budgets.CheckAndRecord(id.Subject, id.SessionID, perID, perSess); err != nil {
-			h.auditor.Emit(ctx, eventWithDecision(audit.Event{
-				Type:        audit.EventToolDenied,
-				Method:      req.Method,
-				ToolName:    tc.Name,
-				Gate:        "budget",
-				ReasonClass: "budget_exhausted",
-				Reason:      "budget exhausted: " + err.Error(),
-			}, decision, id))
-			h.writeJSONRPCError(w, req.ID, ErrCodeRateLimited, "budget exhausted: "+err.Error())
-			return
-		}
+	refusal, warning := h.gates.Charge(call, decision.MatchedRule)
+	if refusal != nil {
+		h.auditor.Emit(ctx, eventWithDecision(gateEvent(refusal, req.Method, tc.Name), decision, id))
+		code, msg := gateError(refusal, tc.Name)
+		h.writeJSONRPCError(w, req.ID, code, msg)
+		return
 	}
-
-	h.breaker.Record(id.SessionID)
-
-	if h.velocity != nil {
-		if alert := h.velocity.Record(id.Subject, tc.Name); alert != nil {
-			h.auditor.Emit(ctx, eventWithDecision(audit.Event{
-				Type:        audit.EventAnomalyVelocity,
-				Method:      req.Method,
-				ToolName:    tc.Name,
-				Gate:        "anomaly",
-				ReasonClass: "velocity_limit",
-				Reason:      fmt.Sprintf("velocity %d/min exceeds threshold %d", alert.CallsPerMin, alert.Threshold),
-			}, decision, id))
-			if alert.Action == anomaly.AlertActionDeny {
-				h.writeJSONRPCError(w, req.ID, ErrCodeRateLimited, fmt.Sprintf("velocity limit exceeded: %d calls/min", alert.CallsPerMin))
-				return
-			}
-		}
+	if warning != nil {
+		h.auditor.Emit(ctx, eventWithDecision(gateEvent(warning, req.Method, tc.Name), decision, id))
 	}
 
 	h.auditor.Emit(ctx, eventWithDecision(audit.Event{
@@ -494,6 +433,33 @@ func setRequestBody(r *http.Request, body []byte) {
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength = int64(len(body))
 	r.Header.Set("Content-Length", strconv.Itoa(len(body)))
+}
+
+// gateEvent is the audit event for a gate's refusal or warning.
+func gateEvent(r *gates.Refusal, method, tool string) audit.Event {
+	e := audit.Event{Type: audit.EventToolDenied, Method: method, ToolName: tool,
+		Gate: r.Gate, ReasonClass: r.ReasonClass, Reason: r.Reason}
+	switch r.Gate {
+	case gates.GateCircuit:
+		e.Type = audit.EventCircuitTripped
+	case gates.GateAnomaly:
+		e.Type = audit.EventAnomalyVelocity
+	}
+	return e
+}
+
+// gateError is the JSON-RPC error a client gets for a gate's refusal.
+func gateError(r *gates.Refusal, tool string) (int, string) {
+	switch {
+	case r.Gate == gates.GateRegistry:
+		return ErrCodeToolUnknown, r.Reason + ": " + tool
+	case r.Gate == gates.GateCircuit:
+		return ErrCodeCircuitOpen, r.Reason
+	case r.ReasonClass == gates.ReasonBudgetUnattributable:
+		// Waiting will not help, so this is not a rate limit.
+		return ErrCodePolicyDenied, r.Reason
+	}
+	return ErrCodeRateLimited, r.Reason
 }
 
 func (h *Handler) writeJSONRPCError(w http.ResponseWriter, id any, code int, message string) {

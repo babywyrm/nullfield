@@ -47,6 +47,27 @@ them silent, which is the argument for the exercise.
   hand; a hint that disagrees with the script it substitutes for is worse than
   no hint.
 
+- **ext_authz now runs the registry, budget and velocity gates**
+  (`pkg/gates`). It evaluated policy alone, so a budgeted rule on the mesh
+  path was unlimited and a tool the proxy refused as unregistered reached the
+  rules. The proxy, the gateway and ext_authz now call one implementation of
+  the gate sequence, so the same policy means the same thing whichever door a
+  call used. On the mesh, budgets and velocity charge the attested workload
+  principal. The registry applies to MCP calls only, and only when
+  `NULLFIELD_REGISTRY_PATH` is set explicitly; a set path that cannot be read
+  stops the arbiter from starting. The circuit breaker stays proxy-only, since
+  it is keyed on an MCP session the mesh does not carry.
+
+- **A budget that cannot be charged now refuses the call.** Omitting
+  `Mcp-Session-Id` skipped a `perSession` budget entirely, and a `perIdentity`
+  budget with no subject was skipped the same way, so a caller could opt out
+  of a limit by leaving out what it was keyed on. Such a call now gets
+  `-32000` with reason class `budget_unattributable`. It is not a rate limit,
+  because waiting does not help. On the mesh path, where there is never a
+  session, a `perSession` budget therefore refuses every call: give mesh
+  rules `perIdentity` budgets. Controller mode is unaffected, because the
+  sidecar does not charge budgets there.
+
 ### Fixed
 
 - **`NULLFIELD_JWKS_URL` validated nothing** (`pkg/identity/select.go`) —

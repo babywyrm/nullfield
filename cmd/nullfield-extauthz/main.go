@@ -20,10 +20,15 @@ import (
 	"google.golang.org/grpc/health"
 	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
 
+	v1alpha1 "github.com/babywyrm/nullfield/api/v1alpha1"
 	"github.com/babywyrm/nullfield/internal/config"
+	"github.com/babywyrm/nullfield/pkg/anomaly"
 	"github.com/babywyrm/nullfield/pkg/audit"
+	"github.com/babywyrm/nullfield/pkg/budget"
 	"github.com/babywyrm/nullfield/pkg/extauthz"
+	"github.com/babywyrm/nullfield/pkg/gates"
 	"github.com/babywyrm/nullfield/pkg/policy"
+	"github.com/babywyrm/nullfield/pkg/registry"
 )
 
 var version = "dev"
@@ -37,9 +42,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	engine, err := buildEngine(cfg.PolicyPath)
+	spec, err := loadSpec(cfg.PolicyPath)
 	if err != nil {
 		logger.Error("policy engine", "error", err)
+		os.Exit(1)
+	}
+	g, err := buildGates(spec, logger)
+	if err != nil {
+		logger.Error("gates", "error", err)
 		os.Exit(1)
 	}
 
@@ -54,7 +64,8 @@ func main() {
 
 	server := extauthz.NewServer(extauthz.Config{
 		Mode:   mode,
-		Engine: engine,
+		Engine: policy.NewRuleEngine(spec.Rules),
+		Gates:  g,
 		Audit: audit.NewMultiEmitter(
 			audit.NewLogEmitter(logger),
 			audit.NewMetricsEmitter(),
@@ -101,14 +112,14 @@ func main() {
 	}
 }
 
-// buildEngine loads the same policy file the proxy loads, through the same two
-// calls cmd/nullfield makes.
+// loadSpec loads the same policy file the proxy loads, through the same call
+// cmd/nullfield makes.
 //
 // Hot reload via policy.NewHotLoader is deliberately not wired here. The proxy
 // wraps its engine so swaps stay transparent to in-flight requests; doing that
 // correctly for a second entrypoint is its own change, and shipping it untested
 // alongside a new front door would tangle two failure modes together.
-func buildEngine(path string) (policy.Engine, error) {
+func loadSpec(path string) (*v1alpha1.NullfieldPolicySpec, error) {
 	if path == "" {
 		return nil, fmt.Errorf("no policy path configured")
 	}
@@ -116,5 +127,46 @@ func buildEngine(path string) (policy.Engine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load policy from %s: %w", path, err)
 	}
-	return policy.NewRuleEngine(spec.Rules), nil
+	return spec, nil
+}
+
+// buildGates builds the gates the proxy runs, from the same policy.
+//
+// There is no circuit breaker: it is keyed on the MCP session, which the mesh
+// does not carry, so it could never trip.
+func buildGates(spec *v1alpha1.NullfieldPolicySpec, logger *slog.Logger) (gates.Gates, error) {
+	var g gates.Gates
+
+	// Only when set explicitly. config.Load defaults the path, and an arbiter
+	// deployed without a registry must not start refusing every tool because a
+	// file it was never given is missing. One it was given and cannot read is a
+	// refusal to start, not a quietly absent gate.
+	if path, ok := os.LookupEnv("NULLFIELD_REGISTRY_PATH"); ok {
+		g.Registry = registry.New()
+		if err := g.Registry.LoadFromFile(path); err != nil {
+			return g, fmt.Errorf("load tool registry from %s: %w", path, err)
+		}
+		logger.Info("loaded tool registry", "path", path, "tools", len(g.Registry.All()))
+	}
+
+	for _, r := range spec.Rules {
+		if r.Budget != nil {
+			g.Budgets = budget.New()
+			logger.Info("budget tracking enabled")
+			break
+		}
+	}
+
+	if a := spec.Anomaly; a != nil && a.Enabled && a.Velocity != nil {
+		action := anomaly.AlertActionLog
+		if a.Velocity.AlertAction == "DENY" {
+			action = anomaly.AlertActionDeny
+		}
+		g.Velocity = anomaly.NewVelocityTracker(anomaly.VelocityConfig{
+			Threshold: a.Velocity.Threshold, AlertAction: action,
+		})
+		logger.Info("anomaly detection enabled",
+			"velocityThreshold", a.Velocity.Threshold, "alertAction", a.Velocity.AlertAction)
+	}
+	return g, nil
 }
