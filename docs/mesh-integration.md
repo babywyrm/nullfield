@@ -470,6 +470,14 @@ spec:
 
 nullfield does not trust that header — the filter strips any inbound value of the same name before writing its own, so a workload cannot assert its own identity by sending it. **A deployment without this filter must not treat the header as meaningful.** Header-derived identity is reported as the `mesh-header` attester rather than `mesh-spiffe`, because the binding differs even where the identity is the same. See [Identity-Aware Policy](identity-policy.md#workload-attestation) for what that distinction buys you.
 
+### Host is the caller's claim
+
+A waypoint routes on the destination address. Its routes match every Host, so a workload can send a call to one Service with another Service's name in Host. Measured on brainbox: `Host: mcp-echo` sent to `run-controller` is answered by run-controller.
+
+nullfield reverse-resolves the destination address Envoy reports, and cluster DNS names the Service behind a ClusterIP. When Host names a different Service the call is refused (`gate: target`, `reasonClass: target_mismatch`). Host may be the short name, `name.ns`, `name.ns.svc`, the full name, or the address itself.
+
+A destination that does not reverse-resolve to a Service is left unverified: a ServiceEntry VIP, or a pod IP behind a sidecar or a headless Service. There Host is still only a claim, so do not rely on `target` rules for egress until egress mediation lands. This needs the `in-addr.arpa` zone in CoreDNS's `kubernetes` block, which is the default.
+
 ### What each layer handles
 
 | Concern | Handled by |

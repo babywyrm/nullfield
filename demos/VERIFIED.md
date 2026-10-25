@@ -31,6 +31,7 @@ NULLFIELD_SUBSTRATE="k3s 1.34 / Istio 1.30.1 ambient" ./demos/run.sh --tier 3 --
 | 2026-10-24 | 14-agentic-flow-kubernetes | 2 | PASS | k3s v1.36.3 / Istio 1.30.1 ambient (brainbox), grpc 1.84 |
 | 2026-10-24 | 15-proxy-baseline | 2 | PASS | k3s v1.36.3 / Istio 1.30.1 ambient (brainbox), grpc 1.84 |
 | 2026-10-24 | 16-mesh-arbiter | 3 | PASS | k3s v1.36.3 / Istio 1.30.1 ambient (brainbox), grpc 1.84 |
+| 2026-10-25 | 18-operation-maps | 3 | PASS | k3s v1.36.5 / Istio 1.30.1 ambient (brainbox); check 7 (Host checked against destination) fails on the prior image; 16, 17, 19 re-run green |
 | 2026-10-25 | 20-proxy-signals | 1 | PASS | Docker Desktop, macOS (all ten tier-1 demos green) |
 | 2026-10-25 | 19-signals | 3 | PASS | k3s v1.36.5 / Istio 1.30.1 ambient (brainbox); re-run after the receiver moved to receiver.py |
 | 2026-10-25 | 19-signals | 3 | PASS | k3s v1.36.5 / Istio 1.30.1 ambient (brainbox); 17, 18, 16 re-run green after it |

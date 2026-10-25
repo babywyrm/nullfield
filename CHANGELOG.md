@@ -10,6 +10,20 @@ them silent, which is the argument for the exercise.
 
 ### Security
 
+- **ext_authz checks Host against where the call is routed** (CWE-290).
+  An Istio waypoint routes on the destination address and matches every
+  Host (`domains: ["*"]`), but the target nullfield decided on was the
+  Host header, which the caller writes. A workload could send a call to one
+  Service under another's rules: on brainbox, `Host: mcp-echo` sent to
+  `run-controller` was allowed by mcp-echo's operation-map rule and
+  delivered to run-controller. Rules on `target`, operation maps, and
+  anything later keyed on the destination were affected. ext_authz now
+  reverse-resolves the destination address in cluster DNS and refuses a
+  Host that names a different Service (`gate: target`,
+  `reasonClass: target_mismatch`). A destination that does not resolve to
+  a Service (a ServiceEntry VIP, a pod IP behind a sidecar) stays
+  unverified, as before. Demo 18 asserts it.
+
 - **The controller verifies the API server** (CWE-295). Its CRD watcher
   connected with certificate verification off, so anything able to
   intercept its traffic could feed it policies or read the ConfigMaps it

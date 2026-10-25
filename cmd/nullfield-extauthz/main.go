@@ -119,6 +119,7 @@ func main() {
 		RunTokens:        rt,
 		RunTokenOptional: rt != nil && spec.RunToken.Optional,
 		Operations:       ops,
+		LookupAddr:       net.DefaultResolver.LookupAddr,
 		Audit:            audit.NewMultiEmitter(emitters...),
 		Logger:           logger,
 		LogPeer:          os.Getenv("NULLFIELD_EXTAUTHZ_LOG_PEER") == "true",

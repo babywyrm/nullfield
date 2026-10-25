@@ -43,7 +43,9 @@ See [`examples/operations/github.yaml`](../examples/operations/github.yaml).
 
 ## Matching
 
-- The host is compared without port, case or trailing dot.
+- The host is compared without port, case or trailing dot. It comes from
+  the Host header, which ext_authz checks against the Service the call is
+  actually routed to ([Host is the caller's claim](mesh-integration.md#host-is-the-callers-claim)).
 - The query string is ignored.
 - Segments are percent-decoded before comparison, because the upstream acts
   on the decoded path.

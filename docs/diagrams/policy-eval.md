@@ -176,7 +176,7 @@ compile and return a bool, or the policy refuses to load.
 | `request.tool` | tool name |
 | `request.arguments` | the call's arguments, as a map |
 | `request.transport` | `A` for MCP, `B` for wire API traffic |
-| `request.target` | host acted on; set by ext_authz, empty on the proxy |
+| `request.target` | host acted on, from Host, checked against the routed Service where DNS names one ([why](../mesh-integration.md#host-is-the-callers-claim)); set by ext_authz, empty on the proxy |
 | `request.operation` | `METHOD /path`; set by ext_authz, empty on the proxy |
 | `request.action`, `request.params` | the [operation map](../operation-maps.md)'s name and path parameters; absent when no map names the call |
 | `request.identity` | `subject`, `issuer`, `type`, `provider`, `scopes`, `groups`, `claims`; absent when unauthenticated |
@@ -236,6 +236,7 @@ error.
        │                              │  TRANSLATE   │  extract attributes
        │                              │  ATTEST      │  workload identity
        │                              │  TRUNCATION  │  is the body whole?
+       │                              │  TARGET      │  does Host name the routed Service?
        │                              └──────┬───────┘  no ──► refuse to decide
        ▼                                     │
   1. IDENTITY      (token)              ─────►  RUN TOKEN (when runToken is set)

@@ -1,7 +1,7 @@
 # Fixed Core, Edge Adapters — Design
 
 **Date:** 2026-10-24
-**Status:** Steps 1–5 done (propagation and upstream token deferred)
+**Status:** Steps 1–5 done; step 6 (run tokens across owned MCP servers) in progress; upstream token deferred
 **Related:**
 - [`2026-07-26-mesh-native-arbiter.md`](2026-07-26-mesh-native-arbiter.md) — the three facts and authority grants this builds on
 
@@ -223,6 +223,46 @@ share. The proxy gets the webhook but not Kubernetes Events: Events carry
 no creator, and a sidecar's ServiceAccount is the agent's, so the agent
 could forge them. That also applies to any Event consumer; `signals.md`
 says to act on Events only where a forged one is harmless.
+
+### 6. Run tokens across MCP servers you own
+
+An agent calls an MCP server you own, which calls GitHub. Today the run
+ends at the first hop: ext_authz strips `Txn-Token`, and a forwarded token
+would be refused anyway, because `req_wl` names the agent, not the server.
+Both remedies ship, chosen per deployment:
+
+- **Delegation.** Policy lists which workloads may present a token issued
+  to which others (`runToken.delegates`). No new service; narrowing by
+  `tctx` still holds; audit records the presenter and `req_wl`. Ceiling: a
+  compromised server can replay tokens it received until they expire,
+  limited to runs that passed through it.
+- **Exchange.** The server trades the token for one bound to itself with
+  the same `txn`, from the controller or a token service, as the draft
+  describes. nullfield verifies that as any bound token. Only the issuer
+  can guarantee the new token narrows the old one; that is its contract.
+
+Both need the token to reach the server and nothing else
+(`runToken.forwardTo`), so forwarding is keyed on where the call is routed,
+not on Host. Calls through the server count against the same run's budget
+and breaker: one agent call that leads to one GitHub call is two.
+
+**6a (done): Host checked against the destination.** Measured on brainbox
+first: the waypoint's routes match every Host and route on the address, so
+Host is only the caller's claim. That was already a bypass: `Host:
+mcp-echo` sent to run-controller was allowed by mcp-echo's operation-map
+rule. ext_authz now reverse-resolves the destination address, which is the
+Service VIP at a waypoint, and refuses a Host that names a different
+Service. Decisions:
+
+- **Reverse DNS, not a Service watch.** CoreDNS answers PTR for ClusterIPs
+  by default; no RBAC, no cache to keep coherent.
+- **Only Service-shaped names verify** (`name.ns.svc.<domain>`). A pod IP
+  also reverse-resolves, behind a sidecar or a headless Service, while Host
+  names the Service; refusing there would break honest traffic.
+- **Unresolvable is unverified, not refused.** ServiceEntry VIPs have no
+  PTR. Forwarding will treat unverified as "do not forward".
+
+Demo 18 check 7 asserts it, and fails on the prior image.
 
 ## Out of scope
 

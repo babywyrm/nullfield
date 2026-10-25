@@ -3,10 +3,14 @@ package extauthz
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	authv3 "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
 
@@ -37,6 +41,9 @@ const (
 
 	GateOperation            = "operation"
 	ReasonOperationAmbiguous = "operation_ambiguous"
+
+	GateTarget           = "target"
+	ReasonTargetMismatch = "target_mismatch"
 )
 
 // Config is the server's dependencies.
@@ -58,6 +65,12 @@ type Config struct {
 	// A path on a mapped target that the map cannot read one way only is
 	// refused.
 	Operations *operations.Map
+
+	// LookupAddr, when set, reverse-resolves the address Envoy routed to. A
+	// call whose Host names a different Service is refused: a waypoint routes
+	// on the address, so Host is only the caller's claim about where it is
+	// going. net.DefaultResolver.LookupAddr in a cluster.
+	LookupAddr func(ctx context.Context, addr string) ([]string, error)
 
 	// Logger receives peer diagnostics when LogPeer is set. Optional.
 	Logger *slog.Logger
@@ -89,6 +102,7 @@ type Server struct {
 	runTokens        *identity.RunTokenVerifier
 	runTokenOptional bool
 	operations       *operations.Map
+	lookupAddr       func(ctx context.Context, addr string) ([]string, error)
 }
 
 // NewServer builds a decision server. An absent or unrecognised mode becomes
@@ -114,6 +128,7 @@ func NewServer(cfg Config) *Server {
 		runTokens:        cfg.RunTokens,
 		runTokenOptional: cfg.RunTokenOptional,
 		operations:       cfg.Operations,
+		lookupAddr:       cfg.LookupAddr,
 	}
 }
 
@@ -136,6 +151,8 @@ func (s *Server) describePeer(req *authv3.CheckRequest) {
 		"source_service", src.GetService(),
 		"source_address", src.GetAddress().GetSocketAddress().GetAddress(),
 		"destination_principal", req.GetAttributes().GetDestination().GetPrincipal(),
+		"destination_address", req.GetAttributes().GetDestination().GetAddress().GetSocketAddress().GetAddress(),
+		"destination_service", req.GetAttributes().GetDestination().GetService(),
 		"header_names", names)
 }
 
@@ -246,6 +263,48 @@ func (s *Server) verifyRun(t *Translated) *gates.Refusal {
 	}
 }
 
+// verifyTarget checks Host against the Service the call is routed to. A
+// destination DNS cannot name, such as a ServiceEntry VIP, leaves Host
+// unverified and Service empty.
+func (s *Server) verifyTarget(ctx context.Context, t *Translated) *gates.Refusal {
+	if s.lookupAddr == nil || t.Destination == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	names, _ := s.lookupAddr(ctx, t.Destination)
+	names = slices.DeleteFunc(names, func(n string) bool { return !isService(hostOf(n)) })
+	if len(names) == 0 {
+		return nil
+	}
+	h := hostOf(t.Policy.Target)
+	for _, n := range names {
+		// Any dot-boundary prefix is how the resolver's search path names it:
+		// name, name.ns, name.ns.svc.
+		if n = hostOf(n); h == t.Destination || h == n || strings.HasPrefix(n, h+".") {
+			t.Service = n
+			return nil
+		}
+	}
+	return &gates.Refusal{Gate: GateTarget, ReasonClass: ReasonTargetMismatch,
+		Reason: fmt.Sprintf("Host %q does not name %s, where the call is routed", t.Policy.Target, hostOf(names[0]))}
+}
+
+// isService reports a Service VIP's name, name.ns.svc.<cluster domain>. A pod
+// IP reverse-resolves too, behind a sidecar or a headless Service, but Host
+// names the Service rather than the pod, so those are left unverified.
+func isService(name string) bool {
+	labels := strings.Split(name, ".")
+	return len(labels) >= 4 && labels[2] == "svc"
+}
+
+func hostOf(target string) string {
+	if h, _, err := net.SplitHostPort(target); err == nil {
+		target = h
+	}
+	return strings.TrimSuffix(strings.ToLower(target), ".")
+}
+
 // decide runs the gates around policy in the order the proxy does: registry and
 // circuit first, then policy, then budget, circuit accounting and velocity for
 // a call policy allowed.
@@ -256,6 +315,9 @@ func (s *Server) decide(ctx context.Context, t *Translated) policy.Decision {
 	// identity to bill.
 	if t.Attestation != nil {
 		call.Subject = t.Attestation.Principal
+	}
+	if r := s.verifyTarget(ctx, t); r != nil {
+		return refuse(policy.Decision{RuleIndex: -1}, r)
 	}
 	if s.operations != nil {
 		p := &t.Policy

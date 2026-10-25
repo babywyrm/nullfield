@@ -14,6 +14,7 @@
 #   4. A parameter narrows: another owner falls to default deny.
 #   5. A trailing slash cannot dodge the DENY: the path is refused as ambiguous.
 #   6. A path the map does not list has no name and is default denied.
+#   7. A Host naming the mapped target, sent to another Service, is refused.
 #
 # Shares demo 16's namespace and extension provider; run demo 16 once first
 # (APPLY_MESH_CONFIG=true registers the provider).
@@ -160,6 +161,15 @@ echo "6. a path the map does not list has no name"
 expect_status "$(call GET /healthz)" 403
 expect_field action ""
 expect_field reason_class default_deny
+
+echo
+echo "7. a Host naming mcp-echo cannot carry its allow to another service"
+# The waypoint routes on the address and ignores Host, so this reaches
+# run-controller under mcp-echo's rules unless the arbiter checks.
+expect_status "$(kubectl -n "$ns" exec mesh-demo-client -- curl -s -o /dev/null -w '%{http_code}' \
+  -H 'Host: mcp-echo' http://run-controller/repos/acme/widgets)" 403
+expect_field gate target
+expect_field reason_class target_mismatch
 
 echo
 echo "operation maps green: rules on names, parameters narrowing, no spelling around a DENY"

@@ -32,6 +32,13 @@ type Translated struct {
 	// first question anyone debugging a rollout asks, and it should not require
 	// attaching a debugger to answer.
 	RawPrincipal string
+
+	// Destination is the address Envoy routed to. A waypoint routes on it, not
+	// on Host, which the caller writes.
+	Destination string
+	// Service is the Service that Destination reverse-resolves to and that Host
+	// was checked against. Empty when nothing could be verified.
+	Service string
 }
 
 // PartialBodyHeader is Envoy's own statement about whether it delivered the
@@ -106,6 +113,7 @@ func Translate(req *authv3.CheckRequest) (*Translated, error) {
 			Operation: strings.TrimSpace(attrs.GetMethod() + " " + attrs.GetPath()),
 			Transport: policy.TransportWireAPI,
 		},
+		Destination: req.GetAttributes().GetDestination().GetAddress().GetSocketAddress().GetAddress(),
 	}
 
 	// Prefer the peer certificate. Sidecar topologies terminate TLS on the

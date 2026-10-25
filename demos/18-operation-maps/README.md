@@ -66,7 +66,13 @@ Everything else falls to default deny.
 | 4 | `GET /repos/evil/widgets` | 403, `default_deny`: the owner parameter narrows |
 | 5 | `DELETE /repos/acme/widgets/` | 403, `gate: operation`, `operation_ambiguous` |
 | 6 | `GET /healthz` | 403, no `action`, `default_deny` |
+| 7 | `GET /repos/acme/widgets` to `run-controller` with `Host: mcp-echo` | 403, `gate: target`, `target_mismatch` |
 
 Check 5 is the point of refusing ambiguous paths. Without it, the trailing
 slash leaves the call unnamed: the DENY on `repos.delete` would not fire,
 while many APIs route the call to the same repository anyway.
+
+Check 7 is the same argument for the target. The waypoint routes on the
+address and ignores Host, so without the check this call is allowed by
+mcp-echo's rule and delivered to run-controller. Run against an image
+without the check, it fails with HTTP 404: run-controller answering.
