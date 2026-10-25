@@ -31,6 +31,22 @@ them silent, which is the argument for the exercise.
   eight. It reports reachability rather than mere presence, and that is the
   distinction that separates an urgent finding from noise.
 
+- **ext_authz `failOpen` and `timeout` are now set explicitly.** Both were
+  inherited from Istio, and the pair ages badly. `failOpen: false` is already
+  the default, so writing it down changes nothing today; it is there because it
+  is the field someone flips while debugging a deny, and an explicit `false`
+  makes that visible in review instead of invisible in a default.
+
+  `timeout` is the real fix: it defaults to **600 seconds**. A policy decision
+  is a local computation over a request Envoy has already parsed, so 1s is
+  generous and anything slower is a fault rather than slowness. Left at the
+  default, a wedged arbiter holds every request for ten minutes before failing
+  closed — which presents as a mesh-wide hang and sends you debugging the
+  network instead of the authorizer. Changed in all four places that define a
+  provider, including the failure hint that tells an operator what to add by
+  hand; a hint that disagrees with the script it substitutes for is worse than
+  no hint.
+
 ### Fixed
 
 - **`NULLFIELD_JWKS_URL` validated nothing** (`pkg/identity/select.go`) —
@@ -149,6 +165,18 @@ them silent, which is the argument for the exercise.
   product regression. It also never built the image it deployed, so on a
   single-node cluster it tested whichever build was imported last — a binary
   from a different week, when this was checked.
+
+  Demo 16 also waited out the config push with a fixed `sleep 10` where a
+  readiness check belonged. The waypoint's `Programmed` condition cannot stand
+  in for one: it is already true for a waypoint programmed before the policy
+  existed, so waiting on it returns immediately and proves nothing about
+  whether the `AuthorizationPolicy` is in the filter chain. Ten seconds held
+  only while the provider was registered once, because a cold deploy pushes
+  config sooner than an istiod that has just restarted — and changing the
+  provider is what started restarting it. It now polls for the arbiter
+  recording a decision, which cannot happen until the chain is live. The race
+  previously surfaced as "no decision recorded" and read like a product bug
+  rather than a demo that asked too early.
 
 ### Documentation
 
