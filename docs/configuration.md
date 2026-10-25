@@ -89,6 +89,7 @@ forwards.
 | `NULLFIELD_EXTAUTHZ_LISTEN_ADDR` | `:9191` | gRPC listen address for Envoy's `ext_authz` checks |
 | `NULLFIELD_EXTAUTHZ_MODE` | `observe` | `noop`, `observe`, or `enforce` |
 | `NULLFIELD_EXTAUTHZ_LOG_PEER` | `false` | Log raw peer attributes and header names. For diagnosing identity that is not arriving |
+| `NULLFIELD_OPERATIONS_DIR` | _(unset)_ | Directory of [operation maps](operation-maps.md). Unreadable, empty or invalid refuses to start |
 | `NULLFIELD_POLICY_PATH` | `/etc/nullfield/policy.yaml` | Path to the `NullfieldPolicy` |
 
 Two things that are easy to get wrong here:

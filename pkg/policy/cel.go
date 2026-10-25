@@ -31,8 +31,9 @@ func compileCEL(expr string) (cel.Program, error) {
 	return env.Program(ast, cel.CostLimit(celCostLimit))
 }
 
-// celInput is the vocabulary an expression sees. identity and run are absent,
-// not null, when the call has none; test with has(request.identity).
+// celInput is the vocabulary an expression sees. identity, run, action and
+// params are absent, not null, when the call has none; test with
+// has(request.identity).
 func celInput(req Request) map[string]any {
 	r := map[string]any{
 		"method":    req.Method,
@@ -52,6 +53,13 @@ func celInput(req Request) map[string]any {
 			"groups":   append([]string{}, id.Groups...),
 			"claims":   nonNilMap(id.Claims),
 		}
+	}
+	if req.Action != "" {
+		params := make(map[string]any, len(req.Params))
+		for k, v := range req.Params {
+			params[k] = v
+		}
+		r["action"], r["params"] = req.Action, params
 	}
 	if run := req.Run; run != nil {
 		r["run"] = map[string]any{"id": run.ID, "workload": run.Workload, "context": nonNilMap(run.Context)}

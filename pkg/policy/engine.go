@@ -37,6 +37,10 @@ type Request struct {
 	// Operation is the verb in the target's own vocabulary, such as
 	// "DELETE /repos/acme/widgets".
 	Operation string
+	// Action and Params name Operation from the target's operation map, such
+	// as "repos.delete" with owner and repo. Empty when no map names it.
+	Action string
+	Params map[string]string
 
 	// Run is the verified run token, when the call carried one.
 	Run *identity.Run

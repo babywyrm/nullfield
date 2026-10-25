@@ -64,6 +64,13 @@ them silent, which is the argument for the exercise.
   applies before any is charged, so a refused call spends nothing. A call
   with no subject is refused rather than counted under a shared key.
 
+- **Operation maps** (`NULLFIELD_OPERATIONS_DIR`, ext_authz). One YAML file
+  per target names each `METHOD /path` (`repos.delete`) and its path
+  parameters, exposed to CEL as `request.action` and `request.params` and
+  audited as `action`. On a mapped target, an ambiguous path (trailing
+  slash, dot segment, encoded slash) is refused, so a rule on a name cannot
+  be dodged by another spelling. See `docs/operation-maps.md`.
+
 - **Circuit breaker per run on the mesh.** With `runToken` set and
   `circuitBreaker` limits declared, ext_authz trips a breaker per run ID, so
   one runaway run stops without touching others on the same pod. It does not

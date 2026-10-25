@@ -1,0 +1,22 @@
+# Operation map for the GitHub REST API, read by nullfield-extauthz from
+# NULLFIELD_OPERATIONS_DIR. A starting set: add the operations your runs use.
+target: api.github.com
+operations:
+  - name: repos.get
+    method: GET
+    path: /repos/{owner}/{repo}
+  - name: repos.delete
+    method: DELETE
+    path: /repos/{owner}/{repo}
+  - name: issues.create
+    method: POST
+    path: /repos/{owner}/{repo}/issues
+  - name: pulls.create
+    method: POST
+    path: /repos/{owner}/{repo}/pulls
+  - name: pulls.merge
+    method: PUT
+    path: /repos/{owner}/{repo}/pulls/{number}/merge
+  - name: hooks.create
+    method: POST
+    path: /repos/{owner}/{repo}/hooks

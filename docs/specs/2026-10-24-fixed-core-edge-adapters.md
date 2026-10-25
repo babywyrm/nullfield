@@ -1,7 +1,7 @@
 # Fixed Core, Edge Adapters — Design
 
 **Date:** 2026-10-24
-**Status:** Steps 1–3 done (propagation and upstream token deferred); step 4 next
+**Status:** Steps 1–4 done (propagation and upstream token deferred); step 5 next
 **Related:**
 - [`2026-07-26-mesh-native-arbiter.md`](2026-07-26-mesh-native-arbiter.md) — the three facts and authority grants this builds on
 
@@ -170,6 +170,26 @@ blocks steps 4 and 5, so they wait for a scenario that needs them.
 Mapping `DELETE /repos/acme/widgets` on `api.github.com` to "delete repository
 `acme/widgets`" is per integration. It ships as a data file per target, not
 code, so integrations are added by writing YAML.
+
+**Done.** `pkg/operations`, loaded by ext_authz from
+`NULLFIELD_OPERATIONS_DIR`; reference in
+[`docs/operation-maps.md`](../operation-maps.md). Decisions:
+
+- **A name, not a new matcher.** CEL already matches; a map only adds
+  `request.action` and `request.params`, so rules stay one language.
+- **Ambiguous paths are refused on mapped targets.** A trailing slash, dot
+  or empty segment, or encoded slash would otherwise leave a call unnamed
+  that the upstream routes to a named operation, and a DENY on the name
+  would not fire. Unmapped targets are untouched: they have no names to
+  dodge.
+- **Segments are decoded before matching,** because the upstream acts on the
+  decoded path.
+- **Separate files, not a policy field.** A map describes an integration and
+  is shared by every policy that calls it; a policy describes one workload.
+- **First match wins.** Simple and predictable; specific paths go first.
+
+Known ceiling: case handling of literal segments is the upstream's. Maps
+are meant as an allowlist vocabulary over a default DENY.
 
 ### 5. Outward events
 

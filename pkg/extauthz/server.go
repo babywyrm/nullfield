@@ -13,6 +13,7 @@ import (
 	"github.com/babywyrm/nullfield/pkg/audit"
 	"github.com/babywyrm/nullfield/pkg/gates"
 	"github.com/babywyrm/nullfield/pkg/identity"
+	"github.com/babywyrm/nullfield/pkg/operations"
 	"github.com/babywyrm/nullfield/pkg/policy"
 )
 
@@ -33,6 +34,9 @@ const (
 	ReasonRunTokenMissing = "run_token_missing"
 	ReasonRunTokenUnbound = "run_token_unbound"
 	ReasonRunTokenInvalid = "run_token_invalid"
+
+	GateOperation            = "operation"
+	ReasonOperationAmbiguous = "operation_ambiguous"
 )
 
 // Config is the server's dependencies.
@@ -49,6 +53,11 @@ type Config struct {
 	// RunTokenOptional; a token that is present and fails is always refused.
 	RunTokens        *identity.RunTokenVerifier
 	RunTokenOptional bool
+
+	// Operations, when set, names each call from its target's operation map.
+	// A path on a mapped target that the map cannot read one way only is
+	// refused.
+	Operations *operations.Map
 
 	// Logger receives peer diagnostics when LogPeer is set. Optional.
 	Logger *slog.Logger
@@ -79,6 +88,7 @@ type Server struct {
 
 	runTokens        *identity.RunTokenVerifier
 	runTokenOptional bool
+	operations       *operations.Map
 }
 
 // NewServer builds a decision server. An absent or unrecognised mode becomes
@@ -103,6 +113,7 @@ func NewServer(cfg Config) *Server {
 
 		runTokens:        cfg.RunTokens,
 		runTokenOptional: cfg.RunTokenOptional,
+		operations:       cfg.Operations,
 	}
 }
 
@@ -173,6 +184,7 @@ func (s *Server) Check(ctx context.Context, req *authv3.CheckRequest) (*authv3.C
 		Method:         translated.Policy.Method,
 		ToolName:       translated.Policy.ToolName,
 		Target:         translated.Policy.Target,
+		Action:         translated.Policy.Action,
 		Transport:      translated.Policy.Transport,
 		Gate:           decision.Gate,
 		ReasonClass:    decision.ReasonClass,
@@ -244,6 +256,14 @@ func (s *Server) decide(ctx context.Context, t *Translated) policy.Decision {
 	// identity to bill.
 	if t.Attestation != nil {
 		call.Subject = t.Attestation.Principal
+	}
+	if s.operations != nil {
+		p := &t.Policy
+		var err error
+		if p.Action, p.Params, err = s.operations.Resolve(p.Target, p.Operation); err != nil {
+			return refuse(policy.Decision{RuleIndex: -1}, &gates.Refusal{
+				Gate: GateOperation, ReasonClass: ReasonOperationAmbiguous, Reason: err.Error()})
+		}
 	}
 	if s.runTokens != nil {
 		if r := s.verifyRun(t); r != nil {

@@ -65,6 +65,8 @@ type Event struct {
 	Counterfactual    string `json:"counterfactual,omitempty"`
 	// RunID is the txn claim of a verified run token.
 	RunID string `json:"run_id,omitempty"`
+	// Action is the operation map's name for the call, such as repos.delete.
+	Action string `json:"action,omitempty"`
 
 	Time time.Time `json:"timestamp"`
 }

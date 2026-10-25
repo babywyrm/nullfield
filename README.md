@@ -124,14 +124,15 @@ cannot inspect responses or modify requests. See
 **Operating**
 
 - [Observability](docs/observability.md) — audit events, metrics, provenance, and `scripts/observe-mesh.sh`
-- [Identity and policy](docs/identity-policy.md) — identity types, attestation, assurance
+- [Identity and policy](docs/identity-policy.md) — identity types, attestation, assurance, run tokens
+- [Operation maps](docs/operation-maps.md) — naming API calls per integration, as data
 - [Agentic flows](docs/agentic-flows.md) — compiling a least-privilege flow into policy and registry
 
 **Diagrams** — [traffic flow](docs/diagrams/traffic-flow.md) ·
 [policy evaluation](docs/diagrams/policy-eval.md) ·
 [mesh arbiter](docs/diagrams/mesh-arbiter.md)
 
-**Runnable** — [demos/](demos/) has sixteen walkthroughs, each with a README.
+**Runnable** — [demos/](demos/) has seventeen walkthroughs, each with a README.
 
 ---
 

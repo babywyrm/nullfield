@@ -122,3 +122,22 @@ func TestACELRuleNarrowsToTheRunsContext(t *testing.T) {
 		t.Fatal("a call with no run token was allowed")
 	}
 }
+
+func TestACELRuleMatchesANamedOperation(t *testing.T) {
+	e := celRules(`has(request.action) && request.action == "repos.delete" && request.params.owner == "acme"`)
+	named := Request{Action: "repos.delete", Params: map[string]string{"owner": "acme", "repo": "widgets"}}
+
+	if d := e.Evaluate(context.Background(), named); !d.Allowed {
+		t.Fatalf("refused: %s", d.Reason)
+	}
+	other := named
+	other.Params = map[string]string{"owner": "evil", "repo": "widgets"}
+	if d := e.Evaluate(context.Background(), other); d.Allowed {
+		t.Fatal("another owner was allowed")
+	}
+	// An unnamed call has no action at all, so has() decides it rather than
+	// an expression error.
+	if d := e.Evaluate(context.Background(), Request{}); d.Allowed || d.RuleIndex != 1 {
+		t.Fatalf("an unnamed call should reach the deny rule, got %+v", d)
+	}
+}

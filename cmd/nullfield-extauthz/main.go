@@ -30,6 +30,7 @@ import (
 	"github.com/babywyrm/nullfield/pkg/extauthz"
 	"github.com/babywyrm/nullfield/pkg/gates"
 	"github.com/babywyrm/nullfield/pkg/identity"
+	"github.com/babywyrm/nullfield/pkg/operations"
 	"github.com/babywyrm/nullfield/pkg/policy"
 	"github.com/babywyrm/nullfield/pkg/registry"
 )
@@ -80,12 +81,21 @@ func main() {
 	if rt != nil {
 		logger.Info("run tokens verified", "audience", spec.RunToken.Audience, "optional", spec.RunToken.Optional)
 	}
+	var ops *operations.Map
+	if dir := os.Getenv("NULLFIELD_OPERATIONS_DIR"); dir != "" {
+		if ops, err = operations.LoadDir(dir); err != nil {
+			logger.Error("operation maps", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("loaded operation maps", "dir", dir)
+	}
 	server := extauthz.NewServer(extauthz.Config{
 		Mode:             mode,
 		Engine:           policy.NewRuleEngine(spec.Rules),
 		Gates:            g,
 		RunTokens:        rt,
 		RunTokenOptional: rt != nil && spec.RunToken.Optional,
+		Operations:       ops,
 		Audit: audit.NewMultiEmitter(
 			audit.NewLogEmitter(logger),
 			audit.NewMetricsEmitter(),
