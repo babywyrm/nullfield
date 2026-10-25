@@ -109,8 +109,9 @@ started_version="$(kubectl -n "$ns" logs deploy/nullfield-extauthz --tail=40 2>/
 echo "deployed to $ns (mode=observe, build=${started_version:-unknown})"
 
 # Envoy needs a moment to pick up the new filter chain after the waypoint is
-# programmed; without this the first calls race the config push.
-sleep 10
+# programmed; without this the first calls race the config push. The wait for
+# that is below, once call() exists -- it polls for the arbiter actually seeing
+# traffic rather than sleeping a guessed interval.
 
 # ------------------------------------------------------------------- utilities
 
@@ -160,6 +161,36 @@ expect_field() {
   [[ "$got" == "$want" ]] || fail "$field = '${got}', want '${want}'"
   ok "$field = $want"
 }
+
+# ------------------------------------------------------------------- readiness
+
+# The waypoint being Programmed does not mean it has this AuthorizationPolicy:
+# the condition is already true for a waypoint that was programmed before the
+# policy existed, so it cannot be waited on. The honest readiness signal is the
+# arbiter recording a decision, which only happens once the filter chain is
+# live, so poll for that instead of sleeping a guessed interval.
+#
+# A fixed sleep was enough until registering a provider began restarting
+# istiod, which pushes config later than a cold deploy does. One run failed
+# here and the next two passed, which is the shape of a race, and a race that
+# reports as "no decision recorded" reads like a product bug rather than a
+# demo that asked too early.
+printf 'waiting for the waypoint to route through the arbiter'
+ready=false
+for _ in $(seq 1 30); do
+  call echo >/dev/null 2>&1 || true
+  if kubectl -n "$ns" logs deploy/nullfield-extauthz --tail=60 2>/dev/null \
+      | grep -q arbiter.decision; then
+    ready=true
+    break
+  fi
+  printf '.'
+  sleep 2
+done
+echo
+if [[ "$ready" != "true" ]]; then
+  fail "the arbiter saw no traffic in 60s; the waypoint is not routing through it"
+fi
 
 # ------------------------------------------------------------ 1. identity + MCP
 
