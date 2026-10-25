@@ -52,6 +52,19 @@ entry = {
     "envoyExtAuthzGrpc": {
         "service": service,
         "port": 9191,
+        # Both of these are spelled out because the defaults are a bad pair to
+        # inherit silently. failOpen already defaults to false, so this states
+        # the choice rather than changes it: an arbiter that stops answering
+        # denies traffic instead of admitting it unchecked. That only holds if
+        # nobody flips it while debugging, which is easier to catch in review
+        # when the field is present.
+        "failOpen": False,
+        # timeout defaults to 600s. A policy decision is a local computation
+        # over a parsed request, so a second is already generous and anything
+        # slower is a fault, not slowness. Left at the default, a wedged
+        # arbiter holds every request for ten minutes before failing closed --
+        # which reads as a mesh-wide hang rather than the deny it really is.
+        "timeout": "1s",
         "includeRequestBodyInCheck": {
             "maxRequestBytes": 8192,
             # True because the demo starts in observe mode. With false, Envoy

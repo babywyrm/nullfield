@@ -201,9 +201,21 @@ spec:
 #     envoyExtAuthzGrpc:
 #       service: nullfield-extauthz.zerotrust.svc.cluster.local
 #       port: 9191
+#       failOpen: false               # already the default; stated, not changed
+#       timeout: 1s                   # default is 600s, see below
 #       includeRequestBodyInCheck:
 #         maxRequestBytes: 8192
 #         allowPartialMessage: true   # observe; set false when enforcing
+#
+# Both of the first two fields are spelled out because inheriting those
+# defaults together ages badly. failOpen: false is what you want -- an arbiter
+# that stops answering should deny rather than admit unchecked -- but writing
+# it down is what makes a later flip visible in review. The timeout matters
+# more: a policy decision is a local computation over an already-parsed
+# request, so 1s is generous and anything slower is a fault rather than
+# slowness. At the 600s default a wedged arbiter holds every request for ten
+# minutes before failing closed, which presents as a mesh-wide hang instead of
+# the deny it actually is.
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy

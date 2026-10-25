@@ -46,6 +46,8 @@ FAIL: extension provider nullfield-demo-ext-authz is not registered.
       envoyExtAuthzGrpc:
         service: nullfield-extauthz.${ns}.svc.cluster.local
         port: 9191
+        failOpen: false
+        timeout: 1s
         includeRequestBodyInCheck:
           maxRequestBytes: 8192
           allowPartialMessage: true

@@ -430,10 +430,16 @@ extensionProviders:
   envoyExtAuthzGrpc:
     service: nullfield-extauthz.<namespace>.svc.cluster.local
     port: 9191
+    failOpen: false               # already the default; stated, not changed
+    timeout: 1s                   # default is 600s
     includeRequestBodyInCheck:
       maxRequestBytes: 8192
       allowPartialMessage: true   # observe; see below
 ```
+
+`failOpen: false` is Istio's default, so writing it down changes nothing today. It is there because it is the field someone flips while debugging a deny, and an explicit `false` makes that flip visible in review rather than invisible in a default. With it, an arbiter that stops answering denies traffic instead of admitting it unchecked.
+
+`timeout` is the one worth setting. It defaults to **600 seconds**. A policy decision is a local computation over a request Envoy has already parsed, so a second is generous and anything slower is a fault rather than slowness. Left at the default, a wedged arbiter holds every request for ten minutes before failing closed — which looks like a mesh-wide hang, and sends you debugging the network instead of the authorizer.
 
 Edit that config by parsing and re-emitting it, not by splicing text. A malformed `extensionProviders` list does not fail the patch — istiod logs `available providers are []` and **every** `CUSTOM` AuthorizationPolicy in the mesh quietly becomes a deny, including ones unrelated to nullfield. `demos/16-mesh-arbiter/register-provider.sh` does this safely.
 
