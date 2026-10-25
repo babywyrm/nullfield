@@ -2,20 +2,14 @@ package signals
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"io"
 	"log/slog"
-	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -24,6 +18,7 @@ import (
 	"time"
 
 	"github.com/babywyrm/nullfield/pkg/audit"
+	"github.com/babywyrm/nullfield/pkg/kube"
 )
 
 const runner = "spiffe://cluster.local/ns/agents/sa/job-runner"
@@ -116,14 +111,14 @@ func TestAnUnsignedWebhookRefusesToStart(t *testing.T) {
 }
 
 // apiServer is a TLS server standing in for the API server, with its CA and a
-// token file written where KubeConfig points.
-func apiServer(t *testing.T, h http.HandlerFunc) KubeConfig {
+// token file written where kube.Config points.
+func apiServer(t *testing.T, h http.HandlerFunc) kube.Config {
 	t.Helper()
 	srv := httptest.NewTLSServer(h)
 	t.Cleanup(srv.Close)
 	dir := t.TempDir()
 	ca := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
-	cfg := KubeConfig{APIServer: srv.URL, CAFile: filepath.Join(dir, "ca.crt"), TokenFile: filepath.Join(dir, "token")}
+	cfg := kube.Config{APIServer: srv.URL, CAFile: filepath.Join(dir, "ca.crt"), TokenFile: filepath.Join(dir, "token")}
 	if err := os.WriteFile(cfg.CAFile, ca, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -177,29 +172,6 @@ func TestAKubernetesEventIsAttachedToTheRunsServiceAccount(t *testing.T) {
 	_ = k.Deliver(context.Background(), trip())
 	if auth != "Bearer token-2" {
 		t.Fatalf("rotated token not used: %q", auth)
-	}
-}
-
-func TestAKubernetesEventIsNotSentToAnUntrustedServer(t *testing.T) {
-	cfg := apiServer(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusCreated) })
-	// httptest servers share one certificate, so the other CA is generated.
-	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "other"},
-		NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.CAFile = filepath.Join(t.TempDir(), "other.crt")
-	if err := os.WriteFile(cfg.CAFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	k, err := NewKubeEvents(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := k.Deliver(context.Background(), trip()); err == nil {
-		t.Fatal("delivered to a server the CA does not vouch for")
 	}
 }
 

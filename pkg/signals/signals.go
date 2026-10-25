@@ -8,8 +8,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -25,6 +23,7 @@ import (
 
 	"github.com/babywyrm/nullfield/pkg/audit"
 	"github.com/babywyrm/nullfield/pkg/identity"
+	"github.com/babywyrm/nullfield/pkg/kube"
 )
 
 // Deliver sends one event. An error is retried.
@@ -133,47 +132,22 @@ func (w *Webhook) Deliver(ctx context.Context, e audit.Event) error {
 	return send(w.client, req)
 }
 
-// KubeConfig locates the API server and the credentials to call it.
-type KubeConfig struct {
-	APIServer string
-	TokenFile string
-	CAFile    string
-}
-
-// InCluster is the pod's own service account.
-func InCluster() KubeConfig {
-	const sa = "/var/run/secrets/kubernetes.io/serviceaccount/"
-	return KubeConfig{
-		APIServer: "https://" + os.Getenv("KUBERNETES_SERVICE_HOST") + ":" + os.Getenv("KUBERNETES_SERVICE_PORT"),
-		TokenFile: sa + "token",
-		CAFile:    sa + "ca.crt",
-	}
-}
-
 // KubeEvents records events.k8s.io Events on the ServiceAccount of the
 // workload a decision was about, annotated with the run, so the controller
 // that owns the run can watch for them.
 type KubeEvents struct {
-	cfg      KubeConfig
-	client   *http.Client
+	api      *kube.Client
 	instance string
 }
 
-// NewKubeEvents verifies the API server against the service account CA.
-func NewKubeEvents(cfg KubeConfig) (*KubeEvents, error) {
-	ca, err := os.ReadFile(cfg.CAFile)
+// NewKubeEvents calls the API server cfg names, verified against its CA.
+func NewKubeEvents(cfg kube.Config) (*KubeEvents, error) {
+	api, err := kube.New(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("signals: API server CA: %w", err)
-	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(ca) {
-		return nil, fmt.Errorf("signals: no certificates in %s", cfg.CAFile)
+		return nil, err
 	}
 	host, _ := os.Hostname()
-	return &KubeEvents{cfg: cfg, instance: host, client: &http.Client{
-		Timeout:   10 * time.Second,
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}},
-	}}, nil
+	return &KubeEvents{api: api, instance: host}, nil
 }
 
 // Deliver records one event. An event about no attested workload has nothing
@@ -182,11 +156,6 @@ func (k *KubeEvents) Deliver(ctx context.Context, e audit.Event) error {
 	att, ok := identity.MeshAttester{}.Attest(e.WorkloadPrincipal)
 	if !ok || e.Attester == "" {
 		return nil
-	}
-	// The projected token rotates under us; read the current one.
-	token, err := os.ReadFile(k.cfg.TokenFile)
-	if err != nil {
-		return err
 	}
 	note := e.Reason
 	if e.RunID != "" {
@@ -223,13 +192,12 @@ func (k *KubeEvents) Deliver(ctx context.Context, e audit.Event) error {
 		return err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		k.cfg.APIServer+"/apis/events.k8s.io/v1/namespaces/"+url.PathEscape(att.Namespace)+"/events", bytes.NewReader(body))
+		k.api.Base+"/apis/events.k8s.io/v1/namespaces/"+url.PathEscape(att.Namespace)+"/events", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(token)))
-	return send(k.client, req)
+	return check(k.api.Do(req))
 }
 
 // reason turns circuit.tripped into CircuitTripped.
@@ -242,14 +210,17 @@ func reason(t audit.EventType) string {
 }
 
 func send(c *http.Client, req *http.Request) error {
-	resp, err := c.Do(req)
+	return check(c.Do(req))
+}
+
+func check(resp *http.Response, err error) error {
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("%s %s: %s: %s", req.Method, req.URL.Path, resp.Status, bytes.TrimSpace(msg))
+		return fmt.Errorf("%s %s: %s: %s", resp.Request.Method, resp.Request.URL.Path, resp.Status, bytes.TrimSpace(msg))
 	}
 	return nil
 }

@@ -8,19 +8,18 @@ package crdwatcher
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/babywyrm/nullfield/pkg/flow"
+	"github.com/babywyrm/nullfield/pkg/kube"
 	"github.com/babywyrm/nullfield/pkg/policy"
 	"gopkg.in/yaml.v3"
 )
@@ -28,10 +27,8 @@ import (
 // Watcher watches NullfieldPolicy and ToolRegistry CRDs and syncs
 // their content to ConfigMaps.
 type Watcher struct {
-	apiBase   string
-	token     string
+	api       *kube.Client
 	namespace string
-	client    *http.Client
 	logger    *slog.Logger
 
 	// Optional sidecar-bridge fields. When ActiveTargetCM and
@@ -74,24 +71,20 @@ type Config struct {
 
 // New creates a watcher using in-cluster credentials.
 func New(cfg Config, logger *slog.Logger) (*Watcher, error) {
-	host := os.Getenv("KUBERNETES_SERVICE_HOST")
-	port := os.Getenv("KUBERNETES_SERVICE_PORT")
-	if host == "" || port == "" {
-		return nil, fmt.Errorf("not running in-cluster")
-	}
-
-	token, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
+	kubeCfg, err := kube.InCluster()
 	if err != nil {
-		return nil, fmt.Errorf("read SA token: %w", err)
+		return nil, err
+	}
+	api, err := kube.New(kubeCfg)
+	if err != nil {
+		return nil, err
 	}
 
 	ns := cfg.Namespace
 	if ns == "" {
-		nsBytes, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
-		if err != nil {
+		if ns, err = kube.Namespace(); err != nil {
 			return nil, fmt.Errorf("read namespace: %w", err)
 		}
-		ns = strings.TrimSpace(string(nsBytes))
 	}
 
 	cmKey := cfg.ActiveTargetCMKey
@@ -100,15 +93,8 @@ func New(cfg Config, logger *slog.Logger) (*Watcher, error) {
 	}
 
 	return &Watcher{
-		apiBase:   fmt.Sprintf("https://%s:%s", host, port),
-		token:     strings.TrimSpace(string(token)),
-		namespace: ns,
-		client: &http.Client{
-			Timeout: 30 * time.Second,
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			},
-		},
+		api:               api,
+		namespace:         ns,
 		logger:            logger,
 		activeTargetCM:    cfg.ActiveTargetCM,
 		activeTargetCMKey: cmKey,
@@ -480,7 +466,7 @@ func resourceGeneration(obj map[string]any) int64 {
 
 func (w *Watcher) patchAgenticFlowStatus(ctx context.Context, ns, name string, status agenticFlowStatus) {
 	status.LastReconciledAt = time.Now().UTC().Format(time.RFC3339)
-	url := fmt.Sprintf("%s/apis/nullfield.io/v1alpha1/namespaces/%s/agenticflows/%s/status", w.apiBase, ns, name)
+	url := fmt.Sprintf("%s/apis/nullfield.io/v1alpha1/namespaces/%s/agenticflows/%s/status", w.api.Base, ns, name)
 	if err := w.k8sMergePatch(ctx, url, map[string]any{"status": status}); err != nil {
 		w.logger.Warn("failed to patch AgenticFlow status", "name", name, "error", err)
 	}
@@ -595,11 +581,11 @@ func (w *Watcher) upsertGeneratedControl(ctx context.Context, obj generatedContr
 	if obj.Namespace == "" {
 		obj.Namespace = w.namespace
 	}
-	url := fmt.Sprintf("%s/apis/%s/namespaces/%s/%s/%s", w.apiBase, resource.apiVersion, obj.Namespace, resource.plural, obj.Name)
+	url := fmt.Sprintf("%s/apis/%s/namespaces/%s/%s/%s", w.api.Base, resource.apiVersion, obj.Namespace, resource.plural, obj.Name)
 	if existing, err := w.k8sGet(ctx, url); err == nil && existing != nil {
 		return w.k8sPut(ctx, url, obj.Object)
 	}
-	createURL := fmt.Sprintf("%s/apis/%s/namespaces/%s/%s", w.apiBase, resource.apiVersion, obj.Namespace, resource.plural)
+	createURL := fmt.Sprintf("%s/apis/%s/namespaces/%s/%s", w.api.Base, resource.apiVersion, obj.Namespace, resource.plural)
 	return w.k8sPost(ctx, createURL, obj.Object)
 }
 
@@ -703,12 +689,12 @@ func (w *Watcher) syncRegistries(ctx context.Context) {
 }
 
 func (w *Watcher) listCRD(ctx context.Context, resource string) (map[string]any, error) {
-	url := fmt.Sprintf("%s/apis/nullfield.io/v1alpha1/namespaces/%s/%s", w.apiBase, w.namespace, resource)
+	url := fmt.Sprintf("%s/apis/nullfield.io/v1alpha1/namespaces/%s/%s", w.api.Base, w.namespace, resource)
 	return w.k8sGet(ctx, url)
 }
 
 func (w *Watcher) upsertConfigMap(ctx context.Context, ns, name string, data map[string]string, labels map[string]string) error {
-	url := fmt.Sprintf("%s/api/v1/namespaces/%s/configmaps/%s", w.apiBase, ns, name)
+	url := fmt.Sprintf("%s/api/v1/namespaces/%s/configmaps/%s", w.api.Base, ns, name)
 
 	existing, err := w.k8sGet(ctx, url)
 	if err == nil && existing != nil {
@@ -735,7 +721,7 @@ func (w *Watcher) upsertConfigMap(ctx context.Context, ns, name string, data map
 		},
 		"data": data,
 	}
-	createURL := fmt.Sprintf("%s/api/v1/namespaces/%s/configmaps", w.apiBase, ns)
+	createURL := fmt.Sprintf("%s/api/v1/namespaces/%s/configmaps", w.api.Base, ns)
 	return w.k8sPost(ctx, createURL, cm)
 }
 
@@ -744,10 +730,9 @@ func (w *Watcher) k8sGet(ctx context.Context, url string) (map[string]any, error
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+w.token)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := w.client.Do(req)
+	resp, err := w.api.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -785,10 +770,9 @@ func (w *Watcher) k8sPut(ctx context.Context, url string, obj any) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+w.token)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := w.client.Do(req)
+	resp, err := w.api.Do(req)
 	if err != nil {
 		return err
 	}
@@ -809,10 +793,9 @@ func (w *Watcher) k8sMergePatch(ctx context.Context, url string, obj any) error 
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+w.token)
 	req.Header.Set("Content-Type", "application/merge-patch+json")
 
-	resp, err := w.client.Do(req)
+	resp, err := w.api.Do(req)
 	if err != nil {
 		return err
 	}
@@ -833,10 +816,9 @@ func (w *Watcher) k8sPost(ctx context.Context, url string, obj any) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+w.token)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := w.client.Do(req)
+	resp, err := w.api.Do(req)
 	if err != nil {
 		return err
 	}

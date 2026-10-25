@@ -10,15 +10,16 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/babywyrm/nullfield/pkg/kube"
 )
 
 func testWatcher(handler http.Handler) *Watcher {
 	ts := httptest.NewTLSServer(handler)
 	return &Watcher{
-		apiBase:   ts.URL,
-		token:     "test-token",
+		api: &kube.Client{Base: ts.URL, HTTP: ts.Client(),
+			Token: func() (string, error) { return "test-token", nil }},
 		namespace: "default",
-		client:    ts.Client(),
 		logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
 	}
 }
@@ -835,4 +836,18 @@ func stringContains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+func TestRequestsCarryTheServiceAccountToken(t *testing.T) {
+	var auth string
+	w := testWatcher(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		_, _ = rw.Write([]byte(`{}`))
+	}))
+	if _, err := w.k8sGet(context.Background(), w.api.Base+"/api"); err != nil {
+		t.Fatal(err)
+	}
+	if auth != "Bearer test-token" {
+		t.Fatalf("Authorization = %q", auth)
+	}
 }

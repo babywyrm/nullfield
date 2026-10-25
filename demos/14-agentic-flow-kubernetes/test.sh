@@ -31,7 +31,12 @@ kubectl apply -f deploy/crds/agenticflow-crd.yaml
 # write one, so it could only ever have passed against a cluster that happened
 # to have a controller left over from something else.
 kubectl -n "$ns" apply -f demos/14-agentic-flow-kubernetes/controller.yaml
+# Restart, or a pod already running an older :latest keeps answering; and
+# delete the last run's output, or the wait below passes before this
+# controller has compiled anything.
+kubectl -n "$ns" rollout restart deploy/flow-demo-controller
 kubectl -n "$ns" rollout status deploy/flow-demo-controller --timeout=120s
+kubectl -n "$ns" delete configmap nullfield-flow-echo-known-path --ignore-not-found
 
 kubectl -n "$ns" apply -f demos/14-agentic-flow-kubernetes/agentic-flow.yaml
 

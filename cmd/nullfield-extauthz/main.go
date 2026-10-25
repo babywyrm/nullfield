@@ -33,6 +33,7 @@ import (
 	"github.com/babywyrm/nullfield/pkg/extauthz"
 	"github.com/babywyrm/nullfield/pkg/gates"
 	"github.com/babywyrm/nullfield/pkg/identity"
+	"github.com/babywyrm/nullfield/pkg/kube"
 	"github.com/babywyrm/nullfield/pkg/operations"
 	"github.com/babywyrm/nullfield/pkg/policy"
 	"github.com/babywyrm/nullfield/pkg/registry"
@@ -216,7 +217,11 @@ func signalSinks(logger *slog.Logger) ([]audit.Emitter, error) {
 
 	var sinks []audit.Emitter
 	if os.Getenv("NULLFIELD_SIGNAL_KUBE_EVENTS") == "true" {
-		k, err := signals.NewKubeEvents(signals.InCluster())
+		kubeCfg, err := kube.InCluster()
+		if err != nil {
+			return nil, err
+		}
+		k, err := signals.NewKubeEvents(kubeCfg)
 		if err != nil {
 			return nil, err
 		}

@@ -10,6 +10,15 @@ them silent, which is the argument for the exercise.
 
 ### Security
 
+- **The controller verifies the API server** (CWE-295). Its CRD watcher
+  connected with certificate verification off, so anything able to
+  intercept its traffic could feed it policies or read the ConfigMaps it
+  writes. It now verifies against the service account CA, and re-reads the
+  projected token on every request instead of once at start. The Kubernetes
+  client is one small package (`pkg/kube`), shared with signals. The unused
+  Kubernetes secret provider in `pkg/credentials`, which had no callers and
+  never loaded the CA, is removed.
+
 - **Eight reachable dependency vulnerabilities patched.** `govulncheck`
   found eight advisories whose vulnerable functions are reachable from
   nullfield's own code — not merely present in the module graph. Seven are
