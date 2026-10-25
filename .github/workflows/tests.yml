@@ -50,9 +50,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # check-latest matters here and nowhere else in this file. govulncheck
+      # reports stdlib vulnerabilities against the toolchain it runs under, and
+      # the runner ships a preinstalled Go that the version spec will happily
+      # match even when a patched release exists -- which reported a crypto/x509
+      # advisory fixed two patches earlier. Resolving the newest patch in the
+      # series keeps a stale tool cache from being read as our problem.
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
+          check-latest: true
           cache: true
 
       # Dependabot answers "is a dependency named in an advisory". This answers
