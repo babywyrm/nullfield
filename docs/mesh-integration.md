@@ -495,6 +495,7 @@ That last row is the real trade. If you need response redaction or argument rewr
 
 - **Requests only.** `SCOPE` and response inspection need `ext_proc`, which is not yet implemented.
 - **Bodies are capped** at `maxRequestBytes`. nullfield refuses to decide on a truncated body rather than authorizing the part that fit; see above for why the mode must match.
+- **One reverse DNS lookup per check** for [the Host check](#host-is-the-callers-claim), cached only by CoreDNS. A resolver slower than 1s leaves Host unverified for that call rather than delaying it further.
 - **Long-lived connections are authorized once.** A `kubectl exec` stream is one request at setup and invisible afterwards.
 
 ---

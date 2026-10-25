@@ -22,7 +22,8 @@ them silent, which is the argument for the exercise.
   Host that names a different Service (`gate: target`,
   `reasonClass: target_mismatch`). A destination that does not resolve to
   a Service (a ServiceEntry VIP, a pod IP behind a sidecar) stays
-  unverified, as before. Demo 18 asserts it.
+  unverified, as before. A bracketed IPv6 Host (`[fd00::10]`) matches its
+  own address. Demo 18 asserts it.
 
 - **The controller verifies the API server** (CWE-295). Its CRD watcher
   connected with certificate verification off, so anything able to

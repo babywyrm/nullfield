@@ -21,6 +21,7 @@ func clusterDNS(_ context.Context, addr string) ([]string, error) {
 		"10.42.0.5":  "10-42-0-5.tools.pod.cluster.local.",
 		"10.42.0.6":  "web-0.web.tools.svc.cluster.local.",
 		"172.18.0.4": "demo-mcp-echo-1.demo_default.",
+		"fd00::10":   "mcp-github.tools.svc.cluster.local.",
 	}[addr]; ok {
 		return []string{name}, nil
 	}
@@ -55,6 +56,11 @@ func TestAHostThatNamesAnotherServiceIsRefused(t *testing.T) {
 	} {
 		if got := status(t, s, toAddress(host, "10.43.0.10")); got != codes.OK {
 			t.Errorf("Host %q to the service it names: %v, want OK", host, got)
+		}
+	}
+	for _, host := range []string{"[fd00::10]", "[fd00::10]:80", "mcp-github"} {
+		if got := status(t, s, toAddress(host, "fd00::10")); got != codes.OK {
+			t.Errorf("Host %q to an IPv6 Service address: %v, want OK", host, got)
 		}
 	}
 	for _, host := range []string{"mcp", "github.tools.svc.cluster.local", "mcp-github.tools.svc.cluster.local.evil"} {

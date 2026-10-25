@@ -270,6 +270,9 @@ func (s *Server) verifyTarget(ctx context.Context, t *Translated) *gates.Refusal
 	if s.lookupAddr == nil || t.Destination == "" {
 		return nil
 	}
+	// ponytail: one PTR lookup per check, cached only by CoreDNS. A slow
+	// resolver adds up to this timeout and then leaves Host unverified; a
+	// short-TTL cache keyed on the address is the upgrade if latency shows.
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	names, _ := s.lookupAddr(ctx, t.Destination)
@@ -302,6 +305,7 @@ func hostOf(target string) string {
 	if h, _, err := net.SplitHostPort(target); err == nil {
 		target = h
 	}
+	target = strings.TrimSuffix(strings.TrimPrefix(target, "["), "]")
 	return strings.TrimSuffix(strings.ToLower(target), ".")
 }
 
