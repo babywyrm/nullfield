@@ -177,3 +177,25 @@ func TestTheRegistryDoesNotApplyToTrafficThatNamesNoTool(t *testing.T) {
 		t.Fatalf("REST call with an allow-all policy: status %v, want OK", got)
 	}
 }
+
+func TestACELRuleDecidesOnTheWireTargetAndOperation(t *testing.T) {
+	s := NewServer(Config{
+		Mode: ModeEnforce, Audit: &recorder{},
+		Engine: policy.NewRuleEngine([]v1alpha1.Rule{
+			{Action: v1alpha1.ActionAllow, CELExpression: `request.transport == "B" && request.target == "api.github.com" && request.operation.startsWith("GET ")`},
+			{Action: v1alpha1.ActionDeny},
+		}),
+	})
+	wire := func(method string) *authv3.CheckRequest {
+		r := checkRequest(spiffeRunner, "", nil)
+		h := r.Attributes.Request.Http
+		h.Method, h.Path, h.Host = method, "/repos/acme/widgets", "api.github.com"
+		return r
+	}
+	if got := status(t, s, wire("GET")); got != codes.OK {
+		t.Fatalf("GET: %v, want OK", got)
+	}
+	if got := status(t, s, wire("DELETE")); got != codes.PermissionDenied {
+		t.Fatalf("DELETE: %v, want PermissionDenied", got)
+	}
+}

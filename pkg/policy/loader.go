@@ -56,7 +56,6 @@ func validate(s *v1alpha1.NullfieldPolicySpec) error {
 			name string
 			set  bool
 		}{
-			{"celExpression", r.CELExpression != ""},
 			{"direction", r.Direction != ""},
 			{"destination", r.Destination != ""},
 			{"injectCredential", r.InjectCred != nil},
@@ -65,6 +64,11 @@ func validate(s *v1alpha1.NullfieldPolicySpec) error {
 		} {
 			if f.set {
 				return fmt.Errorf("rule %d sets %s, which is not enforced; remove it", i, f.name)
+			}
+		}
+		if r.CELExpression != "" {
+			if _, err := compileCEL(r.CELExpression); err != nil {
+				return fmt.Errorf("rule %d: celExpression: %w", i, err)
 			}
 		}
 		if b := r.Budget; b != nil && b.OnExhausted != "" && b.OnExhausted != "DENY" {

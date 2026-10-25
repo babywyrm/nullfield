@@ -1,7 +1,7 @@
 # Fixed Core, Edge Adapters — Design
 
 **Date:** 2026-10-24
-**Status:** Step 1 and 2a done; 2b (CEL) next
+**Status:** Steps 1 and 2 done; step 3 (run token) next
 **Related:**
 - [`2026-07-26-mesh-native-arbiter.md`](2026-07-26-mesh-native-arbiter.md) — the three facts and authority grants this builds on
 
@@ -102,7 +102,10 @@ registry), `requireExpiry`, `maxLifetime`. Refused: unknown keys and the
 fields listed in the CHANGELOG. Still accepted but advisory: `selector`,
 `audit.emitTo`, `audit.logLevel`, `inspection.detectPaths`.
 
-**2b (next):** CEL, which replaces the `celExpression` refusal.
+**2b (done):** `celExpression` is a match predicate over `request`
+(method, tool, arguments, transport, target, operation, identity). Compile
+errors refuse the policy; runtime errors refuse the call. Target and
+operation are populated by ext_authz only; the proxy sees MCP alone.
 
 ### 3. Identity composed from several sources
 

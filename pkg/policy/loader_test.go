@@ -33,10 +33,6 @@ func TestAPolicyThatSetsAnUnenforcedFieldIsRefused(t *testing.T) {
     - action: ALLOW
       requireIdentiy: true
 `,
-		"celExpression": `  rules:
-    - action: ALLOW
-      celExpression: "request.target == 'api.github.com'"
-`,
 		// Ignoring these turns "allow outbound to one host" into "allow
 		// everything".
 		"direction and destination": `  rules:

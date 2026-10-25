@@ -64,6 +64,15 @@ them silent, which is the argument for the exercise.
   applies before any is charged, so a refused call spends nothing. A call
   with no subject is refused rather than counted under a shared key.
 
+- **`celExpression` is evaluated.** A rule can now match on any part of the
+  normalized request (target, operation, arguments, identity, claims)
+  without a new Go field per scenario. It is an extra match condition beside
+  `mcpMethod`, `toolNames` and `when`. An expression that fails to compile
+  refuses the policy at load; one that errors at runtime refuses the call,
+  because skipping a DENY on a missing key would hand the call to a looser
+  rule. Evaluation is cost-limited. Adds `cel.dev/cel-go`. Reference in
+  `docs/diagrams/policy-eval.md`.
+
 - **`examples/policy.yaml` allowed everything on the mesh.** Its OUTBOUND
   rules matched on `direction` and `destination`, which nothing evaluates, so
   under ext_authz they matched every request. Removed.
@@ -76,7 +85,7 @@ them silent, which is the argument for the exercise.
 - **A policy that asks for something nullfield does not do refuses to load.**
   Unknown keys are errors (a misspelled `requireIdentiy` used to drop the
   guard silently), and so are fields that parse but are not enforced:
-  `celExpression`, `direction`, `destination`, `injectCredential`,
+  `direction`, `destination`, `injectCredential`,
   `paramRules`, `hold.notify`, `integrity.chainValidation`,
   `anomaly.sequences`, `onExhausted` other than `DENY`, and `onTrip` other
   than `DENY`/`REJECT`. `onTrip: KILL_POD` never killed anything. The CRD

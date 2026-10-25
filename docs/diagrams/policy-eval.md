@@ -148,6 +148,10 @@ For each rule in policy.rules:
     ├─ Does rule.when match the identity (type, provider, claims)?
     │   NO  ──► skip this rule
     │
+    ├─ Does rule.celExpression evaluate to true?
+    │   NO    ──► skip this rule
+    │   ERROR ──► DENY (expression_error), never skip
+    │
     ├─ Does rule.requireIdentity == true and identity is nil?
     │   YES ──► DENY (identity required but missing)
     │
@@ -160,6 +164,34 @@ For each rule in policy.rules:
 
 No rule matched? ──► DENY (default deny posture)
 ```
+
+### `celExpression`
+
+A [CEL](https://cel.dev) expression over one variable, `request`. It must
+compile and return a bool, or the policy refuses to load.
+
+| Field | Value |
+|---|---|
+| `request.method` | MCP method, e.g. `tools/call` |
+| `request.tool` | tool name |
+| `request.arguments` | the call's arguments, as a map |
+| `request.transport` | `A` for MCP, `B` for wire API traffic |
+| `request.target` | host acted on; set by ext_authz, empty on the proxy |
+| `request.operation` | `METHOD /path`; set by ext_authz, empty on the proxy |
+| `request.identity` | `subject`, `issuer`, `type`, `provider`, `scopes`, `groups`, `claims`; absent when unauthenticated |
+
+```yaml
+- action: ALLOW
+  celExpression: >-
+    request.target == "api.github.com" &&
+    request.operation.startsWith("GET ") &&
+    has(request.identity) && "sre" in request.identity.groups
+```
+
+An expression that errors refuses the call instead of skipping the rule, so
+a missing key on a DENY rule cannot fall through to a looser ALLOW. Guard
+optional fields with `has()`. Evaluation is cost-limited, since arguments
+are caller-supplied.
 
 ---
 

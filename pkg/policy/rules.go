@@ -5,17 +5,42 @@ import (
 	"fmt"
 	"strings"
 
+	"cel.dev/cel-go/cel"
 	v1alpha1 "github.com/babywyrm/nullfield/api/v1alpha1"
 	"github.com/babywyrm/nullfield/pkg/identity"
 )
 
 // RuleEngine evaluates a list of NullfieldPolicy rules in order (first match wins).
 type RuleEngine struct {
-	rules []v1alpha1.Rule
+	rules    []v1alpha1.Rule
+	programs []cel.Program
+	celErrs  []error
 }
 
+// NewRuleEngine compiles each rule's celExpression. ParseSpec has already
+// refused one that does not compile; a rule built some other way that fails
+// here refuses every call it would otherwise have matched.
 func NewRuleEngine(rules []v1alpha1.Rule) *RuleEngine {
-	return &RuleEngine{rules: rules}
+	e := &RuleEngine{rules: rules, programs: make([]cel.Program, len(rules)), celErrs: make([]error, len(rules))}
+	for i, r := range rules {
+		if r.CELExpression != "" {
+			e.programs[i], e.celErrs[i] = compileCEL(r.CELExpression)
+		}
+	}
+	return e
+}
+
+// matchesCEL is a match predicate like the others, except that an expression
+// which cannot be decided refuses the call instead of skipping the rule:
+// skipping a DENY on an error would let the call reach a looser rule.
+func (e *RuleEngine) matchesCEL(i int, req Request) (bool, error) {
+	if e.rules[i].CELExpression == "" {
+		return true, nil
+	}
+	if e.celErrs[i] != nil {
+		return false, e.celErrs[i]
+	}
+	return evalCEL(e.programs[i], req)
 }
 
 const (
@@ -27,6 +52,7 @@ const (
 	ReasonClassPolicyScoped     = "policy_scoped"
 	ReasonClassDefaultDeny      = "default_deny"
 	ReasonClassIdentityRequired = "identity_required"
+	ReasonClassExpressionError  = "expression_error"
 )
 
 func (e *RuleEngine) Evaluate(_ context.Context, req Request) Decision {
@@ -38,6 +64,20 @@ func (e *RuleEngine) Evaluate(_ context.Context, req Request) Decision {
 			continue
 		}
 		if !matchesWhen(rule, req) {
+			continue
+		}
+		if ok, err := e.matchesCEL(i, req); err != nil {
+			return Decision{
+				Allowed:     false,
+				Reason:      "celExpression could not be evaluated: " + err.Error(),
+				Gate:        GatePolicy,
+				ReasonClass: ReasonClassExpressionError,
+				RuleIndex:   i,
+				RuleID:      rule.ID,
+				Labels:      cloneLabels(rule.AuditLabels),
+				MatchedRule: &rule,
+			}
+		} else if !ok {
 			continue
 		}
 		if rule.RequireIdentity && req.Identity == nil {
