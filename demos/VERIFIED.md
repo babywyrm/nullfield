@@ -31,5 +31,6 @@ NULLFIELD_SUBSTRATE="k3s 1.34 / Istio 1.30.1 ambient" ./demos/run.sh --tier 3 --
 | 2026-10-24 | 14-agentic-flow-kubernetes | 2 | PASS | k3s v1.36.3 / Istio 1.30.1 ambient (brainbox), grpc 1.84 |
 | 2026-10-24 | 15-proxy-baseline | 2 | PASS | k3s v1.36.3 / Istio 1.30.1 ambient (brainbox), grpc 1.84 |
 | 2026-10-24 | 16-mesh-arbiter | 3 | PASS | k3s v1.36.3 / Istio 1.30.1 ambient (brainbox), grpc 1.84 |
+| 2026-10-25 | 18-operation-maps | 3 | PASS | k3s v1.36.5 / Istio 1.30.1 ambient (brainbox); 17 and 16 re-run green after it |
 | 2026-10-25 | 17-run-tokens | 3 | PASS | k3s v1.36.5 / Istio 1.30.1 ambient (brainbox) |
 | 2026-10-25 | 16-mesh-arbiter | 3 | PASS | k3s v1.36.5 / Istio 1.30.1 ambient (brainbox), run after 17 |

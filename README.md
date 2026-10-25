@@ -132,7 +132,7 @@ cannot inspect responses or modify requests. See
 [policy evaluation](docs/diagrams/policy-eval.md) ·
 [mesh arbiter](docs/diagrams/mesh-arbiter.md)
 
-**Runnable** — [demos/](demos/) has seventeen walkthroughs, each with a README.
+**Runnable** — [demos/](demos/) has eighteen walkthroughs, each with a README.
 
 ---
 

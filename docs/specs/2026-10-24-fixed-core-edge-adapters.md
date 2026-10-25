@@ -189,7 +189,8 @@ code, so integrations are added by writing YAML.
 - **First match wins.** Simple and predictable; specific paths go first.
 
 Known ceiling: case handling of literal segments is the upstream's. Maps
-are meant as an allowlist vocabulary over a default DENY.
+are meant as an allowlist vocabulary over a default DENY. Verified
+through a real waypoint by demo 18 on brainbox.
 
 ### 5. Outward events
 

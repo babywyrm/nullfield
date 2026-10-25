@@ -41,4 +41,5 @@ they last ran and on what.
 | 15 | [proxy-baseline](15-proxy-baseline/) | 2 | proxy mode decides correctly with no mesh present |
 | 16 | [mesh-arbiter](16-mesh-arbiter/) | 3 | waypoint ext_authz with attested spiffe identity, observe then enforce |
 | 17 | [run-tokens](17-run-tokens/) | 3 | a run token bound to its pod narrows one run to one repo, through a real waypoint |
+| 18 | [operation-maps](18-operation-maps/) | 3 | rules name API operations from a per-target map, and ambiguous paths are refused |
 

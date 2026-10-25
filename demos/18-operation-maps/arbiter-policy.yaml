@@ -1,0 +1,53 @@
+# Replaces demo 16's policy in the same namespace and adds an operation map.
+# Demo 16 re-applies its own policy and deployment on its next run, which also
+# drops the map's volume.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nullfield-extauthz-policy
+  namespace: nullfield-mesh-demo
+data:
+  policy.yaml: |
+    apiVersion: nullfield.io/v1alpha1
+    kind: NullfieldPolicy
+    metadata:
+      name: operation-map-demo
+    spec:
+      rules:
+        # Rules name operations, not paths. Deletes are never allowed; named
+        # operations on acme's repos are; everything else is default deny.
+        - action: DENY
+          celExpression: has(request.action) && request.action == "repos.delete"
+        - action: ALLOW
+          celExpression: has(request.action) && request.params.owner == "acme"
+      audit:
+        logLevel: FULL
+
+  tools.yaml: |
+    apiVersion: nullfield.io/v1alpha1
+    kind: ToolRegistry
+    metadata:
+      name: operation-map-demo-tools
+    tools:
+      - name: echo
+        description: Echoes back the input
+---
+# The echo server stands in for a REST API. Its host on the mesh is mcp-echo.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nullfield-extauthz-operations
+  namespace: nullfield-mesh-demo
+data:
+  echo.yaml: |
+    target: mcp-echo
+    operations:
+      - name: repos.get
+        method: GET
+        path: /repos/{owner}/{repo}
+      - name: repos.delete
+        method: DELETE
+        path: /repos/{owner}/{repo}
+      - name: issues.create
+        method: POST
+        path: /repos/{owner}/{repo}/issues
