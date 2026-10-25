@@ -1,0 +1,7 @@
+apiVersion: nullfield.io/v1alpha1
+kind: ToolRegistry
+metadata:
+  name: proxy-signals-demo-tools
+tools:
+  - name: echo
+    description: Echoes back the input

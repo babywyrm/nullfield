@@ -224,3 +224,66 @@ func check(resp *http.Response, err error) error {
 	}
 	return nil
 }
+
+// Options says what a binary can signal.
+type Options struct {
+	// Emits lists the event types the binary produces; NULLFIELD_SIGNAL_EVENTS
+	// may select only from these.
+	Emits []audit.EventType
+	// KubeEvents is whether the binary may record Kubernetes Events. Only one
+	// with an attested caller and its own service account should: Events
+	// carry no creator, so a sidecar sharing the agent's account would let
+	// the agent forge them.
+	KubeEvents bool
+}
+
+// FromEnv builds the channels the environment asks for. A channel asked for
+// and not buildable, or an event type the binary never emits, is an error
+// rather than a signal that never comes.
+func FromEnv(logger *slog.Logger, opts Options) ([]audit.Emitter, error) {
+	emits := map[audit.EventType]bool{}
+	for _, t := range opts.Emits {
+		emits[t] = true
+	}
+	types := []audit.EventType{audit.EventCircuitTripped}
+	if v := os.Getenv("NULLFIELD_SIGNAL_EVENTS"); v != "" {
+		types = nil
+		for _, t := range strings.Split(v, ",") {
+			t := audit.EventType(strings.TrimSpace(t))
+			if !emits[t] {
+				return nil, fmt.Errorf("NULLFIELD_SIGNAL_EVENTS: %q is not an event this binary emits", t)
+			}
+			types = append(types, t)
+		}
+	}
+
+	var sinks []audit.Emitter
+	if os.Getenv("NULLFIELD_SIGNAL_KUBE_EVENTS") == "true" {
+		if !opts.KubeEvents {
+			return nil, errors.New("NULLFIELD_SIGNAL_KUBE_EVENTS: not supported here; it shares a service account with the workload, which could forge Events. Use the webhook")
+		}
+		cfg, err := kube.InCluster()
+		if err != nil {
+			return nil, err
+		}
+		k, err := NewKubeEvents(cfg)
+		if err != nil {
+			return nil, err
+		}
+		sinks = append(sinks, NewSink("kube-events", types, k.Deliver, logger))
+		logger.Info("signalling as Kubernetes Events", "types", types)
+	}
+	if u := os.Getenv("NULLFIELD_SIGNAL_WEBHOOK_URL"); u != "" {
+		secret, err := os.ReadFile(os.Getenv("NULLFIELD_SIGNAL_WEBHOOK_SECRET_FILE"))
+		if err != nil {
+			return nil, fmt.Errorf("NULLFIELD_SIGNAL_WEBHOOK_SECRET_FILE: %w", err)
+		}
+		w, err := NewWebhook(u, bytes.TrimSpace(secret))
+		if err != nil {
+			return nil, err
+		}
+		sinks = append(sinks, NewSink("webhook", types, w.Deliver, logger))
+		logger.Info("signalling by webhook", "types", types)
+	}
+	return sinks, nil
+}

@@ -28,6 +28,8 @@ type gated struct {
 	rule     v1alpha1.Rule
 	budgets  *budget.Tracker
 	velocity *anomaly.VelocityTracker
+	// maxCalls per session for the circuit breaker; 0 means effectively none.
+	maxCalls int
 }
 
 func frontDoors(t *testing.T, g gated, rec *captureEmitter) map[string]http.Handler {
@@ -41,11 +43,14 @@ func frontDoors(t *testing.T, g gated, rec *captureEmitter) map[string]http.Hand
 	reg := registry.New()
 	reg.Register(v1alpha1.ToolRegistryEntry{Name: "test_tool"})
 	engine := policy.NewRuleEngine([]v1alpha1.Rule{g.rule})
+	if g.maxCalls == 0 {
+		g.maxCalls = 1000
+	}
 
 	return map[string]http.Handler{
 		"proxy": NewHandler(HandlerOpts{
 			UpstreamURL: u, Engine: engine, Auditor: rec, Verifier: &identity.NoopVerifier{},
-			Registry: reg, Breaker: circuit.New(1000, 0), Budgets: g.budgets, Velocity: g.velocity,
+			Registry: reg, Breaker: circuit.New(g.maxCalls, 0), Budgets: g.budgets, Velocity: g.velocity,
 			Logger: discardLogger(),
 		}),
 		"gateway": NewGatewayHandler(GatewayHandlerOpts{
@@ -53,7 +58,7 @@ func frontDoors(t *testing.T, g gated, rec *captureEmitter) map[string]http.Hand
 				Name: "r", Upstream: httputil.NewSingleHostReverseProxy(u), UpstreamAddr: u.Host,
 				ToolNames: []string{"test_tool"}, Engine: engine, Registry: reg,
 			}}),
-			Auditor: rec, Verifier: &identity.NoopVerifier{}, Breaker: circuit.New(1000, 0),
+			Auditor: rec, Verifier: &identity.NoopVerifier{}, Breaker: circuit.New(g.maxCalls, 0),
 			Budgets: g.budgets, Velocity: g.velocity, Logger: discardLogger(),
 		}),
 	}
@@ -190,5 +195,43 @@ func TestAGatewayRouteRefusesARunTokenPolicy(t *testing.T) {
 	}
 	if _, err := BuildRoute(RouteConfig{Name: "r", Upstream: "localhost:1", PolicyFile: path}); err == nil {
 		t.Fatal("a gateway route accepted a run token it cannot bind")
+	}
+}
+
+// A trip is one circuit.tripped per session, however many calls the session
+// then makes, so alerts and signals fire once. Later refusals are still
+// counted, as tool.denied at the circuit gate.
+func TestATrippedSessionIsReportedOnce(t *testing.T) {
+	allow := v1alpha1.Rule{Action: v1alpha1.ActionAllow}
+	for _, name := range []string{"proxy", "gateway"} {
+		t.Run(name, func(t *testing.T) {
+			rec := &captureEmitter{}
+			h := frontDoors(t, gated{rule: allow, maxCalls: 1}, rec)[name]
+			if resp := send(t, h, "s1"); resp.Error != nil {
+				t.Fatalf("first call refused: %s", resp.Error.Message)
+			}
+			for range 3 {
+				if resp := send(t, h, "s1"); resp.Error == nil {
+					t.Fatal("a call past the breaker succeeded")
+				}
+			}
+			send(t, h, "s2")
+
+			trips, refusals := 0, 0
+			for _, e := range rec.events {
+				switch {
+				case e.Type == audit.EventCircuitTripped:
+					trips++
+					if e.SessionID != "s1" {
+						t.Fatalf("trip for session %q, want s1", e.SessionID)
+					}
+				case e.Type == audit.EventToolDenied && e.Gate == "circuit":
+					refusals++
+				}
+			}
+			if trips != 1 || refusals != 2 {
+				t.Fatalf("%d trips and %d later refusals, want 1 and 2", trips, refusals)
+			}
+		})
 	}
 }

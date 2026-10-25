@@ -55,6 +55,8 @@ fi
 kubectl apply -f "$mesh/mesh.yaml" >/dev/null
 kubectl apply -f "$mesh/arbiter.yaml" >/dev/null
 kubectl apply -f "$demo/manifests.yaml" >/dev/null
+kubectl -n "$ns" create configmap signal-receiver --from-file=receiver.py="$demo/receiver.py" \
+  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 deploy_controller
 
 # A fresh signing secret per run, from a file so it never sits in argv.

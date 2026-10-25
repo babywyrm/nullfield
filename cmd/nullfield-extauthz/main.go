@@ -8,14 +8,12 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
 	"net"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -33,7 +31,6 @@ import (
 	"github.com/babywyrm/nullfield/pkg/extauthz"
 	"github.com/babywyrm/nullfield/pkg/gates"
 	"github.com/babywyrm/nullfield/pkg/identity"
-	"github.com/babywyrm/nullfield/pkg/kube"
 	"github.com/babywyrm/nullfield/pkg/operations"
 	"github.com/babywyrm/nullfield/pkg/policy"
 	"github.com/babywyrm/nullfield/pkg/registry"
@@ -105,7 +102,10 @@ func main() {
 		emitters = append(emitters, audit.NewOTLPEmitter())
 	}
 
-	sinks, err := signalSinks(logger)
+	sinks, err := signals.FromEnv(logger, signals.Options{
+		Emits:      []audit.EventType{audit.EventCircuitTripped, audit.EventArbiterDecision, audit.EventAnomalyVelocity},
+		KubeEvents: true,
+	})
 	if err != nil {
 		logger.Error("signals", "error", err)
 		os.Exit(1)
@@ -194,53 +194,6 @@ func runTokens(spec *v1alpha1.NullfieldPolicySpec) *identity.RunTokenVerifier {
 		JWKSURI: rt.JWKSURI, Audience: rt.Audience, Issuer: rt.Issuer,
 		MaxLifetime: maxLifetime, ClockSkew: clockSkew,
 	})
-}
-
-// signalSinks builds the outward event channels the environment asks for. A
-// channel asked for and not buildable, or an event type this service never
-// emits, refuses to start rather than never signalling.
-func signalSinks(logger *slog.Logger) ([]audit.Emitter, error) {
-	emitted := map[audit.EventType]bool{
-		audit.EventCircuitTripped: true, audit.EventArbiterDecision: true, audit.EventAnomalyVelocity: true,
-	}
-	types := []audit.EventType{audit.EventCircuitTripped}
-	if v := os.Getenv("NULLFIELD_SIGNAL_EVENTS"); v != "" {
-		types = nil
-		for _, t := range strings.Split(v, ",") {
-			t := audit.EventType(strings.TrimSpace(t))
-			if !emitted[t] {
-				return nil, fmt.Errorf("NULLFIELD_SIGNAL_EVENTS: %q is not an event this service emits", t)
-			}
-			types = append(types, t)
-		}
-	}
-
-	var sinks []audit.Emitter
-	if os.Getenv("NULLFIELD_SIGNAL_KUBE_EVENTS") == "true" {
-		kubeCfg, err := kube.InCluster()
-		if err != nil {
-			return nil, err
-		}
-		k, err := signals.NewKubeEvents(kubeCfg)
-		if err != nil {
-			return nil, err
-		}
-		sinks = append(sinks, signals.NewSink("kube-events", types, k.Deliver, logger))
-		logger.Info("signalling as Kubernetes Events", "types", types)
-	}
-	if u := os.Getenv("NULLFIELD_SIGNAL_WEBHOOK_URL"); u != "" {
-		secret, err := os.ReadFile(os.Getenv("NULLFIELD_SIGNAL_WEBHOOK_SECRET_FILE"))
-		if err != nil {
-			return nil, fmt.Errorf("NULLFIELD_SIGNAL_WEBHOOK_SECRET_FILE: %w", err)
-		}
-		w, err := signals.NewWebhook(u, bytes.TrimSpace(secret))
-		if err != nil {
-			return nil, err
-		}
-		sinks = append(sinks, signals.NewSink("webhook", types, w.Deliver, logger))
-		logger.Info("signalling by webhook", "types", types)
-	}
-	return sinks, nil
 }
 
 // buildGates builds the gates the proxy runs, from the same policy.

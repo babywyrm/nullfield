@@ -1,0 +1,24 @@
+services:
+  nullfield:
+    volumes:
+      - ./demos/20-proxy-signals/tools.yaml:/etc/nullfield/tools.yaml:ro
+      - ./demos/20-proxy-signals/policy.yaml:/etc/nullfield/policy.yaml:ro
+      # test.sh writes a fresh secret per run and points this at it.
+      - ${SIGNAL_SECRET_FILE:?run demos/20-proxy-signals/test.sh}:/run/signal/secret:ro
+    environment:
+      NULLFIELD_SIGNAL_WEBHOOK_URL: "http://signal-receiver:8080/hook"
+      NULLFIELD_SIGNAL_WEBHOOK_SECRET_FILE: "/run/signal/secret"
+    depends_on:
+      signal-receiver:
+        condition: service_started
+
+  signal-receiver:
+    image: python:3.13-alpine
+    command: ["python", "-u", "/app/receiver.py"]
+    user: "65532"
+    read_only: true
+    expose:
+      - "8080"
+    volumes:
+      - ./demos/19-signals/receiver.py:/app/receiver.py:ro
+      - ${SIGNAL_SECRET_FILE:?run demos/20-proxy-signals/test.sh}:/etc/signal/secret:ro

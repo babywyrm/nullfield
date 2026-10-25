@@ -190,3 +190,44 @@ func TestAnEventWithNoAttestedWorkloadHasNothingToAttachTo(t *testing.T) {
 		}
 	}
 }
+
+func TestSignalsAskedForAndNotBuildableRefuseToStart(t *testing.T) {
+	both := Options{Emits: []audit.EventType{audit.EventCircuitTripped, audit.EventArbiterDecision}, KubeEvents: true}
+	for name, tc := range map[string]struct {
+		opts Options
+		env  map[string]string
+	}{
+		"a type this binary never emits": {both, map[string]string{"NULLFIELD_SIGNAL_EVENTS": "circuit.trip"}},
+		"a webhook with no secret":       {both, map[string]string{"NULLFIELD_SIGNAL_WEBHOOK_URL": "https://controller/hook"}},
+		"Kubernetes Events off-cluster":  {both, map[string]string{"NULLFIELD_SIGNAL_KUBE_EVENTS": "true", "KUBERNETES_SERVICE_HOST": ""}},
+		"Kubernetes Events where the workload could forge them": {
+			Options{Emits: both.Emits}, map[string]string{"NULLFIELD_SIGNAL_KUBE_EVENTS": "true"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			if _, err := FromEnv(quiet, tc.opts); err == nil {
+				t.Fatal("started")
+			}
+		})
+	}
+
+	t.Run("none asked for", func(t *testing.T) {
+		if sinks, err := FromEnv(quiet, both); err != nil || len(sinks) != 0 {
+			t.Fatalf("sinks = %d, err = %v", len(sinks), err)
+		}
+	})
+	t.Run("a signed webhook", func(t *testing.T) {
+		secret := filepath.Join(t.TempDir(), "secret")
+		if err := os.WriteFile(secret, []byte("k\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("NULLFIELD_SIGNAL_WEBHOOK_URL", "https://controller/hook")
+		t.Setenv("NULLFIELD_SIGNAL_WEBHOOK_SECRET_FILE", secret)
+		t.Setenv("NULLFIELD_SIGNAL_EVENTS", "circuit.tripped, arbiter.decision")
+		if sinks, err := FromEnv(quiet, both); err != nil || len(sinks) != 1 {
+			t.Fatalf("sinks = %d, err = %v", len(sinks), err)
+		}
+	})
+}

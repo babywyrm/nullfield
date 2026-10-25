@@ -145,7 +145,7 @@ func (g *GatewayHandler) handleToolsCall(ctx context.Context, w http.ResponseWri
 	gs.Registry = route.Registry
 	call := gates.Call{Tool: tc.Name, Subject: id.Subject, Session: id.SessionID}
 	refuse := func(r *gates.Refusal, decision policy.Decision) {
-		e := gateEvent(r, req.Method, tc.Name)
+		e := gateEvent(gs, call.Session, r, req.Method, tc.Name)
 		e.Route = route.Name
 		g.auditor.Emit(ctx, eventWithDecision(e, decision, id))
 		if r.Gate == gates.GateRegistry {
@@ -270,7 +270,7 @@ func (g *GatewayHandler) handleToolsCall(ctx context.Context, w http.ResponseWri
 		return
 	}
 	if warning != nil {
-		e := gateEvent(warning, req.Method, tc.Name)
+		e := gateEvent(gs, call.Session, warning, req.Method, tc.Name)
 		e.Route = route.Name
 		g.auditor.Emit(ctx, eventWithDecision(e, decision, id))
 	}

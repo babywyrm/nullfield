@@ -51,7 +51,8 @@ Each run gets two calls. The third trips that run's breaker.
 
 ## The receiver
 
-`manifests.yaml` holds a twenty-line Python receiver that does what a run
+[`receiver.py`](receiver.py) is a twenty-line Python receiver, also used by
+demo 20, that does what a run
 controller's endpoint must do:
 
 - recompute the HMAC over timestamp, `.`, body;

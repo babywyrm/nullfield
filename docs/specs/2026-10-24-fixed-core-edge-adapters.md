@@ -1,7 +1,7 @@
 # Fixed Core, Edge Adapters — Design
 
 **Date:** 2026-10-24
-**Status:** Steps 1–5 done (propagation, upstream token, proxy signals deferred)
+**Status:** Steps 1–5 done (propagation and upstream token deferred)
 **Related:**
 - [`2026-07-26-mesh-native-arbiter.md`](2026-07-26-mesh-native-arbiter.md) — the three facts and authority grants this builds on
 
@@ -217,8 +217,12 @@ verified through a real waypoint by demo 19 on brainbox. Decisions:
   decision; the ceiling (drops when full, loss on exit) is documented, and
   the audit stream is the source to reconcile from.
 
-Not done: signals from the proxy, which emits `circuit.tripped` per refused
-call, not per session.
+Signals from the proxy: done (demo 20). The proxy's `circuit.tripped` is
+now once per session too, fixed in the one function both proxy entries
+share. The proxy gets the webhook but not Kubernetes Events: Events carry
+no creator, and a sidecar's ServiceAccount is the agent's, so the agent
+could forge them. That also applies to any Event consumer; `signals.md`
+says to act on Events only where a forged one is harmless.
 
 ## Out of scope
 

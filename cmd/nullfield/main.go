@@ -30,6 +30,7 @@ import (
 	"github.com/babywyrm/nullfield/pkg/policy"
 	"github.com/babywyrm/nullfield/pkg/proxy"
 	"github.com/babywyrm/nullfield/pkg/registry"
+	"github.com/babywyrm/nullfield/pkg/signals"
 
 	v1alpha1 "github.com/babywyrm/nullfield/api/v1alpha1"
 )
@@ -107,6 +108,16 @@ func main() {
 	if ctrlClient != nil {
 		emitters = append(emitters, &controllerEmitter{client: ctrlClient, logger: logger})
 	}
+
+	sinks, err := signals.FromEnv(logger, signals.Options{Emits: []audit.EventType{
+		audit.EventCircuitTripped, audit.EventToolDenied, audit.EventAnomalyVelocity,
+		audit.EventIdentityFailed, audit.EventHoldCreated,
+	}})
+	if err != nil {
+		logger.Error("signals", "error", err)
+		os.Exit(1)
+	}
+	emitters = append(emitters, sinks...)
 
 	auditor := audit.NewMultiEmitter(emitters...)
 

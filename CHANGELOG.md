@@ -73,6 +73,15 @@ them silent, which is the argument for the exercise.
   applies before any is charged, so a refused call spends nothing. A call
   with no subject is refused rather than counted under a shared key.
 
+- **Signals from the proxy.** The proxy and gateway take the same signed
+  webhook (`NULLFIELD_SIGNAL_WEBHOOK_URL`). A session's trip is now one
+  `circuit.tripped` event; later refusals in that session are `tool.denied`
+  with `gate: circuit`. `nullfield_circuit_trips_total` therefore counts
+  tripped sessions, not refused calls; the shipped alert (`increase > 0`)
+  is unaffected. The proxy refuses `NULLFIELD_SIGNAL_KUBE_EVENTS`: a
+  sidecar shares the agent's ServiceAccount, so the agent could forge
+  Events. Demo 20 (tier 1).
+
 - **Signals** (ext_authz). A run that trips its circuit breaker emits one
   `circuit.tripped` event, however many calls it then makes, carrying the run
   and its workload. `NULLFIELD_SIGNAL_KUBE_EVENTS=true` records it as a

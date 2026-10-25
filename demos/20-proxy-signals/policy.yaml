@@ -1,0 +1,15 @@
+apiVersion: nullfield.io/v1alpha1
+kind: NullfieldPolicy
+metadata:
+  name: proxy-signals-demo
+spec:
+  # Each session gets two calls; the third trips that session's breaker.
+  circuitBreaker:
+    maxToolCallsPerSession: 2
+  rules:
+    - action: ALLOW
+      mcpMethod: tools/call
+      toolNames: [echo]
+    - action: DENY
+      mcpMethod: tools/call
+      toolNames: ["*"]

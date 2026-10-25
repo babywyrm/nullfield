@@ -145,7 +145,7 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 
 	call := gates.Call{Tool: tc.Name, Subject: id.Subject, Session: id.SessionID}
 	if r := h.gates.Admit(call); r != nil {
-		h.auditor.Emit(ctx, eventWithIdentity(gateEvent(r, req.Method, tc.Name), id))
+		h.auditor.Emit(ctx, eventWithIdentity(gateEvent(h.gates, call.Session, r, req.Method, tc.Name), id))
 		code, msg := gateError(r, tc.Name)
 		h.writeJSONRPCError(w, req.ID, code, msg)
 		return
@@ -270,13 +270,13 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 
 	refusal, warning := h.gates.Charge(call, decision)
 	if refusal != nil {
-		h.auditor.Emit(ctx, eventWithDecision(gateEvent(refusal, req.Method, tc.Name), decision, id))
+		h.auditor.Emit(ctx, eventWithDecision(gateEvent(h.gates, call.Session, refusal, req.Method, tc.Name), decision, id))
 		code, msg := gateError(refusal, tc.Name)
 		h.writeJSONRPCError(w, req.ID, code, msg)
 		return
 	}
 	if warning != nil {
-		h.auditor.Emit(ctx, eventWithDecision(gateEvent(warning, req.Method, tc.Name), decision, id))
+		h.auditor.Emit(ctx, eventWithDecision(gateEvent(h.gates, call.Session, warning, req.Method, tc.Name), decision, id))
 	}
 
 	h.auditor.Emit(ctx, eventWithDecision(audit.Event{
@@ -435,13 +435,17 @@ func setRequestBody(r *http.Request, body []byte) {
 	r.Header.Set("Content-Length", strconv.Itoa(len(body)))
 }
 
-// gateEvent is the audit event for a gate's refusal or warning.
-func gateEvent(r *gates.Refusal, method, tool string) audit.Event {
+// gateEvent is the audit event for a gate's refusal or warning. A session's
+// first circuit refusal is its trip; later ones are ordinary denials, so a
+// trip alerts and signals once.
+func gateEvent(g gates.Gates, session string, r *gates.Refusal, method, tool string) audit.Event {
 	e := audit.Event{Type: audit.EventToolDenied, Method: method, ToolName: tool,
 		Gate: r.Gate, ReasonClass: r.ReasonClass, Reason: r.Reason}
 	switch r.Gate {
 	case gates.GateCircuit:
-		e.Type = audit.EventCircuitTripped
+		if g.Breaker != nil && g.Breaker.FirstTrip(session) {
+			e.Type = audit.EventCircuitTripped
+		}
 	case gates.GateAnomaly:
 		e.Type = audit.EventAnomalyVelocity
 	}

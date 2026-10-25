@@ -64,40 +64,8 @@ subjects:
     name: nullfield-extauthz
     namespace: nullfield-mesh-demo
 ---
-# What a run controller's endpoint has to do: check the signature over the
-# timestamp and body, refuse stale timestamps, then act on the run.
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: signal-receiver
-  namespace: nullfield-mesh-demo
-data:
-  receiver.py: |
-    import hashlib, hmac, http.server, json, time
-
-    secret = open("/etc/signal/secret", "rb").read().strip()
-
-    class Handler(http.server.BaseHTTPRequestHandler):
-        def do_POST(self):
-            body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-            ts = self.headers.get("X-Nullfield-Timestamp", "")
-            want = "sha256=" + hmac.new(secret, ts.encode() + b"." + body, hashlib.sha256).hexdigest()
-            fresh = ts.isdigit() and abs(time.time() - int(ts)) < 300
-            if not (fresh and hmac.compare_digest(want, self.headers.get("X-Nullfield-Signature", ""))):
-                print(json.dumps({"msg": "rejected"}), flush=True)
-                self.send_response(401)
-                self.end_headers()
-                return
-            e = json.loads(body)
-            print(json.dumps({"msg": "verified", "type": e.get("type"), "run_id": e.get("run_id")}), flush=True)
-            self.send_response(204)
-            self.end_headers()
-
-        def log_message(self, *args):
-            pass
-
-    http.server.HTTPServer(("", 8080), Handler).serve_forever()
----
+# The receiver's script, demos/19-signals/receiver.py, is loaded into the
+# signal-receiver ConfigMap by test.sh.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

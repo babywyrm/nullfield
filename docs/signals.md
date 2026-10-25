@@ -5,20 +5,29 @@ controller that launched a run's pod. nullfield refuses the call; the
 controller decides what happens to the run, such as ending its pod.
 nullfield never deletes pods itself, so it never holds that permission.
 
-Supported by `nullfield-extauthz`. Delivery is asynchronous and never delays a
-decision.
+Supported by `nullfield-extauthz` and the proxy (`nullfield`, sidecar or
+gateway), with one difference: the proxy has no Kubernetes Events channel
+(see [below](#kubernetes-events)). Delivery is asynchronous and never delays
+a decision.
 
 ## What is signalled
 
-By default only `circuit.tripped`: a run that went past its
-[circuit breaker](identity-policy.md#run-tokens-ext_authz). It is emitted
-**once per run**, on the first refused call, however many calls the run
-makes after that. Every refused call is still an `arbiter.decision` in the
-audit stream.
+By default only `circuit.tripped`: a run (ext_authz) or session (proxy) that
+went past its circuit breaker. It is emitted **once per run or session**, on
+the first refused call, however many calls follow. Later refusals are still
+in the audit stream: as `arbiter.decision` on ext_authz, as `tool.denied` with
+`gate: circuit` on the proxy.
 
 `NULLFIELD_SIGNAL_EVENTS` selects other types, comma-separated, from those
-this service emits: `circuit.tripped`, `arbiter.decision` (every decision;
-high volume), `anomaly.velocity`. Any other value refuses to start.
+the binary emits. Any other value refuses to start.
+
+| Binary | Selectable |
+|---|---|
+| `nullfield-extauthz` | `circuit.tripped`, `arbiter.decision` (every decision; high volume), `anomaly.velocity` |
+| `nullfield` | `circuit.tripped`, `tool.denied`, `anomaly.velocity`, `identity.failed`, `hold.created` |
+
+On ext_authz the event carries `run_id` and the attested
+`workload_principal`; on the proxy, `session_id` and `identity`.
 
 ## Channels
 
@@ -57,6 +66,17 @@ kubectl get events.events.k8s.io -n agents --field-selector reason=CircuitTrippe
 An event about a caller that was not attested names no ServiceAccount and is
 not recorded.
 
+**Events are not authenticated.** Kubernetes records no creator for an
+Event, so anything allowed to create Events in a namespace can write one
+that looks like nullfield's. Act on an Event directly only where acting on a
+forged one is harmless. Where a forged trip would end someone else's run,
+act on the signed webhook, or use the Event only as a prompt to check.
+
+The proxy offers no Events channel for this reason: a sidecar runs as the
+agent's ServiceAccount, so the permission to create Events would be the
+agent's too. `NULLFIELD_SIGNAL_KUBE_EVENTS=true` on the proxy refuses to
+start.
+
 The API server is verified against the service account CA, and the token is
 re-read on each delivery because projected tokens rotate.
 
@@ -85,8 +105,8 @@ The audit event as JSON, signed:
 
 The receiver must check the signature with a constant-time compare and reject
 stale timestamps, or anyone who can reach it can end runs, or replay an old
-signal. [Demo 19](../demos/19-signals/) has a receiver that does both in
-twenty lines of Python.
+signal. [`demos/19-signals/receiver.py`](../demos/19-signals/receiver.py)
+does both in twenty lines of Python.
 
 A non-2xx response or a network error is retried four times with backoff
 (1s, 2s, 4s, 8s), then logged as `signal not delivered`.
