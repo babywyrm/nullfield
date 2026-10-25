@@ -81,6 +81,12 @@ them silent, which is the argument for the exercise.
   to. The CRD schema gains `runToken`; without it the API server would
   have pruned the block silently. Reference in `docs/identity-policy.md`.
 
+  Demo 17 proves it through a real waypoint: a stand-in controller (an RSA
+  key, a JWKS on nginx, `openssl dgst -sign`) mints tokens, one run is held
+  to one repo, a token minted for another pod and an access token posing as
+  a run token are both refused, and the upstream never sees `Txn-Token`.
+  The echo server now logs whether `Txn-Token` arrived, never its value.
+
 - **`celExpression` is evaluated.** A rule can now match on any part of the
   normalized request (target, operation, arguments, identity, claims)
   without a new Go field per scenario. It is an extra match condition beside

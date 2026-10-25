@@ -1,0 +1,53 @@
+# Stands in for the run controller's key endpoint. test.sh generates a fresh
+# key each run, writes its JWKS into the run-controller-jwks ConfigMap, and
+# mints the tokens itself; this only publishes the public half.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: run-controller
+  namespace: nullfield-mesh-demo
+  labels:
+    app: run-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: run-controller
+  template:
+    metadata:
+      labels:
+        app: run-controller
+    spec:
+      containers:
+        - name: jwks
+          image: nginx:alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          volumeMounts:
+            - name: jwks
+              mountPath: /usr/share/nginx/html/.well-known
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /.well-known/jwks.json
+              port: http
+            periodSeconds: 2
+      volumes:
+        - name: jwks
+          configMap:
+            name: run-controller-jwks
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: run-controller
+  namespace: nullfield-mesh-demo
+spec:
+  selector:
+    app: run-controller
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

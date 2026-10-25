@@ -155,6 +155,8 @@ Decisions:
   one empty session key.
 
 **3a (done).** As designed above. Bound calls report assurance `MEDIUM`.
+Demo 17 verifies it on brainbox through a real waypoint, including the
+binding, narrowing by `tctx`, and the strip.
 Found on the way: the CRD schema does not preserve unknown fields at `spec`,
 so a new top-level block is pruned silently unless the schema names it.
 

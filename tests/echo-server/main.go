@@ -64,7 +64,8 @@ func main() {
 			return
 		}
 
-		logger.Info("received", "method", req.Method, "id", req.ID)
+		// Presence only, never the value: demo 17 asserts the arbiter stripped it.
+		logger.Info("received", "method", req.Method, "id", req.ID, "txn_token", r.Header.Get("Txn-Token") != "")
 
 		var result any
 

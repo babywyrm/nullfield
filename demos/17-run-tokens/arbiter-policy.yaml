@@ -1,0 +1,39 @@
+# Replaces demo 16's policy in the same namespace. Demo 16 re-applies its own
+# on its next run, so the two do not need cleaning up after each other.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nullfield-extauthz-policy
+  namespace: nullfield-mesh-demo
+data:
+  policy.yaml: |
+    apiVersion: nullfield.io/v1alpha1
+    kind: NullfieldPolicy
+    metadata:
+      name: run-token-demo
+    spec:
+      runToken:
+        jwksUri: http://run-controller/.well-known/jwks.json
+        audience: cluster.local
+        maxLifetime: 15m
+      rules:
+        # Policy grants echo. The run token narrows it to the repos its
+        # controller listed in tctx; it cannot add one.
+        - action: ALLOW
+          mcpMethod: tools/call
+          toolNames: [echo]
+          celExpression: request.arguments.repo in request.run.context.repos
+        - action: DENY
+          mcpMethod: tools/call
+          toolNames: ["*"]
+      audit:
+        logLevel: FULL
+
+  tools.yaml: |
+    apiVersion: nullfield.io/v1alpha1
+    kind: ToolRegistry
+    metadata:
+      name: run-token-demo-tools
+    tools:
+      - name: echo
+        description: Echoes back the input
