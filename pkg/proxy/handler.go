@@ -69,7 +69,7 @@ func NewHandler(opts HandlerOpts) *Handler {
 		verifier:     opts.Verifier,
 		integrity:    opts.Integrity,
 		gates: gates.Gates{Registry: opts.Registry, Breaker: opts.Breaker,
-			Budgets: opts.Budgets, Velocity: opts.Velocity},
+			Budgets: opts.Budgets, Velocity: opts.Velocity, Rates: gates.NewRates()},
 		holds:       opts.Holds,
 		credentials: opts.Credentials,
 		inspector:   opts.Inspector,
@@ -268,7 +268,7 @@ func (h *Handler) handleToolsCall(ctx context.Context, w http.ResponseWriter, r 
 		}, decision, id))
 	}
 
-	refusal, warning := h.gates.Charge(call, decision.MatchedRule)
+	refusal, warning := h.gates.Charge(call, decision)
 	if refusal != nil {
 		h.auditor.Emit(ctx, eventWithDecision(gateEvent(refusal, req.Method, tc.Name), decision, id))
 		code, msg := gateError(refusal, tc.Name)
@@ -455,7 +455,7 @@ func gateError(r *gates.Refusal, tool string) (int, string) {
 		return ErrCodeToolUnknown, r.Reason + ": " + tool
 	case r.Gate == gates.GateCircuit:
 		return ErrCodeCircuitOpen, r.Reason
-	case r.ReasonClass == gates.ReasonBudgetUnattributable:
+	case r.ReasonClass == gates.ReasonBudgetUnattributable, r.ReasonClass == gates.ReasonRateUnattributable:
 		// Waiting will not help, so this is not a rate limit.
 		return ErrCodePolicyDenied, r.Reason
 	}

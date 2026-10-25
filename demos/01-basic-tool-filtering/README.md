@@ -90,9 +90,9 @@ breaker, so changing `circuitBreaker` in a mounted policy needs a restart.
 circuit breaker configured maxCallsPerSession=5 maxSessionDuration=5m0s source=policy
 ```
 
-**`onTrip` is still only a label.** Nothing in the codebase reads it, so `DENY`
-and `KILL_POD` behave identically. The test greps for a reader and fails if one
-appears, so the claim is checked rather than remembered.
+**`onTrip` accepts only what happens.** A tripped breaker refuses calls, so
+`DENY` (or `REJECT`) is accepted and `KILL_POD` is refused when the policy
+loads: nothing ends the pod yet, and a policy should not say it does.
 
 ## What the test asserts
 
@@ -108,7 +108,6 @@ the registry runs before policy:
 the circuit breaker is per session:
   ok:  a session over its call limit returns -32002
   ok:  the limit came from the policy, not from the environment's looser value
-  gap: onTrip is parsed and unread, so DENY and KILL_POD do the same thing
   ok:  a different session is unaffected
 
 every decision is on the record:

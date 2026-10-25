@@ -1,7 +1,7 @@
 # Fixed Core, Edge Adapters — Design
 
 **Date:** 2026-10-24
-**Status:** Step 1 done; step 2 next
+**Status:** Step 1 and 2a done; 2b (CEL) next
 **Related:**
 - [`2026-07-26-mesh-native-arbiter.md`](2026-07-26-mesh-native-arbiter.md) — the three facts and authority grants this builds on
 
@@ -94,6 +94,15 @@ Found while doing this, recorded rather than fixed here:
 the normalized request, so target, operation and run-token narrowing are
 expressible without a new Go field per scenario. Until then, reject policies
 that set `celExpression`.
+
+**2a (done):** auditing for the rejection found the problem was wider than
+CEL. Every policy field is now either enforced or refused at load, including
+by the CRD controller. Newly enforced: `maxCallsPerMinute` (rule and
+registry), `requireExpiry`, `maxLifetime`. Refused: unknown keys and the
+fields listed in the CHANGELOG. Still accepted but advisory: `selector`,
+`audit.emitTo`, `audit.logLevel`, `inspection.detectPaths`.
+
+**2b (next):** CEL, which replaces the `celExpression` refusal.
 
 ### 3. Identity composed from several sources
 

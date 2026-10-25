@@ -51,11 +51,12 @@ type GatewayHandlerOpts struct {
 
 func NewGatewayHandler(opts GatewayHandlerOpts) *GatewayHandler {
 	return &GatewayHandler{
-		router:      opts.Router,
-		auditor:     opts.Auditor,
-		verifier:    opts.Verifier,
-		integrity:   opts.Integrity,
-		gates:       gates.Gates{Breaker: opts.Breaker, Budgets: opts.Budgets, Velocity: opts.Velocity},
+		router:    opts.Router,
+		auditor:   opts.Auditor,
+		verifier:  opts.Verifier,
+		integrity: opts.Integrity,
+		gates: gates.Gates{Breaker: opts.Breaker, Budgets: opts.Budgets,
+			Velocity: opts.Velocity, Rates: gates.NewRates()},
 		holds:       opts.Holds,
 		credentials: opts.Credentials,
 		logger:      opts.Logger,
@@ -263,7 +264,7 @@ func (g *GatewayHandler) handleToolsCall(ctx context.Context, w http.ResponseWri
 		}, decision, id))
 	}
 
-	refusal, warning := gs.Charge(call, decision.MatchedRule)
+	refusal, warning := gs.Charge(call, decision)
 	if refusal != nil {
 		refuse(refusal, decision)
 		return

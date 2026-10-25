@@ -37,25 +37,10 @@ spec:
       mcpMethod: tools/call
       toolNames: ["*"]
 
-    # --- OUTBOUND rules (planned — not yet enforced by the policy engine) ---
-
-    # Allow outbound to Anthropic with credential injection
-    - action: ALLOW
-      direction: OUTBOUND
-      destination: "api.anthropic.com"
-      injectCredential:
-        secretRef: anthropic-api-key
-        from: aws-secrets-manager
-
-    # Block outbound to unknown LLM providers
-    - action: DENY
-      direction: OUTBOUND
-      destination: "*"
-
   circuitBreaker:
     maxToolCallsPerSession: 100
     maxSessionDuration: 300s
-    onTrip: KILL_POD
+    onTrip: DENY
 
   audit:
     emitTo: otel-collector.observability:4317

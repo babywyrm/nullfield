@@ -60,6 +60,26 @@ func TestABudgetedRuleRefusesTheCallPastItsLimit(t *testing.T) {
 	}
 }
 
+func TestARulesMaxCallsPerMinuteRefusesTheWorkloadPastIt(t *testing.T) {
+	rec := &recorder{}
+	s := NewServer(Config{
+		Mode: ModeEnforce, Audit: rec,
+		Engine: policy.NewRuleEngine([]v1alpha1.Rule{{
+			Action: v1alpha1.ActionAllow, ToolNames: []string{"secrets.leak_config"}, MaxCallsPerMin: 1,
+		}}),
+		Gates: gates.Gates{Rates: gates.NewRates()},
+	})
+	if got := status(t, s, checkRequest(spiffeRunner, toolsCallBody, nil)); got != codes.OK {
+		t.Fatalf("first call: %v, want OK", got)
+	}
+	if got := status(t, s, checkRequest(spiffeRunner, toolsCallBody, nil)); got != codes.PermissionDenied {
+		t.Fatalf("second call in the minute: %v, want PermissionDenied", got)
+	}
+	if last := rec.events[len(rec.events)-1]; last.Gate != gates.GateRate {
+		t.Errorf("refusal recorded as gate=%q, want %q", last.Gate, gates.GateRate)
+	}
+}
+
 func TestObserveModeChargesBudgetsSoItsCounterfactualIsTrue(t *testing.T) {
 	// A shadow deployment that never charged would report every call as
 	// allowed, and the rollout it was meant to inform would break on day one.

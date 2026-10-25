@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/babywyrm/nullfield/pkg/flow"
+	"github.com/babywyrm/nullfield/pkg/policy"
 	"gopkg.in/yaml.v3"
 )
 
@@ -207,6 +208,11 @@ func (w *Watcher) syncActivePolicy(ctx context.Context) {
 		w.logger.Warn("active-policy sync: failed to marshal", "name", pickedName, "error", err)
 		return
 	}
+	if _, err := policy.ParseSpec(policyYAML); err != nil {
+		w.logger.Error("active-policy sync: not publishing a policy the sidecar would refuse; keeping the current one",
+			"name", pickedName, "error", err)
+		return
+	}
 
 	// Change-detection so we don't churn the ConfigMap (and trigger pointless
 	// sidecar reloads) when nothing changed. This has to hash the whole
@@ -282,6 +288,11 @@ func (w *Watcher) syncPolicies(ctx context.Context) {
 			w.logger.Warn("failed to marshal policy", "name", name, "error", err)
 			continue
 		}
+		if _, err := policy.ParseSpec(policyYAML); err != nil {
+			w.logger.Error("not publishing a policy the sidecar would refuse; keeping the current one",
+				"name", name, "error", err)
+			continue
+		}
 
 		cmName := fmt.Sprintf("nullfield-policy-%s", name)
 		if err := w.upsertConfigMap(ctx, ns, cmName, map[string]string{
@@ -348,6 +359,16 @@ func (w *Watcher) syncAgenticFlows(ctx context.Context) {
 		policyYAML, err := yaml.Marshal(artifacts.Policy)
 		if err != nil {
 			w.logger.Warn("failed to marshal AgenticFlow policy", "name", name, "error", err)
+			continue
+		}
+		if _, err := policy.ParseSpec(policyYAML); err != nil {
+			w.logger.Error("AgenticFlow compiled to a policy the sidecar would refuse", "name", name, "error", err)
+			w.patchAgenticFlowStatus(ctx, ns, name, agenticFlowStatus{
+				ObservedGeneration: resourceGeneration(obj),
+				Conditions: []agenticFlowCondition{newAgenticFlowCondition(
+					"Compiled", "False", "PolicyInvalid", err.Error(),
+				)},
+			})
 			continue
 		}
 		registryYAML, err := yaml.Marshal(artifacts.Registry)

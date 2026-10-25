@@ -135,7 +135,7 @@ func loadSpec(path string) (*v1alpha1.NullfieldPolicySpec, error) {
 // There is no circuit breaker: it is keyed on the MCP session, which the mesh
 // does not carry, so it could never trip.
 func buildGates(spec *v1alpha1.NullfieldPolicySpec, logger *slog.Logger) (gates.Gates, error) {
-	var g gates.Gates
+	g := gates.Gates{Rates: gates.NewRates()}
 
 	// Only when set explicitly. config.Load defaults the path, and an arbiter
 	// deployed without a registry must not start refusing every tool because a

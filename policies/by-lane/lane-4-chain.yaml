@@ -40,10 +40,9 @@ spec:
       requireExpiry: true
       requireAudience: true
 
-  # Chain integrity: every hop must carry a valid act claim.
-  integrity:
-    enabled: true
-    chainValidation: true
+  # Chain integrity (every hop carries a valid act claim, audiences narrow,
+  # depth is bounded) is enforced per rule by the identity and delegation
+  # guards below.
 
   rules:
     - action: ALLOW

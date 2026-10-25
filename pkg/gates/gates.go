@@ -10,11 +10,14 @@ package gates
 
 import (
 	"fmt"
+	"sync"
+	"time"
 
 	v1alpha1 "github.com/babywyrm/nullfield/api/v1alpha1"
 	"github.com/babywyrm/nullfield/pkg/anomaly"
 	"github.com/babywyrm/nullfield/pkg/budget"
 	"github.com/babywyrm/nullfield/pkg/circuit"
+	"github.com/babywyrm/nullfield/pkg/policy"
 	"github.com/babywyrm/nullfield/pkg/registry"
 )
 
@@ -24,21 +27,70 @@ const (
 	GateCircuit  = "circuit"
 	GateBudget   = "budget"
 	GateAnomaly  = "anomaly"
+	GateRate     = "rate"
 
 	ReasonToolNotRegistered    = "tool_not_registered"
 	ReasonCircuitOpen          = "circuit_open"
 	ReasonBudgetExhausted      = "budget_exhausted"
 	ReasonBudgetUnattributable = "budget_unattributable"
 	ReasonVelocityLimit        = "velocity_limit"
+	ReasonRateLimited          = "rate_limited"
+	ReasonRateUnattributable   = "rate_unattributable"
 )
 
-// Gates holds the checks to run. A nil member skips that check, so the zero
-// value admits and charges everything.
+// Gates holds the checks to run. A nil member skips that check, except Rates:
+// a rate limit is written in the policy, so with no counter a call it applies
+// to is refused rather than let through uncounted.
 type Gates struct {
 	Registry *registry.Registry
 	Breaker  *circuit.Breaker
 	Budgets  *budget.Tracker
 	Velocity *anomaly.VelocityTracker
+	Rates    *Rates
+}
+
+// Rates counts calls over a sliding minute, for maxCallsPerMinute.
+//
+// ponytail: windows are never swept, so memory grows with distinct
+// subject-and-limit pairs. Bounded for workload identities; add a sweep like
+// circuit.Breaker's if subjects become per-request.
+type Rates struct {
+	mu    sync.Mutex
+	calls map[string][]time.Time
+}
+
+func NewRates() *Rates { return &Rates{calls: map[string][]time.Time{}} }
+
+type rateLimit struct {
+	scope string
+	max   int
+}
+
+// take records a call against every limit, or against none if any is full,
+// so a refused call never uses up another limit's allowance.
+func (r *Rates) take(subject string, limits []rateLimit) (rateLimit, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	cutoff := now.Add(-time.Minute)
+	for _, l := range limits {
+		key := l.scope + "\x00" + subject
+		live := r.calls[key][:0]
+		for _, t := range r.calls[key] {
+			if t.After(cutoff) {
+				live = append(live, t)
+			}
+		}
+		r.calls[key] = live
+		if len(live) >= l.max {
+			return l, false
+		}
+	}
+	for _, l := range limits {
+		key := l.scope + "\x00" + subject
+		r.calls[key] = append(r.calls[key], now)
+	}
+	return rateLimit{}, true
 }
 
 // Call is what the gates need to know about a request.
@@ -73,11 +125,15 @@ func (g Gates) Admit(c Call) *Refusal {
 	return nil
 }
 
-// Charge runs after policy has allowed a call, against the rule that allowed
-// it, and records the call as made. A velocity alert configured only to log
-// comes back as warning, for the caller to audit; it does not stop the call.
-func (g Gates) Charge(c Call, rule *v1alpha1.Rule) (refusal, warning *Refusal) {
-	if r := g.chargeBudget(c, rule); r != nil {
+// Charge runs after policy has allowed a call, against the decision that
+// allowed it, and records the call as made. A velocity alert configured only
+// to log comes back as warning, for the caller to audit; it does not stop the
+// call.
+func (g Gates) Charge(c Call, d policy.Decision) (refusal, warning *Refusal) {
+	if r := g.chargeRates(c, d); r != nil {
+		return r, nil
+	}
+	if r := g.chargeBudget(c, d.MatchedRule); r != nil {
 		return r, nil
 	}
 	if g.Breaker != nil {
@@ -96,6 +152,42 @@ func (g Gates) Charge(c Call, rule *v1alpha1.Rule) (refusal, warning *Refusal) {
 		return r, nil
 	}
 	return nil, r
+}
+
+// chargeRates applies maxCallsPerMinute from the rule that allowed the call
+// and from the tool's registry entry, counted per subject.
+func (g Gates) chargeRates(c Call, d policy.Decision) *Refusal {
+	var limits []rateLimit
+	if rule := d.MatchedRule; rule != nil && rule.MaxCallsPerMin > 0 {
+		key := rule.ID
+		if key == "" {
+			// ponytail: an index key shifts when a reload inserts a rule above
+			// it, resetting that rule's window. Give rules an id to avoid it.
+			key = fmt.Sprintf("#%d", d.RuleIndex)
+		}
+		limits = append(limits, rateLimit{"rule " + key, rule.MaxCallsPerMin})
+	}
+	if g.Registry != nil && c.Tool != "" {
+		if entry, ok := g.Registry.Get(c.Tool); ok && entry.MaxCallsPerMin > 0 {
+			limits = append(limits, rateLimit{"tool " + c.Tool, entry.MaxCallsPerMin})
+		}
+	}
+	if len(limits) == 0 {
+		return nil
+	}
+	if c.Subject == "" {
+		return &Refusal{Gate: GateRate, ReasonClass: ReasonRateUnattributable,
+			Reason: "rate limit cannot be charged: the call has no identity to charge it to"}
+	}
+	if g.Rates == nil {
+		return &Refusal{Gate: GateRate, ReasonClass: ReasonRateLimited,
+			Reason: "rate limit configured but not counted"}
+	}
+	if l, ok := g.Rates.take(c.Subject, limits); !ok {
+		return &Refusal{Gate: GateRate, ReasonClass: ReasonRateLimited,
+			Reason: fmt.Sprintf("rate limit exceeded: %s allows %d calls/min", l.scope, l.max)}
+	}
+	return nil
 }
 
 func (g Gates) chargeBudget(c Call, rule *v1alpha1.Rule) *Refusal {

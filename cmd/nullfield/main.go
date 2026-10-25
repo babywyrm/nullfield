@@ -145,17 +145,26 @@ func main() {
 				clockSkew, _ = time.ParseDuration(p.ClockSkew)
 			}
 			var allowedAlgs []string
-			if spec.Identity.Validation != nil {
-				allowedAlgs = spec.Identity.Validation.AllowedAlgorithms
+			var requireExpiry bool
+			var maxLifetime time.Duration
+			if val := spec.Identity.Validation; val != nil {
+				allowedAlgs = val.AllowedAlgorithms
+				requireExpiry = val.RequireExpiry
+				if val.MaxLifetime != "" {
+					// LoadSpecFromFile has already rejected an unparseable value.
+					maxLifetime, _ = time.ParseDuration(val.MaxLifetime)
+				}
 			}
 			providers = append(providers, identity.NewJWKSVerifier(identity.JWKSVerifierConfig{
-				ProviderName: p.Name,
-				Issuer:       p.Issuer,
-				JWKSURI:      p.JWKSURI,
-				Audiences:    p.Audiences,
-				ClockSkew:    clockSkew,
-				AllowedAlgs:  allowedAlgs,
-				Header:       cfg.IdentityTokenHeader,
+				ProviderName:  p.Name,
+				Issuer:        p.Issuer,
+				JWKSURI:       p.JWKSURI,
+				Audiences:     p.Audiences,
+				ClockSkew:     clockSkew,
+				AllowedAlgs:   allowedAlgs,
+				Header:        cfg.IdentityTokenHeader,
+				RequireExpiry: requireExpiry,
+				MaxLifetime:   maxLifetime,
 			}))
 			logger.Info("configured identity provider", "name", p.Name, "issuer", p.Issuer)
 		}

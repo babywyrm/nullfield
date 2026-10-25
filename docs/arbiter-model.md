@@ -141,12 +141,10 @@ Standard JSON-RPC 2.0 application-defined error codes:
   hold:
     timeout: 5m
     onTimeout: DENY          # DENY or ALLOW
-    notify:
-      webhook: "https://hooks.slack.com/..."
-      # or: adminAPI: true   (poll via GET /admin/holds)
-    approvers:
-      groups: [security-team]
   reason: "agent delegation requires human approval"
+# Pending holds are listed and resolved at GET /admin/holds. Webhook
+# notification and approver groups are not implemented; a policy that sets
+# hold.notify is refused.
 ```
 
 ### SCOPE (v0.4)
@@ -179,9 +177,9 @@ Standard JSON-RPC 2.0 application-defined error codes:
       maxCallsPerHour: 100
       maxTokensPerDay: 50000
     perSession:
-      maxCalls: 20
-      maxTokens: 10000
-    onExhausted: DENY        # DENY or LOG
+      maxCallsPerHour: 20
+      maxTokensPerDay: 10000
+    onExhausted: DENY        # the only value; an exhausted budget always denies
   reason: "LLM calls are budget-limited"
 ```
 

@@ -253,39 +253,13 @@ Works with any OTLP-compatible collector (Jaeger, Tempo, Datadog, Honeycomb, etc
 
 ---
 
-## Tool-Chain Sequence Detection
+## Not wired yet: sequence and claims-drift detection
 
-Detects suspicious ordered patterns of tool calls within a session. Configure patterns in the policy:
-
-```yaml
-anomaly:
-  enabled: true
-  sequences:
-    - name: recon-then-exfil
-      tools: [audit.list_actions, secrets.read_credential, egress.fetch_url]
-      alertAction: DENY
-    - name: enumerate-then-invoke
-      tools: [tools.list, delegation.invoke_agent]
-      alertAction: LOG
-```
-
-The tracker maintains a sliding window of recent tool calls per session (default 20). When a pattern matches (tools appear in order, not necessarily consecutively), it emits an alert and optionally denies the request.
-
----
-
-## Claims Drift Detection
-
-Detects when an identity's JWT claims (scopes, groups) change mid-session without re-authentication. Enable via:
-
-```yaml
-integrity:
-  enabled: true
-  detectDrift: true
-```
-
-On the first request in a session, nullfield snapshots the identity's scopes and groups. Subsequent requests are compared against the baseline. If scopes or groups change, the request is rejected with `-32001` and an `identity.failed` audit event.
-
-This catches token manipulation where an attacker escalates privileges by modifying claims between requests.
+Both detectors exist as packages — `pkg/anomaly/sequence.go` matches ordered
+tool-call patterns per session, `pkg/identity/drift.go` notices scopes or
+groups changing mid-session — but no front door runs either. A policy that sets
+`anomaly.sequences` is refused when it loads rather than accepted and ignored,
+and there is no policy field for drift detection.
 
 ---
 

@@ -192,7 +192,7 @@ func (s *Server) decide(ctx context.Context, t *Translated) policy.Decision {
 	if !decision.Allowed {
 		return decision
 	}
-	r, warning := s.gates.Charge(call, decision.MatchedRule)
+	r, warning := s.gates.Charge(call, decision)
 	if r != nil {
 		return refuse(decision, r)
 	}

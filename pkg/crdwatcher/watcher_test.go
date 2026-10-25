@@ -83,6 +83,42 @@ func TestSyncPolicies_CreateConfigMap(t *testing.T) {
 	}
 }
 
+// The CRD schema preserves unknown fields, so the API server accepts a typo
+// the sidecar will refuse. Publishing it would replace a working policy with
+// one that loads as deny-all on the next restart.
+func TestAPolicyTheSidecarWouldRefuseIsNotPublished(t *testing.T) {
+	bad := map[string]any{
+		"metadata": map[string]any{
+			"name": "typo", "namespace": "default",
+			"labels": map[string]any{"nullfield.io/active-for": "brain-gateway"},
+		},
+		"spec": map[string]any{"rules": []map[string]any{{"action": "ALLOW", "requireIdentiy": true}}},
+	}
+	var written bool
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/apis/nullfield.io/v1alpha1/namespaces/default/nullfieldpolicies" {
+			json.NewEncoder(w).Encode(map[string]any{"items": []any{bad}})
+			return
+		}
+		if r.Method == http.MethodPost || r.Method == http.MethodPut {
+			written = true
+		}
+		http.NotFound(w, r)
+	})
+
+	w := testWatcher(handler)
+	w.syncPolicies(context.Background())
+	if written {
+		t.Error("syncPolicies published a policy the sidecar refuses")
+	}
+
+	w.activeTargetCM, w.activeTargetCMKey, w.activeTargetLabel = "nullfield-active-policy", "policy.yaml", "brain-gateway"
+	w.syncActivePolicy(context.Background())
+	if written {
+		t.Error("syncActivePolicy published a policy the sidecar refuses")
+	}
+}
+
 func TestSyncRegistries_CreateConfigMap(t *testing.T) {
 	var mu sync.Mutex
 	var created map[string]any

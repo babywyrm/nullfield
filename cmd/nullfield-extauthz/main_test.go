@@ -21,6 +21,9 @@ func TestBuildGatesRegistry(t *testing.T) {
 		if err != nil || g.Registry != nil {
 			t.Fatalf("registry %v, err %v; want neither", g.Registry, err)
 		}
+		if g.Rates == nil {
+			t.Fatal("no rate counter, so every rule with maxCallsPerMinute would refuse")
+		}
 	})
 
 	t.Run("set but unreadable refuses to start", func(t *testing.T) {

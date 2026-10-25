@@ -97,13 +97,11 @@ if (( calls != 6 )); then
 fi
 pass "the limit came from the policy, not from the environment's looser value"
 
-# onTrip is the half that is still only a label. Nothing in the codebase reads
-# it, so DENY and KILL_POD behave identically. Asserted here so the claim is
-# checked rather than remembered.
-if grep -rqs 'OnTrip' --include='*.go' pkg cmd; then
-  fail "something now reads OnTrip -- it is no longer decorative, so update this demo"
-fi
-echo "  gap: onTrip is parsed and unread, so DENY and KILL_POD do the same thing"
+# onTrip names what a tripped breaker does. DENY is the only thing it does, so
+# the loader refuses KILL_POD rather than accept a reaction that never happens
+# (pkg/policy TestAReactionNullfieldDoesNotPerformIsRefused).
+grep -q 'onTrip: DENY' demos/01-basic-tool-filtering/policy.yaml \
+  || fail "this demo's policy no longer says onTrip: DENY; update the claim above"
 
 other="$(call s3 30 cost.check_usage)"
 [[ "$other" == *'echo-server executed'* ]] \

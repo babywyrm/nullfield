@@ -22,7 +22,6 @@ spec:
       hold:
         timeout: "5m"
         onTimeout: DENY
-        notifyWebhook: true
       reason: "requires human approval"
 
     # LLM-backed tools are budget-limited (enforced centrally by controller)

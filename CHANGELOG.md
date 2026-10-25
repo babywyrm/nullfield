@@ -58,6 +58,37 @@ them silent, which is the argument for the exercise.
   stops the arbiter from starting. The circuit breaker stays proxy-only, since
   it is keyed on an MCP session the mesh does not carry.
 
+- **`maxCallsPerMinute` is now enforced** (gate `rate`). It was accepted on
+  rules and registry entries, documented, and counted nowhere. It is a
+  sliding one-minute window per subject, checked across every limit that
+  applies before any is charged, so a refused call spends nothing. A call
+  with no subject is refused rather than counted under a shared key.
+
+- **`examples/policy.yaml` allowed everything on the mesh.** Its OUTBOUND
+  rules matched on `direction` and `destination`, which nothing evaluates, so
+  under ext_authz they matched every request. Removed.
+
+- **Identity validation is enforced.** `requireExpiry` and `maxLifetime` were
+  parsed and ignored, so a token with no `exp` was accepted forever.
+  `requireAudience` on a provider that lists no audiences now refuses to
+  load instead of checking nothing.
+
+- **A policy that asks for something nullfield does not do refuses to load.**
+  Unknown keys are errors (a misspelled `requireIdentiy` used to drop the
+  guard silently), and so are fields that parse but are not enforced:
+  `celExpression`, `direction`, `destination`, `injectCredential`,
+  `paramRules`, `hold.notify`, `integrity.chainValidation`,
+  `anomaly.sequences`, `onExhausted` other than `DENY`, and `onTrip` other
+  than `DENY`/`REJECT`. `onTrip: KILL_POD` never killed anything. The CRD
+  controller applies the same check and keeps the current ConfigMap rather
+  than publish a policy its sidecars would refuse.
+
+  **Migration:** a refused policy falls back to deny-all at startup and is
+  ignored on hot reload. Before upgrading, run your policies through this
+  build. Replace `onTrip: KILL_POD` with `DENY`; delete `chainValidation`
+  blocks (use per-rule identity and delegation guards). The shipped
+  policies are already changed.
+
 - **A budget that cannot be charged now refuses the call.** Omitting
   `Mcp-Session-Id` skipped a `perSession` budget entirely, and a `perIdentity`
   budget with no subject was skipped the same way, so a caller could opt out

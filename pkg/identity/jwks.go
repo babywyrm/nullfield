@@ -26,6 +26,8 @@ type JWKSVerifier struct {
 	clockSkew    time.Duration
 	allowedAlgs  map[string]bool
 	header       string
+	requireExpiry bool
+	maxLifetime   time.Duration
 
 	mu       sync.RWMutex
 	keys     map[string]any // kid -> *rsa.PublicKey or *ecdsa.PublicKey
@@ -42,6 +44,11 @@ type JWKSVerifierConfig struct {
 	AllowedAlgs  []string
 	Header       string
 	CacheTTL     time.Duration
+	// RequireExpiry refuses a token with no exp claim.
+	RequireExpiry bool
+	// MaxLifetime, when set, refuses a token valid for longer than this:
+	// exp minus iat, or exp minus now when iat is absent.
+	MaxLifetime time.Duration
 }
 
 func NewJWKSVerifier(cfg JWKSVerifierConfig) *JWKSVerifier {
@@ -67,8 +74,10 @@ func NewJWKSVerifier(cfg JWKSVerifierConfig) *JWKSVerifier {
 		audiences:    cfg.Audiences,
 		clockSkew:    cfg.ClockSkew,
 		allowedAlgs:  algs,
-		header:       cfg.Header,
-		keys:         make(map[string]any),
+		header:        cfg.Header,
+		requireExpiry: cfg.RequireExpiry,
+		maxLifetime:   cfg.MaxLifetime,
+		keys:          make(map[string]any),
 		cacheTTL:     cfg.CacheTTL,
 	}
 }
@@ -83,10 +92,12 @@ func (v *JWKSVerifier) Verify(r *http.Request) (*Identity, error) {
 		return nil, fmt.Errorf("malformed Bearer token")
 	}
 
-	token, err := jwt.Parse(tokenStr, v.keyFunc,
-		jwt.WithLeeway(v.clockSkew),
-		jwt.WithIssuer(v.issuer),
-	)
+	opts := []jwt.ParserOption{jwt.WithLeeway(v.clockSkew), jwt.WithIssuer(v.issuer)}
+	// The library checks exp only when present. A lifetime bound needs one.
+	if v.requireExpiry || v.maxLifetime > 0 {
+		opts = append(opts, jwt.WithExpirationRequired())
+	}
+	token, err := jwt.Parse(tokenStr, v.keyFunc, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("token validation failed: %w", err)
 	}
@@ -106,6 +117,11 @@ func (v *JWKSVerifier) Verify(r *http.Request) (*Identity, error) {
 
 	if len(v.audiences) > 0 {
 		if err := v.checkAudience(claims); err != nil {
+			return nil, err
+		}
+	}
+	if v.maxLifetime > 0 {
+		if err := v.checkLifetime(claims); err != nil {
 			return nil, err
 		}
 	}
@@ -210,6 +226,21 @@ func (v *JWKSVerifier) fetchKeys() error {
 	v.keys = newKeys
 	v.fetchedAt = time.Now()
 	v.mu.Unlock()
+	return nil
+}
+
+func (v *JWKSVerifier) checkLifetime(claims jwt.MapClaims) error {
+	exp, err := claims.GetExpirationTime()
+	if err != nil || exp == nil {
+		return fmt.Errorf("token has no expiry to bound")
+	}
+	start := time.Now()
+	if iat, err := claims.GetIssuedAt(); err == nil && iat != nil {
+		start = iat.Time
+	}
+	if life := exp.Sub(start); life > v.maxLifetime+v.clockSkew {
+		return fmt.Errorf("token lifetime %s exceeds maxLifetime %s", life.Round(time.Second), v.maxLifetime)
+	}
 	return nil
 }
 

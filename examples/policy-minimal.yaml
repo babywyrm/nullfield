@@ -18,7 +18,7 @@ spec:
   circuitBreaker:
     maxToolCallsPerSession: 100
     maxSessionDuration: 300s
-    onTrip: KILL_POD
+    onTrip: DENY
 
   audit:
     logLevel: FULL

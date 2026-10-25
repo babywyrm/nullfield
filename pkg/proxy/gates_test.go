@@ -133,6 +133,23 @@ func TestPerSessionBudgetRefusesACallThatPresentsNoSession(t *testing.T) {
 	}
 }
 
+func TestARulesMaxCallsPerMinuteIsEnforced(t *testing.T) {
+	for _, name := range []string{"proxy", "gateway"} {
+		t.Run(name, func(t *testing.T) {
+			rec := &captureEmitter{}
+			rule := v1alpha1.Rule{Action: v1alpha1.ActionAllow, MaxCallsPerMin: 1}
+			h := frontDoors(t, gated{rule: rule}, rec)[name]
+			if resp := send(t, h, "s1"); resp.Error != nil {
+				t.Fatalf("first call refused: %s", resp.Error.Message)
+			}
+			wantCode(t, send(t, h, "s1"), ErrCodeRateLimited)
+			if e := lastEvent(t, rec, audit.EventToolDenied); e.Gate != "rate" {
+				t.Errorf("gate %q, want rate", e.Gate)
+			}
+		})
+	}
+}
+
 func TestAVelocityAlertThatDeniesRefusesTheCall(t *testing.T) {
 	for _, name := range []string{"proxy", "gateway"} {
 		t.Run(name, func(t *testing.T) {
