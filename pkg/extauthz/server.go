@@ -275,6 +275,14 @@ func (s *Server) decide(ctx context.Context, t *Translated) policy.Decision {
 	}
 
 	if r := s.gates.Admit(call); r != nil {
+		if r.Gate == gates.GateCircuit && s.gates.Breaker.FirstTrip(call.Session) {
+			s.emit(ctx, audit.Event{
+				Type: audit.EventCircuitTripped, Target: t.Policy.Target, ToolName: t.Policy.ToolName,
+				Gate: r.Gate, ReasonClass: r.ReasonClass, Reason: r.Reason,
+				RunID: call.Session, SessionID: call.Session, Identity: t.Policy.Identity.Subject,
+				WorkloadPrincipal: t.RawPrincipal, Attester: t.Attestation.Attester, Assurance: AssuranceMedium,
+			})
+		}
 		return refuse(policy.Decision{RuleIndex: -1}, r)
 	}
 	decision := s.engine.Evaluate(ctx, t.Policy)

@@ -100,7 +100,7 @@ The top-level log fields are intentionally compact. The `payload` contains the f
 | `tool.allowed` | Tool call passed all gates and was forwarded |
 | `tool.denied` | Tool call blocked (registry, policy, or circuit breaker) |
 | `identity.failed` | Identity verification or integrity check failed |
-| `circuit.tripped` | Session exceeded call count or duration limit |
+| `circuit.tripped` | Session exceeded call count or duration limit. The proxy emits it per refused call; ext_authz once per run, as a [signal](signals.md) |
 | `anomaly.velocity` | Tool call velocity exceeded threshold |
 | `anomaly.sequence` | Suspicious tool call sequence detected |
 | `identity.drift` | Claims (scopes/groups) changed mid-session |

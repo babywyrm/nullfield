@@ -1,7 +1,7 @@
 # Fixed Core, Edge Adapters — Design
 
 **Date:** 2026-10-24
-**Status:** Steps 1–4 done (propagation and upstream token deferred); step 5 next
+**Status:** Steps 1–5 done (propagation, upstream token, proxy signals deferred)
 **Related:**
 - [`2026-07-26-mesh-native-arbiter.md`](2026-07-26-mesh-native-arbiter.md) — the three facts and authority grants this builds on
 
@@ -196,6 +196,29 @@ through a real waypoint by demo 18 on brainbox.
 
 `circuitBreaker.onTrip` is parsed and read nowhere. Decisions become events a
 controller can subscribe to, so the controller that owns a run's pod can end it.
+
+**Done.** `pkg/signals`; reference in [`docs/signals.md`](../signals.md);
+verified through a real waypoint by demo 19 on brainbox. Decisions:
+
+- **Channels are emitters.** Kubernetes Events, the webhook and OTLP are
+  `audit.Emitter`s at the edge; the decision core did not change shape.
+- **A trip signals once per run.** The breaker remembers it reported a
+  session, so a runaway loop is one signal, not one per refused call. That
+  memory is swept with the session.
+- **nullfield refuses; the controller ends the pod.** `onTrip` stays DENY.
+  Killing pods would need delete rights on every workload namespace, for a
+  decision the run's owner is better placed to make.
+- **Events regard the ServiceAccount.** The arbiter knows the attested
+  ServiceAccount, not the pod; the run ID annotation lets the controller
+  map it to its pod.
+- **Webhooks are always signed,** with a timestamp in the MAC so receivers
+  can refuse replays. An unsigned webhook refuses to start.
+- **Asynchronous with a bounded queue.** A slow receiver never slows a
+  decision; the ceiling (drops when full, loss on exit) is documented, and
+  the audit stream is the source to reconcile from.
+
+Not done: signals from the proxy, which emits `circuit.tripped` per refused
+call, not per session.
 
 ## Out of scope
 

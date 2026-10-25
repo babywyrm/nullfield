@@ -88,3 +88,39 @@ func TestTheBreakerRunsOnlyWithRunTokensAndDeclaredLimits(t *testing.T) {
 		})
 	}
 }
+
+func TestSignalsAskedForAndNotBuildableRefuseToStart(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	for name, env := range map[string]map[string]string{
+		"a type this service never emits": {"NULLFIELD_SIGNAL_EVENTS": "circuit.trip"},
+		"a webhook with no secret":        {"NULLFIELD_SIGNAL_WEBHOOK_URL": "https://controller/hook"},
+		"Kubernetes Events off-cluster":   {"NULLFIELD_SIGNAL_KUBE_EVENTS": "true"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			for k, v := range env {
+				t.Setenv(k, v)
+			}
+			if _, err := signalSinks(logger); err == nil {
+				t.Fatal("started")
+			}
+		})
+	}
+
+	t.Run("none asked for", func(t *testing.T) {
+		if sinks, err := signalSinks(logger); err != nil || len(sinks) != 0 {
+			t.Fatalf("sinks = %d, err = %v", len(sinks), err)
+		}
+	})
+	t.Run("a signed webhook", func(t *testing.T) {
+		secret := filepath.Join(t.TempDir(), "secret")
+		if err := os.WriteFile(secret, []byte("k\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("NULLFIELD_SIGNAL_WEBHOOK_URL", "https://controller/hook")
+		t.Setenv("NULLFIELD_SIGNAL_WEBHOOK_SECRET_FILE", secret)
+		t.Setenv("NULLFIELD_SIGNAL_EVENTS", "circuit.tripped, arbiter.decision")
+		if sinks, err := signalSinks(logger); err != nil || len(sinks) != 1 {
+			t.Fatalf("sinks = %d, err = %v", len(sinks), err)
+		}
+	})
+}

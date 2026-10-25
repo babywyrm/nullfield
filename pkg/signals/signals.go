@@ -1,0 +1,255 @@
+// Package signals delivers selected decision events to whoever acts on them,
+// such as the controller that owns a run's pod. Delivery is asynchronous and
+// never delays a decision.
+package signals
+
+import (
+	"bytes"
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/babywyrm/nullfield/pkg/audit"
+	"github.com/babywyrm/nullfield/pkg/identity"
+)
+
+// Deliver sends one event. An error is retried.
+type Deliver func(ctx context.Context, e audit.Event) error
+
+const (
+	queueSize = 256
+	retries   = 4
+)
+
+// Sink is an audit.Emitter that delivers the event types it was given.
+type Sink struct {
+	name    string
+	types   map[audit.EventType]bool
+	queue   chan audit.Event
+	deliver Deliver
+	logger  *slog.Logger
+	backoff time.Duration
+}
+
+// NewSink starts a sink with one delivery worker.
+func NewSink(name string, types []audit.EventType, deliver Deliver, logger *slog.Logger) *Sink {
+	s := &Sink{name: name, types: map[audit.EventType]bool{}, queue: make(chan audit.Event, queueSize),
+		deliver: deliver, logger: logger, backoff: time.Second}
+	for _, t := range types {
+		s.types[t] = true
+	}
+	go s.run()
+	return s
+}
+
+// Emit queues an event of a selected type.
+//
+// ponytail: a full queue drops the event rather than blocking a decision, and
+// a process exit loses what is queued. A receiver that must not miss a trip
+// should also reconcile from the audit stream.
+func (s *Sink) Emit(_ context.Context, e audit.Event) {
+	if !s.types[e.Type] {
+		return
+	}
+	select {
+	case s.queue <- e:
+	default:
+		s.logger.Error("signal dropped: queue full", "sink", s.name, "type", e.Type, "run_id", e.RunID)
+	}
+}
+
+func (s *Sink) run() {
+	for e := range s.queue {
+		for attempt := 0; ; attempt++ {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			err := s.deliver(ctx, e)
+			cancel()
+			if err == nil {
+				break
+			}
+			if attempt == retries {
+				s.logger.Error("signal not delivered", "sink", s.name, "type", e.Type, "run_id", e.RunID, "error", err)
+				break
+			}
+			time.Sleep(s.backoff << attempt)
+		}
+	}
+}
+
+// Webhook posts events as JSON, signed so the receiver can tell them from a
+// forgery: X-Nullfield-Signature is "sha256=" and the hex HMAC-SHA256 of
+// X-Nullfield-Timestamp, ".", and the body. Receivers should reject stale
+// timestamps to stop replays.
+type Webhook struct {
+	url    string
+	secret []byte
+	client *http.Client
+}
+
+// NewWebhook refuses an unsigned webhook: a signal that ends a run must not be
+// forgeable by anything that can reach the receiver.
+func NewWebhook(target string, secret []byte) (*Webhook, error) {
+	if len(secret) == 0 {
+		return nil, errors.New("signals: a webhook needs a signing secret")
+	}
+	if u, err := url.Parse(target); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return nil, fmt.Errorf("signals: webhook URL %q must be http or https with a host", target)
+	}
+	return &Webhook{url: target, secret: secret, client: &http.Client{Timeout: 10 * time.Second}}, nil
+}
+
+// Deliver posts one event.
+func (w *Webhook) Deliver(ctx context.Context, e audit.Event) error {
+	body, err := json.Marshal(e)
+	if err != nil {
+		return err
+	}
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+	mac := hmac.New(sha256.New, w.secret)
+	mac.Write([]byte(ts + "."))
+	mac.Write(body)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Nullfield-Timestamp", ts)
+	req.Header.Set("X-Nullfield-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+	return send(w.client, req)
+}
+
+// KubeConfig locates the API server and the credentials to call it.
+type KubeConfig struct {
+	APIServer string
+	TokenFile string
+	CAFile    string
+}
+
+// InCluster is the pod's own service account.
+func InCluster() KubeConfig {
+	const sa = "/var/run/secrets/kubernetes.io/serviceaccount/"
+	return KubeConfig{
+		APIServer: "https://" + os.Getenv("KUBERNETES_SERVICE_HOST") + ":" + os.Getenv("KUBERNETES_SERVICE_PORT"),
+		TokenFile: sa + "token",
+		CAFile:    sa + "ca.crt",
+	}
+}
+
+// KubeEvents records events.k8s.io Events on the ServiceAccount of the
+// workload a decision was about, annotated with the run, so the controller
+// that owns the run can watch for them.
+type KubeEvents struct {
+	cfg      KubeConfig
+	client   *http.Client
+	instance string
+}
+
+// NewKubeEvents verifies the API server against the service account CA.
+func NewKubeEvents(cfg KubeConfig) (*KubeEvents, error) {
+	ca, err := os.ReadFile(cfg.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("signals: API server CA: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(ca) {
+		return nil, fmt.Errorf("signals: no certificates in %s", cfg.CAFile)
+	}
+	host, _ := os.Hostname()
+	return &KubeEvents{cfg: cfg, instance: host, client: &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}},
+	}}, nil
+}
+
+// Deliver records one event. An event about no attested workload has nothing
+// to attach to and is skipped.
+func (k *KubeEvents) Deliver(ctx context.Context, e audit.Event) error {
+	att, ok := identity.MeshAttester{}.Attest(e.WorkloadPrincipal)
+	if !ok || e.Attester == "" {
+		return nil
+	}
+	// The projected token rotates under us; read the current one.
+	token, err := os.ReadFile(k.cfg.TokenFile)
+	if err != nil {
+		return err
+	}
+	note := e.Reason
+	if e.RunID != "" {
+		note = "run " + e.RunID + ": " + note
+	}
+	if len(note) > 1024 {
+		note = note[:1024]
+	}
+	annotations := map[string]string{"nullfield.io/workload": e.WorkloadPrincipal}
+	for k, v := range map[string]string{"nullfield.io/run-id": e.RunID, "nullfield.io/action": e.Action,
+		"nullfield.io/reason-class": e.ReasonClass, "nullfield.io/target": e.Target} {
+		if v != "" {
+			annotations[k] = v
+		}
+	}
+	body, err := json.Marshal(map[string]any{
+		"apiVersion": "events.k8s.io/v1",
+		"kind":       "Event",
+		"metadata": map[string]any{
+			"generateName": "nullfield-", "namespace": att.Namespace, "annotations": annotations,
+		},
+		"eventTime":           time.Now().UTC().Format("2006-01-02T15:04:05.000000Z07:00"),
+		"reportingController": "nullfield.io/extauthz",
+		"reportingInstance":   k.instance,
+		"action":              "Decide",
+		"reason":              reason(e.Type),
+		"type":                "Warning",
+		"note":                note,
+		"regarding": map[string]string{
+			"apiVersion": "v1", "kind": "ServiceAccount", "namespace": att.Namespace, "name": att.ServiceAccount,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		k.cfg.APIServer+"/apis/events.k8s.io/v1/namespaces/"+url.PathEscape(att.Namespace)+"/events", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(token)))
+	return send(k.client, req)
+}
+
+// reason turns circuit.tripped into CircuitTripped.
+func reason(t audit.EventType) string {
+	var b strings.Builder
+	for _, part := range strings.FieldsFunc(string(t), func(r rune) bool { return r == '.' || r == '_' }) {
+		b.WriteString(strings.ToUpper(part[:1]) + part[1:])
+	}
+	return b.String()
+}
+
+func send(c *http.Client, req *http.Request) error {
+	resp, err := c.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("%s %s: %s: %s", req.Method, req.URL.Path, resp.Status, bytes.TrimSpace(msg))
+	}
+	return nil
+}

@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/codes"
 
 	v1alpha1 "github.com/babywyrm/nullfield/api/v1alpha1"
+	"github.com/babywyrm/nullfield/pkg/audit"
 	"github.com/babywyrm/nullfield/pkg/budget"
 	"github.com/babywyrm/nullfield/pkg/circuit"
 	"github.com/babywyrm/nullfield/pkg/gates"
@@ -186,5 +187,33 @@ func TestTheCircuitBreakerTripsPerRun(t *testing.T) {
 	}
 	if got := status(t, s, withRunToken(second)); got != codes.OK {
 		t.Fatalf("run-2 shares the pod but not run-1's breaker: %v", got)
+	}
+}
+
+// A controller ends a run on its trip, once. Every refused call after it is
+// still a decision event, but not another signal.
+func TestATrippedRunSignalsOnce(t *testing.T) {
+	c := newController(t)
+	rec := &recorder{}
+	s := NewServer(Config{
+		Mode: ModeEnforce, Audit: rec, RunTokens: c.verifier(),
+		Engine: policy.NewRuleEngine([]v1alpha1.Rule{{Action: v1alpha1.ActionAllow}}),
+		Gates:  gates.Gates{Breaker: circuit.New(1, 0)},
+	})
+	token := c.mint(t, "run-1", spiffeRunner)
+	for range 3 {
+		status(t, s, withRunToken(token))
+	}
+	var trips []audit.Event
+	for _, e := range rec.events {
+		if e.Type == audit.EventCircuitTripped {
+			trips = append(trips, e)
+		}
+	}
+	if len(trips) != 1 {
+		t.Fatalf("%d circuit.tripped events, want 1", len(trips))
+	}
+	if e := trips[0]; e.RunID != "run-1" || e.WorkloadPrincipal != spiffeRunner || e.Gate != gates.GateCircuit {
+		t.Fatalf("trip event = %+v, want run-1 from %s at gate circuit", e, spiffeRunner)
 	}
 }

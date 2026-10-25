@@ -8,6 +8,7 @@ import (
 type sessionState struct {
 	calls   int
 	started time.Time
+	tripped bool
 }
 
 // Breaker tracks per-session tool call counts and enforces limits.
@@ -67,6 +68,21 @@ func (b *Breaker) Record(sessionID string) {
 		return
 	}
 	s.calls++
+}
+
+// FirstTrip reports whether this is the first time a refused session has been
+// reported, so a trip signals once however many calls it then refuses. Call it
+// only after Allow refused the session.
+func (b *Breaker) FirstTrip(sessionID string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	s, ok := b.sessions[sessionID]
+	if !ok || s.tripped {
+		return false
+	}
+	s.tripped = true
+	return true
 }
 
 // Reset clears state for a session.

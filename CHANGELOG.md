@@ -64,6 +64,22 @@ them silent, which is the argument for the exercise.
   applies before any is charged, so a refused call spends nothing. A call
   with no subject is refused rather than counted under a shared key.
 
+- **Signals** (ext_authz). A run that trips its circuit breaker emits one
+  `circuit.tripped` event, however many calls it then makes, carrying the run
+  and its workload. `NULLFIELD_SIGNAL_KUBE_EVENTS=true` records it as a
+  Kubernetes Event on the run's ServiceAccount, annotated with the run ID;
+  `NULLFIELD_SIGNAL_WEBHOOK_URL` posts it signed with HMAC-SHA256 over
+  timestamp and body, with retries. `NULLFIELD_SIGNAL_EVENTS` selects other
+  types. Delivery is asynchronous; a channel that cannot be built refuses to
+  start. `circuitBreaker.onTrip` stays DENY: ending the pod is the
+  controller's job, so nullfield needs no pod permissions. See
+  `docs/signals.md` and demo 19.
+
+- **OTLP from ext_authz.** `NULLFIELD_AUDIT_ENDPOINT` now exports from the
+  decision service too, and spans carry `run_id`, `action`,
+  `workload_principal`, `attester`, `assurance`, `transport` and
+  `counterfactual`.
+
 - **Operation maps** (`NULLFIELD_OPERATIONS_DIR`, ext_authz). One YAML file
   per target names each `METHOD /path` (`repos.delete`) and its path
   parameters, exposed to CEL as `request.action` and `request.params` and

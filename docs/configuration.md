@@ -90,6 +90,11 @@ forwards.
 | `NULLFIELD_EXTAUTHZ_MODE` | `observe` | `noop`, `observe`, or `enforce` |
 | `NULLFIELD_EXTAUTHZ_LOG_PEER` | `false` | Log raw peer attributes and header names. For diagnosing identity that is not arriving |
 | `NULLFIELD_OPERATIONS_DIR` | _(unset)_ | Directory of [operation maps](operation-maps.md). Unreadable, empty or invalid refuses to start |
+| `NULLFIELD_AUDIT_ENDPOINT` | _(unset)_ | OTLP gRPC endpoint for audit events as spans |
+| `NULLFIELD_SIGNAL_EVENTS` | `circuit.tripped` | Event types delivered as [signals](signals.md) |
+| `NULLFIELD_SIGNAL_KUBE_EVENTS` | `false` | `true` records signals as Kubernetes Events |
+| `NULLFIELD_SIGNAL_WEBHOOK_URL` | _(unset)_ | POSTs signals here, signed |
+| `NULLFIELD_SIGNAL_WEBHOOK_SECRET_FILE` | _(unset)_ | Webhook signing secret; required with the URL |
 | `NULLFIELD_POLICY_PATH` | `/etc/nullfield/policy.yaml` | Path to the `NullfieldPolicy` |
 
 Two things that are easy to get wrong here:

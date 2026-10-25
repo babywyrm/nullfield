@@ -92,7 +92,7 @@ func validate(s *v1alpha1.NullfieldPolicySpec) error {
 	switch s.CircuitBreaker.OnTrip {
 	case "", "DENY", "REJECT":
 	default:
-		return fmt.Errorf("circuitBreaker.onTrip %q is not performed; a tripped breaker refuses calls (DENY), and nothing acts outside the proxy", s.CircuitBreaker.OnTrip)
+		return fmt.Errorf("circuitBreaker.onTrip %q is not performed; a tripped breaker refuses calls (DENY). To end the workload, have its controller act on the circuit.tripped signal (docs/signals.md)", s.CircuitBreaker.OnTrip)
 	}
 	if s.Integrity != nil && s.Integrity.ChainValidation {
 		return fmt.Errorf("integrity.chainValidation is not enforced; use per-rule identity and delegation guards")

@@ -79,6 +79,13 @@ func (o *OTLPEmitter) Emit(ctx context.Context, event Event) {
 			attribute.String("nullfield.policy_ref", event.PolicyRef),
 			attribute.String("nullfield.registry_ref", event.RegistryRef),
 			attribute.String("nullfield.route", event.Route),
+			attribute.String("nullfield.run_id", event.RunID),
+			attribute.String("nullfield.action", event.Action),
+			attribute.String("nullfield.workload_principal", event.WorkloadPrincipal),
+			attribute.String("nullfield.attester", event.Attester),
+			attribute.String("nullfield.assurance", event.Assurance),
+			attribute.String("nullfield.transport", event.Transport),
+			attribute.String("nullfield.counterfactual", event.Counterfactual),
 		),
 	)
 	defer span.End()

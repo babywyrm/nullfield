@@ -88,3 +88,21 @@ func TestBreaker_ZeroLimitsAlwaysAllow(t *testing.T) {
 		t.Fatal("zero limits should always allow")
 	}
 }
+
+func TestBreaker_FirstTripIsReportedOncePerSession(t *testing.T) {
+	b := New(1, 0)
+	b.Record("s1")
+	b.Record("s2")
+	if !b.FirstTrip("s1") {
+		t.Fatal("first trip of s1 not reported")
+	}
+	if b.FirstTrip("s1") {
+		t.Fatal("s1 reported twice")
+	}
+	if !b.FirstTrip("s2") {
+		t.Fatal("s2 shares s1's report")
+	}
+	if b.FirstTrip("never-seen") || b.FirstTrip("") {
+		t.Fatal("a session that cannot have tripped was reported")
+	}
+}

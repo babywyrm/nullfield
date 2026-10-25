@@ -42,4 +42,5 @@ they last ran and on what.
 | 16 | [mesh-arbiter](16-mesh-arbiter/) | 3 | waypoint ext_authz with attested spiffe identity, observe then enforce |
 | 17 | [run-tokens](17-run-tokens/) | 3 | a run token bound to its pod narrows one run to one repo, through a real waypoint |
 | 18 | [operation-maps](18-operation-maps/) | 3 | rules name API operations from a per-target map, and ambiguous paths are refused |
+| 19 | [signals](19-signals/) | 3 | a run that trips its breaker is signalled once, as a Kubernetes Event and a signed webhook |
 

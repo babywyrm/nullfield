@@ -1,0 +1,152 @@
+# Replaces demo 16's policy in the same namespace, lets the arbiter record
+# Events there, and runs a webhook receiver that verifies what it is sent.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nullfield-extauthz-policy
+  namespace: nullfield-mesh-demo
+data:
+  policy.yaml: |
+    apiVersion: nullfield.io/v1alpha1
+    kind: NullfieldPolicy
+    metadata:
+      name: signals-demo
+    spec:
+      runToken:
+        jwksUri: http://run-controller/.well-known/jwks.json
+        audience: cluster.local
+        maxLifetime: 15m
+      # Each run gets two calls. The third trips that run's breaker.
+      circuitBreaker:
+        maxToolCallsPerSession: 2
+      rules:
+        - action: ALLOW
+          mcpMethod: tools/call
+          toolNames: [echo]
+        - action: DENY
+          mcpMethod: tools/call
+          toolNames: ["*"]
+      audit:
+        logLevel: FULL
+
+  tools.yaml: |
+    apiVersion: nullfield.io/v1alpha1
+    kind: ToolRegistry
+    metadata:
+      name: signals-demo-tools
+    tools:
+      - name: echo
+        description: Echoes back the input
+---
+# Events land in the namespace of the workload they are about. Here that is
+# this namespace; across a cluster, bind a ClusterRole instead.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nullfield-extauthz-signals
+  namespace: nullfield-mesh-demo
+rules:
+  - apiGroups: ["events.k8s.io"]
+    resources: ["events"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nullfield-extauthz-signals
+  namespace: nullfield-mesh-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nullfield-extauthz-signals
+subjects:
+  - kind: ServiceAccount
+    name: nullfield-extauthz
+    namespace: nullfield-mesh-demo
+---
+# What a run controller's endpoint has to do: check the signature over the
+# timestamp and body, refuse stale timestamps, then act on the run.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: signal-receiver
+  namespace: nullfield-mesh-demo
+data:
+  receiver.py: |
+    import hashlib, hmac, http.server, json, time
+
+    secret = open("/etc/signal/secret", "rb").read().strip()
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            ts = self.headers.get("X-Nullfield-Timestamp", "")
+            want = "sha256=" + hmac.new(secret, ts.encode() + b"." + body, hashlib.sha256).hexdigest()
+            fresh = ts.isdigit() and abs(time.time() - int(ts)) < 300
+            if not (fresh and hmac.compare_digest(want, self.headers.get("X-Nullfield-Signature", ""))):
+                print(json.dumps({"msg": "rejected"}), flush=True)
+                self.send_response(401)
+                self.end_headers()
+                return
+            e = json.loads(body)
+            print(json.dumps({"msg": "verified", "type": e.get("type"), "run_id": e.get("run_id")}), flush=True)
+            self.send_response(204)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    http.server.HTTPServer(("", 8080), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signal-receiver
+  namespace: nullfield-mesh-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: signal-receiver
+  template:
+    metadata:
+      labels:
+        app: signal-receiver
+    spec:
+      containers:
+        - name: receiver
+          image: python:3.13-alpine
+          command: ["python", "-u", "/app/receiver.py"]
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - {name: app, mountPath: /app, readOnly: true}
+            - {name: secret, mountPath: /etc/signal, readOnly: true}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: app
+          configMap: {name: signal-receiver}
+        - name: secret
+          secret: {secretName: signal-webhook}
+---
+# Off the waypoint: otherwise the arbiter would be asked to authorize its own
+# signal, and refuse it for carrying no run token.
+apiVersion: v1
+kind: Service
+metadata:
+  name: signal-receiver
+  namespace: nullfield-mesh-demo
+  labels:
+    istio.io/use-waypoint: none
+spec:
+  selector:
+    app: signal-receiver
+  ports:
+    - port: 80
+      targetPort: 8080
