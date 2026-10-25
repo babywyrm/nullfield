@@ -63,6 +63,8 @@ type Event struct {
 	Assurance         string `json:"assurance,omitempty"`
 	Transport         string `json:"transport,omitempty"`
 	Counterfactual    string `json:"counterfactual,omitempty"`
+	// RunID is the txn claim of a verified run token.
+	RunID string `json:"run_id,omitempty"`
 
 	Time time.Time `json:"timestamp"`
 }

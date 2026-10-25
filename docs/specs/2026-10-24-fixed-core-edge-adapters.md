@@ -1,7 +1,7 @@
 # Fixed Core, Edge Adapters — Design
 
 **Date:** 2026-10-24
-**Status:** Steps 1 and 2 done; step 3 (run token) next
+**Status:** Steps 1, 2 and 3a (run token) done; 3b next
 **Related:**
 - [`2026-07-26-mesh-native-arbiter.md`](2026-07-26-mesh-native-arbiter.md) — the three facts and authority grants this builds on
 
@@ -114,6 +114,53 @@ the mesh attests the workload, a run token supplies authority, an upstream
 token may ride alongside. The run token is the first plugin: signed by the
 launching controller, its subject bound to the attested workload, carrying the
 run ID that budgets, the breaker and audit key on.
+
+**3a design.** The run token is an IETF Transaction Token
+([draft-ietf-oauth-transaction-tokens-11](https://datatracker.ietf.org/doc/draft-ietf-oauth-transaction-tokens/)),
+so a controller can mint it with existing libraries and other services can
+read it.
+
+| Draft element | nullfield use |
+|---|---|
+| `Txn-Token` header, bare JWT | where the token is read |
+| `typ: txntoken+jwt` | required; an ordinary access token cannot stand in |
+| `aud` (trust domain) | required, must equal `runToken.audience` |
+| `exp`, `iat` | required; `maxLifetime` bounds the difference |
+| `txn` | the run ID: per-session budgets, audit `run_id`, `request.run.id` |
+| `req_wl` | must equal the attested workload principal: the binding |
+| `sub` | the principal; becomes `request.identity` |
+| `tctx` | `request.run.context`; where a controller narrows one run |
+
+Binding is on `req_wl`, not `sub`: in an on-behalf-of run `sub` is the human,
+and the pod is the workload that holds the token.
+
+Narrowing is a policy pattern, not a mechanism. Rules grant; a CEL condition
+reading `request.run.context` can only make a rule match less, so a token can
+narrow what policy allows and never widen it:
+`request.arguments.repo in request.run.context.repos`.
+
+Decisions:
+
+- **ext_authz only.** The proxy and gateway see no attested workload, so they
+  could not bind the token. They refuse a policy that sets `runToken` rather
+  than accept it unbound.
+- **Required by default.** With `runToken` set, a call without one is refused.
+  `optional: true` admits tokenless calls, which rules can tell apart with
+  `has(request.run)`.
+- **Stripped on allow.** ext_authz tells Envoy to remove `Txn-Token` before
+  forwarding, so it never reaches a SaaS API. Propagation through MCP servers
+  you own is not supported yet.
+- **Rates stay per workload; per-session budgets become per run.** The
+  circuit breaker stays off on the mesh until a tokenless call cannot share
+  one empty session key.
+
+**3a (done).** As designed above. Bound calls report assurance `MEDIUM`.
+Found on the way: the CRD schema does not preserve unknown fields at `spec`,
+so a new top-level block is pruned silently unless the schema names it.
+
+**3b (next):** the circuit breaker keyed on run ID; header propagation
+through MCP servers you own; an upstream token riding alongside (the third
+identity source).
 
 ### 4. Integration operation maps as data
 

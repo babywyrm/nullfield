@@ -148,7 +148,9 @@ An `arbiter.decision` event answers a question the proxy events do not need to: 
 |-------|---------|
 | `workload_principal` | The caller as the mesh reports it, recorded verbatim even when it could not be parsed |
 | `attester` | Which mechanism established it: `mesh-spiffe` (peer certificate), `mesh-header` (waypoint-published, see below), or `none` |
-| `assurance` | `ATTESTED` when a workload identity was established, `NONE` otherwise |
+| `assurance` | `MEDIUM` when the workload also held a run token bound to it, `ATTESTED` when only a workload identity was established, `NONE` otherwise |
+| `run_id` | The `txn` claim of a verified run token; also written to `session_id`. See [run tokens](identity-policy.md#run-tokens-ext_authz) |
+| `identity` | The run token's `sub`, the principal the run acts for |
 | `transport` | Traffic class: `A` MCP, `B` wire API, `C` in-process SDK, `D` subprocess, `E` model functions |
 | `counterfactual` | What enforcement would have done. Present when the decision was **not** applied |
 

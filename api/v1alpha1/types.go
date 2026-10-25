@@ -19,6 +19,7 @@ type Metadata struct {
 type NullfieldPolicySpec struct {
 	Selector       Selector         `json:"selector" yaml:"selector"`
 	Identity       *IdentityConfig  `json:"identity,omitempty" yaml:"identity,omitempty"`
+	RunToken       *RunTokenConfig  `json:"runToken,omitempty" yaml:"runToken,omitempty"`
 	Integrity      *IntegrityConfig `json:"integrity,omitempty" yaml:"integrity,omitempty"`
 	Anomaly        *AnomalyConfig   `json:"anomaly,omitempty" yaml:"anomaly,omitempty"`
 	Rules          []Rule           `json:"rules" yaml:"rules"`
@@ -47,6 +48,21 @@ type VelocityConfig struct {
 
 // IdentityConfig configures opt-in JWT/OIDC identity validation.
 // When Enabled is false (default), nullfield uses noop or header-only verification.
+// RunTokenConfig verifies the Transaction Token a run's controller mints
+// (draft-ietf-oauth-transaction-tokens), bound to the attested workload.
+// Enforced by nullfield-extauthz only; the proxy refuses a policy that sets it.
+type RunTokenConfig struct {
+	JWKSURI string `json:"jwksUri" yaml:"jwksUri"`
+	// Audience is the trust domain the token's aud must name.
+	Audience    string `json:"audience" yaml:"audience"`
+	Issuer      string `json:"issuer,omitempty" yaml:"issuer,omitempty"`
+	MaxLifetime string `json:"maxLifetime,omitempty" yaml:"maxLifetime,omitempty"`
+	ClockSkew   string `json:"clockSkew,omitempty" yaml:"clockSkew,omitempty"`
+	// Optional admits calls that carry no run token. A token that is present
+	// is still verified, and still refuses the call if it fails.
+	Optional bool `json:"optional,omitempty" yaml:"optional,omitempty"`
+}
+
 type IdentityConfig struct {
 	Enabled    bool               `json:"enabled" yaml:"enabled"`
 	Providers  []IdentityProvider `json:"providers,omitempty" yaml:"providers,omitempty"`

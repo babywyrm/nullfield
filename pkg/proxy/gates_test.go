@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -177,5 +179,16 @@ func TestAVelocityAlertThatLogsIsAuditedAndTheCallProceeds(t *testing.T) {
 			}
 			lastEvent(t, rec, audit.EventAnomalyVelocity)
 		})
+	}
+}
+
+func TestAGatewayRouteRefusesARunTokenPolicy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "policy.yaml")
+	doc := "apiVersion: nullfield.io/v1alpha1\nkind: NullfieldPolicy\nmetadata:\n  name: t\nspec:\n  runToken:\n    jwksUri: http://controller/jwks\n    audience: cluster.local\n  rules:\n    - action: ALLOW\n"
+	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BuildRoute(RouteConfig{Name: "r", Upstream: "localhost:1", PolicyFile: path}); err == nil {
+		t.Fatal("a gateway route accepted a run token it cannot bind")
 	}
 }

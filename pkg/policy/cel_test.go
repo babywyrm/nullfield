@@ -101,3 +101,24 @@ func TestAValidCELExpressionLoads(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestACELRuleNarrowsToTheRunsContext(t *testing.T) {
+	e := celRules(`has(request.run) && request.arguments.repo in request.run.context.repos`)
+	run := &identity.Run{ID: "run-7f3a", Workload: "spiffe://cluster.local/ns/agents/sa/x",
+		Context: map[string]any{"repos": []any{"acme/widgets"}}}
+
+	in := Request{Arguments: map[string]any{"repo": "acme/widgets"}, Run: run}
+	if d := e.Evaluate(context.Background(), in); !d.Allowed {
+		t.Fatalf("refused: %s", d.Reason)
+	}
+	out := in
+	out.Arguments = map[string]any{"repo": "acme/other"}
+	if d := e.Evaluate(context.Background(), out); d.Allowed {
+		t.Fatal("a repo outside the run's context was allowed")
+	}
+	none := in
+	none.Run = nil
+	if d := e.Evaluate(context.Background(), none); d.Allowed {
+		t.Fatal("a call with no run token was allowed")
+	}
+}

@@ -113,7 +113,7 @@ func main() {
 	// Load full policy spec (identity, integrity, rules).
 	var spec *v1alpha1.NullfieldPolicySpec
 	if cfg.PolicyPath != "" {
-		loaded, err := policy.LoadSpecFromFile(cfg.PolicyPath)
+		loaded, err := policy.LoadProxySpecFromFile(cfg.PolicyPath)
 		if err != nil {
 			logger.Warn("could not load policy file, using default deny-all", "path", cfg.PolicyPath, "error", err)
 		} else {

@@ -37,6 +37,9 @@ type Request struct {
 	// Operation is the verb in the target's own vocabulary, such as
 	// "DELETE /repos/acme/widgets".
 	Operation string
+
+	// Run is the verified run token, when the call carried one.
+	Run *identity.Run
 }
 
 // Decision is the output of a policy evaluation.

@@ -45,7 +45,7 @@ func (h *HotLoader) Engine() *RuleEngine {
 
 // LoadInitial loads the policy file for the first time.
 func (h *HotLoader) LoadInitial() (*RuleEngine, error) {
-	spec, err := LoadSpecFromFile(h.path)
+	spec, err := LoadProxySpecFromFile(h.path)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func (h *HotLoader) check() {
 		return
 	}
 
-	spec, err := LoadSpecFromFile(h.path)
+	spec, err := LoadProxySpecFromFile(h.path)
 	if err != nil {
 		h.logger.Warn("policy reload failed, keeping current policy", "error", err)
 		return
@@ -110,7 +110,7 @@ func (h *HotLoader) ForceReload() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	spec, err := LoadSpecFromFile(h.path)
+	spec, err := LoadProxySpecFromFile(h.path)
 	if err != nil {
 		return fmt.Errorf("force reload: %w", err)
 	}

@@ -64,6 +64,23 @@ them silent, which is the argument for the exercise.
   applies before any is charged, so a refused call spends nothing. A call
   with no subject is refused rather than counted under a shared key.
 
+- **Run tokens on the mesh** (`spec.runToken`, ext_authz). Attestation
+  says which pod is calling; every run of a flow shares that service
+  account, so nothing could tell runs apart or know whom one acted for.
+  The controller that launches a run now signs an IETF Transaction Token
+  (`Txn-Token` header, `typ: txntoken+jwt`), and ext_authz verifies it and
+  binds it to the caller: `req_wl` must equal the attested principal, so a
+  token copied out of its pod fails everywhere else. The run ID (`txn`)
+  keys per-session budgets and is recorded as `run_id`; `sub` becomes the
+  identity; `tctx` reaches CEL as `request.run.context`, so a controller can
+  narrow one run below what policy allows and never above it. A call with
+  no token is refused unless `optional: true`; a bad token is always
+  refused. The token is stripped before Envoy forwards the request. Bound
+  calls report assurance `MEDIUM`. The proxy and gateway refuse a policy
+  that sets `runToken`, since they have no attested workload to bind it
+  to. The CRD schema gains `runToken`; without it the API server would
+  have pruned the block silently. Reference in `docs/identity-policy.md`.
+
 - **`celExpression` is evaluated.** A rule can now match on any part of the
   normalized request (target, operation, arguments, identity, claims)
   without a new Go field per scenario. It is an extra match condition beside

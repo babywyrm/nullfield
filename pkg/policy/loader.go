@@ -50,6 +50,20 @@ func ParseSpec(data []byte) (*v1alpha1.NullfieldPolicySpec, error) {
 	return &pol.Spec, nil
 }
 
+// LoadProxySpecFromFile is LoadSpecFromFile for the proxy and gateway, which
+// also refuse what they cannot enforce. They see no attested workload, so a
+// run token there could not be bound to one.
+func LoadProxySpecFromFile(path string) (*v1alpha1.NullfieldPolicySpec, error) {
+	spec, err := LoadSpecFromFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if spec.RunToken != nil {
+		return nil, fmt.Errorf("policy: runToken is enforced by nullfield-extauthz only: the proxy has no attested workload to bind it to")
+	}
+	return spec, nil
+}
+
 func validate(s *v1alpha1.NullfieldPolicySpec) error {
 	for i, r := range s.Rules {
 		for _, f := range []struct {
@@ -85,6 +99,17 @@ func validate(s *v1alpha1.NullfieldPolicySpec) error {
 	}
 	if s.Anomaly != nil && len(s.Anomaly.Sequences) > 0 {
 		return fmt.Errorf("anomaly.sequences is not enforced; remove it")
+	}
+
+	if rt := s.RunToken; rt != nil {
+		if rt.JWKSURI == "" || rt.Audience == "" {
+			return fmt.Errorf("runToken needs jwksUri and audience (the trust domain); without either nothing is verified")
+		}
+		for name, d := range map[string]string{"maxLifetime": rt.MaxLifetime, "clockSkew": rt.ClockSkew} {
+			if _, err := time.ParseDuration(d); d != "" && err != nil {
+				return fmt.Errorf("runToken.%s: %w", name, err)
+			}
+		}
 	}
 
 	id := s.Identity

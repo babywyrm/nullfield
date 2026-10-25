@@ -1,8 +1,12 @@
 package policy
 
 import (
+	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const header = "apiVersion: nullfield.io/v1alpha1\nkind: NullfieldPolicy\nmetadata:\n  name: t\nspec:\n"
@@ -117,5 +121,38 @@ func TestAnUnparseableDurationIsRefused(t *testing.T) {
 				t.Fatal("parsed; want refusal")
 			}
 		})
+	}
+}
+
+func TestARunTokenBlockMustNameItsKeysAndTrustDomain(t *testing.T) {
+	for name, block := range map[string]string{
+		"no jwksUri":           "  runToken:\n    audience: cluster.local\n",
+		"no audience":          "  runToken:\n    jwksUri: http://controller/jwks\n",
+		"unparseable lifetime": "  runToken:\n    jwksUri: http://controller/jwks\n    audience: cluster.local\n    maxLifetime: soon\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := parse(block + "  rules:\n    - action: ALLOW\n"); err == nil || !strings.Contains(err.Error(), "runToken") {
+				t.Fatalf("want a runToken error, got %v", err)
+			}
+		})
+	}
+	if err := parse("  runToken:\n    jwksUri: http://controller/jwks\n    audience: cluster.local\n    maxLifetime: 15m\n  rules:\n    - action: ALLOW\n"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTheProxyRefusesARunTokenItCannotBind(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "policy.yaml")
+	if err := os.WriteFile(path, []byte(header+"  runToken:\n    jwksUri: http://controller/jwks\n    audience: cluster.local\n  rules:\n    - action: ALLOW\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadProxySpecFromFile(path); err == nil || !strings.Contains(err.Error(), "runToken") {
+		t.Fatalf("the proxy accepted a run token it has no attested workload to bind to: %v", err)
+	}
+	if _, err := NewHotLoader(path, time.Hour, slog.Default()).LoadInitial(); err == nil {
+		t.Fatal("the hot loader accepted it")
+	}
+	if _, err := LoadSpecFromFile(path); err != nil {
+		t.Fatalf("ext_authz must still load it: %v", err)
 	}
 }

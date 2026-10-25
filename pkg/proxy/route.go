@@ -121,7 +121,7 @@ func BuildRoute(cfg RouteConfig) (*Route, error) {
 
 	var engine policy.Engine
 	if cfg.PolicyFile != "" {
-		spec, err := policy.LoadSpecFromFile(cfg.PolicyFile)
+		spec, err := policy.LoadProxySpecFromFile(cfg.PolicyFile)
 		if err != nil {
 			return nil, fmt.Errorf("route %q: policy load failed: %w", cfg.Name, err)
 		}

@@ -33,6 +33,9 @@ spec:
                 identity:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
+                runToken:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
                 integrity:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true

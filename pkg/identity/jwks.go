@@ -28,6 +28,8 @@ type JWKSVerifier struct {
 	header       string
 	requireExpiry bool
 	maxLifetime   time.Duration
+	bare          bool
+	typ           string
 
 	mu       sync.RWMutex
 	keys     map[string]any // kid -> *rsa.PublicKey or *ecdsa.PublicKey
@@ -49,6 +51,11 @@ type JWKSVerifierConfig struct {
 	// MaxLifetime, when set, refuses a token valid for longer than this:
 	// exp minus iat, or exp minus now when iat is absent.
 	MaxLifetime time.Duration
+	// Bare reads the header value as the token itself, with no Bearer prefix.
+	Bare bool
+	// Type, when set, is the typ header the token must carry (RFC 8725 §3.11),
+	// so a token minted for one purpose cannot be presented for another.
+	Type string
 }
 
 func NewJWKSVerifier(cfg JWKSVerifierConfig) *JWKSVerifier {
@@ -77,6 +84,8 @@ func NewJWKSVerifier(cfg JWKSVerifierConfig) *JWKSVerifier {
 		header:        cfg.Header,
 		requireExpiry: cfg.RequireExpiry,
 		maxLifetime:   cfg.MaxLifetime,
+		bare:          cfg.Bare,
+		typ:           cfg.Type,
 		keys:          make(map[string]any),
 		cacheTTL:     cfg.CacheTTL,
 	}
@@ -88,7 +97,9 @@ func (v *JWKSVerifier) Verify(r *http.Request) (*Identity, error) {
 		return nil, fmt.Errorf("missing header: %s", v.header)
 	}
 	tokenStr := strings.TrimPrefix(raw, "Bearer ")
-	if tokenStr == raw {
+	if v.bare {
+		tokenStr = strings.TrimSpace(raw)
+	} else if tokenStr == raw {
 		return nil, fmt.Errorf("malformed Bearer token")
 	}
 
@@ -108,6 +119,9 @@ func (v *JWKSVerifier) Verify(r *http.Request) (*Identity, error) {
 	alg := token.Method.Alg()
 	if !v.allowedAlgs[alg] {
 		return nil, fmt.Errorf("disallowed signing algorithm: %s", alg)
+	}
+	if typ, _ := token.Header["typ"].(string); v.typ != "" && !strings.EqualFold(typ, v.typ) {
+		return nil, fmt.Errorf("token typ %q, want %q", typ, v.typ)
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)

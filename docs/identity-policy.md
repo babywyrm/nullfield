@@ -56,7 +56,15 @@ Where a certificate and a header are both present, the certificate wins.
 
 ### Assurance
 
-`assurance` on a decision reports whether a workload identity was established at all: `ATTESTED` or `NONE`. It is intentionally coarse today. Once grants land, it will distinguish how strongly the workload is bound to the authority it is exercising — corroboration from two independent attesters, for instance, is worth more than either alone, which is the case on EKS where IRSA or Pod Identity can be checked alongside the mesh.
+`assurance` on a decision reports how strongly the caller is bound to the authority it is exercising:
+
+| Level | Meaning |
+|---|---|
+| `MEDIUM` | Attested workload holding a [run token](#run-tokens-ext_authz) issued to it |
+| `ATTESTED` | Attested workload, no run token |
+| `NONE` | No workload identity established |
+
+`STRONG` is not emitted: it also requires a workload dedicated to one session, which nullfield cannot verify. Corroboration from two independent attesters (on EKS, IRSA or Pod Identity alongside the mesh) is the other planned input.
 
 ### Reading it
 
@@ -69,6 +77,85 @@ Where a certificate and a header are both present, the certificate wins.
 ```
 
 An `attester: none` with an empty principal means the EnvoyFilter is absent or the caller is outside the mesh. See [Observability](observability.md#decision-provenance-ext_authz-mode) for how to tell those apart, and [Mesh Integration](mesh-integration.md#istio-ambient--nullfield-as-an-ext_authz-decision-service) for the deployment.
+
+---
+
+## Run Tokens (ext_authz)
+
+Attestation says which pod is calling. It does not say which run, for whom, or under what limits, and every run of a flow shares a service account. A run token carries that: a short-lived JWT the controller that launched the run signs, which nullfield verifies and binds to the attested pod.
+
+The format is an IETF [Transaction Token](https://datatracker.ietf.org/doc/draft-ietf-oauth-transaction-tokens/) (draft 11), so any controller can mint one with a standard JWT library.
+
+```yaml
+spec:
+  runToken:
+    jwksUri: http://run-controller.agents.svc/.well-known/jwks.json
+    audience: cluster.local     # the trust domain; the token's aud must name it
+    maxLifetime: 2h             # optional; refuses tokens issued for longer
+    # issuer: ...               # optional; checked when set
+    # optional: true            # admit calls with no token (a bad token is still refused)
+```
+
+### What the controller mints
+
+Sent in the `Txn-Token` header, as the bare JWT:
+
+```json
+// header
+{ "alg": "RS256", "kid": "2026-10", "typ": "txntoken+jwt" }
+// claims
+{
+  "aud":    "cluster.local",
+  "iat":    1761400000,
+  "exp":    1761407200,
+  "txn":    "run-7f3a",
+  "sub":    "team-sre",
+  "scope":  "incident.triage",
+  "req_wl": "spiffe://cluster.local/ns/agents/sa/incident-triage",
+  "tctx":   { "repos": ["acme/widgets"], "channels": ["#inc-bot"] }
+}
+```
+
+| Claim | Required | nullfield use |
+|---|---|---|
+| `typ` header `txntoken+jwt` | yes | an ordinary access token from the same issuer cannot stand in |
+| `aud` | yes | must equal `runToken.audience` |
+| `iat`, `exp` | yes | expiry is enforced; `maxLifetime` bounds `exp − iat` |
+| `txn` | yes | the run ID: `request.run.id`, per-session budgets, audit `run_id` |
+| `req_wl` | yes | must equal the attested principal of the caller |
+| `sub` | yes | `request.identity.subject`, audit `identity` |
+| `tctx` | no | `request.run.context` |
+
+`req_wl` is the binding. A token copied out of its pod fails from any other workload, and a call with no attested principal cannot present one at all. `sub` is who the run acts for, which in an on-behalf-of run is a person, not the pod.
+
+### Using it in rules
+
+The verified token appears to [CEL](diagrams/policy-eval.md#celexpression) as `request.run` (`id`, `workload`, `context`) and `request.identity`. Policy grants; the token narrows. A condition on `request.run.context` can only make a rule match less, so a controller can restrict one run below what the policy allows and never above it:
+
+```yaml
+rules:
+  - action: ALLOW
+    toolNames: [github.delete_branch]
+    celExpression: request.arguments.repo in request.run.context.repos
+  - action: DENY
+```
+
+### Refusals
+
+| `reason_class` | Cause |
+|---|---|
+| `run_token_missing` | no `Txn-Token` header, and `optional` is not set |
+| `run_token_unbound` | `req_wl` is not the attested caller, or there is no attested caller |
+| `run_token_invalid` | signature, `typ`, `aud`, expiry, lifetime, or a missing claim |
+
+All are recorded with `gate: run_token`.
+
+### Where it applies
+
+- **ext_authz only.** The proxy and gateway have no attested workload to bind to, so they refuse to load a policy that sets `runToken`.
+- **Stripped on allow.** ext_authz tells Envoy to remove `Txn-Token` before forwarding, so it never reaches the upstream. Propagating it through MCP servers you own is not supported yet.
+- **Budgets.** `perSession` budgets count per run; `perIdentity` budgets and `maxCallsPerMinute` stay per workload.
+- **Key fetch.** The JWKS is fetched on first use and cached for five minutes. A cold fetch counts against the ext_authz timeout (1s), so keep the endpoint in-cluster.
 
 ---
 

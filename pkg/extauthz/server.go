@@ -2,9 +2,11 @@ package extauthz
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"sort"
+	"strings"
 
 	authv3 "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
 
@@ -16,13 +18,21 @@ import (
 
 // Assurance levels reachable in this phase.
 //
-// The spec's STRONG and MEDIUM both presume a grant bound to the workload, which
-// arrives in a later phase. Emitting MEDIUM now would claim a binding that does
-// not exist, so an attested workload with no grant mechanism gets its own level
-// until there is something truer to say.
+// MEDIUM is an attested workload holding a run token bound to it. STRONG also
+// needs a workload dedicated to one session, which nothing here can verify, so
+// it is not claimed. An attested workload with no run token is ATTESTED.
 const (
+	AssuranceMedium   = "MEDIUM"
 	AssuranceAttested = "ATTESTED"
 	AssuranceNone     = "NONE"
+)
+
+const (
+	GateRunToken = "run_token"
+
+	ReasonRunTokenMissing = "run_token_missing"
+	ReasonRunTokenUnbound = "run_token_unbound"
+	ReasonRunTokenInvalid = "run_token_invalid"
 )
 
 // Config is the server's dependencies.
@@ -33,6 +43,12 @@ type Config struct {
 	// Gates are the same registry, breaker, budget and velocity checks the
 	// proxy runs around policy. The zero value runs none of them.
 	Gates gates.Gates
+
+	// RunTokens, when set, verifies the Txn-Token on every call and binds it to
+	// the attested workload. A call without one is refused unless
+	// RunTokenOptional; a token that is present and fails is always refused.
+	RunTokens        *identity.RunTokenVerifier
+	RunTokenOptional bool
 
 	// Logger receives peer diagnostics when LogPeer is set. Optional.
 	Logger *slog.Logger
@@ -60,6 +76,9 @@ type Server struct {
 	audit   audit.Emitter
 	logger  *slog.Logger
 	logPeer bool
+
+	runTokens        *identity.RunTokenVerifier
+	runTokenOptional bool
 }
 
 // NewServer builds a decision server. An absent or unrecognised mode becomes
@@ -81,6 +100,9 @@ func NewServer(cfg Config) *Server {
 		audit:   cfg.Audit,
 		logger:  logger,
 		logPeer: cfg.LogPeer,
+
+		runTokens:        cfg.RunTokens,
+		runTokenOptional: cfg.RunTokenOptional,
 	}
 }
 
@@ -141,7 +163,7 @@ func (s *Server) Check(ctx context.Context, req *authv3.CheckRequest) (*authv3.C
 			}
 		}
 		s.emit(ctx, event)
-		return Respond(s.mode, policy.Decision{Allowed: false, Reason: err.Error()}), nil
+		return s.respond(policy.Decision{Allowed: false, Reason: err.Error()}), nil
 	}
 
 	decision := s.decide(ctx, translated)
@@ -168,9 +190,48 @@ func (s *Server) Check(ctx context.Context, req *authv3.CheckRequest) (*authv3.C
 		event.Attester = translated.Attestation.Attester
 		event.Assurance = AssuranceAttested
 	}
+	if run := translated.Policy.Run; run != nil {
+		event.RunID, event.SessionID = run.ID, run.ID
+		event.Identity = translated.Policy.Identity.Subject
+		event.Assurance = AssuranceMedium
+	}
 	s.emit(ctx, event)
 
-	return Respond(s.mode, decision), nil
+	return s.respond(decision), nil
+}
+
+// respond strips the run token from anything Envoy will forward, so it never
+// reaches the upstream, a SaaS API included.
+func (s *Server) respond(d policy.Decision) *authv3.CheckResponse {
+	resp := Respond(s.mode, d)
+	if ok := resp.GetOkResponse(); ok != nil && s.runTokens != nil {
+		ok.HeadersToRemove = append(ok.HeadersToRemove, strings.ToLower(identity.RunTokenHeader))
+	}
+	return resp
+}
+
+// verifyRun checks the run token and, when it holds, puts its identity and run
+// on the policy request.
+func (s *Server) verifyRun(t *Translated) *gates.Refusal {
+	principal := ""
+	if t.Attestation != nil {
+		principal = t.Attestation.Principal
+	}
+	id, run, err := s.runTokens.Verify(t.Headers.Get(identity.RunTokenHeader), principal)
+	switch {
+	case err == nil:
+		t.Policy.Identity, t.Policy.Run = id, run
+		return nil
+	case errors.Is(err, identity.ErrRunTokenMissing):
+		if s.runTokenOptional {
+			return nil
+		}
+		return &gates.Refusal{Gate: GateRunToken, ReasonClass: ReasonRunTokenMissing, Reason: "a run token is required"}
+	case errors.Is(err, identity.ErrRunTokenUnbound):
+		return &gates.Refusal{Gate: GateRunToken, ReasonClass: ReasonRunTokenUnbound, Reason: err.Error()}
+	default:
+		return &gates.Refusal{Gate: GateRunToken, ReasonClass: ReasonRunTokenInvalid, Reason: err.Error()}
+	}
 }
 
 // decide runs the gates around policy in the order the proxy does: registry and
@@ -183,6 +244,14 @@ func (s *Server) decide(ctx context.Context, t *Translated) policy.Decision {
 	// identity to bill.
 	if t.Attestation != nil {
 		call.Subject = t.Attestation.Principal
+	}
+	if s.runTokens != nil {
+		if r := s.verifyRun(t); r != nil {
+			return refuse(policy.Decision{RuleIndex: -1}, r)
+		}
+		if t.Policy.Run != nil {
+			call.Session = t.Policy.Run.ID
+		}
 	}
 
 	if r := s.gates.Admit(call); r != nil {

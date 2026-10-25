@@ -179,6 +179,7 @@ compile and return a bool, or the policy refuses to load.
 | `request.target` | host acted on; set by ext_authz, empty on the proxy |
 | `request.operation` | `METHOD /path`; set by ext_authz, empty on the proxy |
 | `request.identity` | `subject`, `issuer`, `type`, `provider`, `scopes`, `groups`, `claims`; absent when unauthenticated |
+| `request.run` | `id`, `workload`, `context` from a verified [run token](../identity-policy.md#run-tokens-ext_authz); absent without one |
 
 ```yaml
 - action: ALLOW

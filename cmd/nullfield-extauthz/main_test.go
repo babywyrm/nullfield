@@ -46,3 +46,15 @@ func TestBuildGatesRegistry(t *testing.T) {
 		}
 	})
 }
+
+func TestAPolicyRunTokenBlockBuildsAVerifier(t *testing.T) {
+	if v := runTokens(&v1alpha1.NullfieldPolicySpec{}); v != nil {
+		t.Fatal("a verifier with no runToken block")
+	}
+	spec := &v1alpha1.NullfieldPolicySpec{RunToken: &v1alpha1.RunTokenConfig{
+		JWKSURI: "http://controller/jwks", Audience: "cluster.local", MaxLifetime: "15m",
+	}}
+	if runTokens(spec) == nil {
+		t.Fatal("a runToken block was dropped: every call would go unverified")
+	}
+}

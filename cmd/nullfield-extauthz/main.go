@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	authv3 "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
 	"google.golang.org/grpc"
@@ -27,6 +28,7 @@ import (
 	"github.com/babywyrm/nullfield/pkg/budget"
 	"github.com/babywyrm/nullfield/pkg/extauthz"
 	"github.com/babywyrm/nullfield/pkg/gates"
+	"github.com/babywyrm/nullfield/pkg/identity"
 	"github.com/babywyrm/nullfield/pkg/policy"
 	"github.com/babywyrm/nullfield/pkg/registry"
 )
@@ -62,10 +64,16 @@ func main() {
 			"valid", []string{string(extauthz.ModeNoOp), string(extauthz.ModeObserve), string(extauthz.ModeEnforce)})
 	}
 
+	rt := runTokens(spec)
+	if rt != nil {
+		logger.Info("run tokens verified", "audience", spec.RunToken.Audience, "optional", spec.RunToken.Optional)
+	}
 	server := extauthz.NewServer(extauthz.Config{
-		Mode:   mode,
-		Engine: policy.NewRuleEngine(spec.Rules),
-		Gates:  g,
+		Mode:             mode,
+		Engine:           policy.NewRuleEngine(spec.Rules),
+		Gates:            g,
+		RunTokens:        rt,
+		RunTokenOptional: rt != nil && spec.RunToken.Optional,
 		Audit: audit.NewMultiEmitter(
 			audit.NewLogEmitter(logger),
 			audit.NewMetricsEmitter(),
@@ -128,6 +136,22 @@ func loadSpec(path string) (*v1alpha1.NullfieldPolicySpec, error) {
 		return nil, fmt.Errorf("load policy from %s: %w", path, err)
 	}
 	return spec, nil
+}
+
+// runTokens builds the run token verifier the policy asks for, or nil.
+// LoadSpecFromFile has already refused a block missing its keys or trust
+// domain, or with an unparseable duration.
+func runTokens(spec *v1alpha1.NullfieldPolicySpec) *identity.RunTokenVerifier {
+	rt := spec.RunToken
+	if rt == nil {
+		return nil
+	}
+	maxLifetime, _ := time.ParseDuration(rt.MaxLifetime)
+	clockSkew, _ := time.ParseDuration(rt.ClockSkew)
+	return identity.NewRunTokenVerifier(identity.RunTokenConfig{
+		JWKSURI: rt.JWKSURI, Audience: rt.Audience, Issuer: rt.Issuer,
+		MaxLifetime: maxLifetime, ClockSkew: clockSkew,
+	})
 }
 
 // buildGates builds the gates the proxy runs, from the same policy.
