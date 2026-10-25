@@ -155,6 +155,7 @@ All are recorded with `gate: run_token`.
 - **ext_authz only.** The proxy and gateway have no attested workload to bind to, so they refuse to load a policy that sets `runToken`.
 - **Stripped on allow.** ext_authz tells Envoy to remove `Txn-Token` before forwarding, so it never reaches the upstream. Propagating it through MCP servers you own is not supported yet.
 - **Budgets.** `perSession` budgets count per run; `perIdentity` budgets and `maxCallsPerMinute` stay per workload.
+- **Circuit breaker per run.** When the policy also declares `circuitBreaker.maxToolCallsPerSession` or `maxSessionDuration`, each run trips its own breaker (`gate: circuit`); other runs on the same pod are unaffected. Without a declared limit it does not run: the environment default ends a session at 5m, which would cut off long runs. Calls admitted by `optional: true` without a token have no run, so the breaker does not count them.
 - **Key fetch.** The JWKS is fetched on first use and cached for five minutes. A cold fetch counts against the ext_authz timeout (1s), so keep the endpoint in-cluster.
 
 ---

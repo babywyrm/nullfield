@@ -26,6 +26,7 @@ import (
 	"github.com/babywyrm/nullfield/pkg/anomaly"
 	"github.com/babywyrm/nullfield/pkg/audit"
 	"github.com/babywyrm/nullfield/pkg/budget"
+	"github.com/babywyrm/nullfield/pkg/circuit"
 	"github.com/babywyrm/nullfield/pkg/extauthz"
 	"github.com/babywyrm/nullfield/pkg/gates"
 	"github.com/babywyrm/nullfield/pkg/identity"
@@ -62,6 +63,17 @@ func main() {
 		logger.Warn("unrecognised ext_authz mode, defaulting to observe",
 			"configured", cfg.ExtAuthzMode,
 			"valid", []string{string(extauthz.ModeNoOp), string(extauthz.ModeObserve), string(extauthz.ModeEnforce)})
+	}
+
+	if g.Breaker != nil {
+		// ponytail: Sweep only drops runs past twice maxSessionDuration, so a
+		// calls-only limit keeps one small entry per run until restart. Bound it
+		// by token expiry if run volume makes that matter.
+		go func() {
+			for range time.Tick(time.Minute) {
+				g.Breaker.Sweep()
+			}
+		}()
 	}
 
 	rt := runTokens(spec)
@@ -156,10 +168,18 @@ func runTokens(spec *v1alpha1.NullfieldPolicySpec) *identity.RunTokenVerifier {
 
 // buildGates builds the gates the proxy runs, from the same policy.
 //
-// There is no circuit breaker: it is keyed on the MCP session, which the mesh
-// does not carry, so it could never trip.
+// The circuit breaker is keyed on a session, and the mesh's only session is a
+// run token's run ID, so it runs only with run tokens. It also needs limits
+// the policy declares: the environment default ends a session after 5m,
+// which would cut off a long run nobody asked to limit.
 func buildGates(spec *v1alpha1.NullfieldPolicySpec, logger *slog.Logger) (gates.Gates, error) {
 	g := gates.Gates{Rates: gates.NewRates()}
+
+	if cb := spec.CircuitBreaker; spec.RunToken != nil && (cb.MaxToolCallsPerSession > 0 || cb.MaxSessionDuration > 0) {
+		g.Breaker = circuit.New(cb.MaxToolCallsPerSession, cb.MaxSessionDuration)
+		logger.Info("circuit breaker per run",
+			"maxCallsPerRun", cb.MaxToolCallsPerSession, "maxRunDuration", cb.MaxSessionDuration)
+	}
 
 	// Only when set explicitly. config.Load defaults the path, and an arbiter
 	// deployed without a registry must not start refusing every tool because a

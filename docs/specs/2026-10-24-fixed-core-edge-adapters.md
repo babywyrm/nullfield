@@ -1,7 +1,7 @@
 # Fixed Core, Edge Adapters — Design
 
 **Date:** 2026-10-24
-**Status:** Steps 1, 2 and 3a (run token) done; 3b next
+**Status:** Steps 1–3 done (propagation and upstream token deferred); step 4 next
 **Related:**
 - [`2026-07-26-mesh-native-arbiter.md`](2026-07-26-mesh-native-arbiter.md) — the three facts and authority grants this builds on
 
@@ -150,9 +150,7 @@ Decisions:
 - **Stripped on allow.** ext_authz tells Envoy to remove `Txn-Token` before
   forwarding, so it never reaches a SaaS API. Propagation through MCP servers
   you own is not supported yet.
-- **Rates stay per workload; per-session budgets become per run.** The
-  circuit breaker stays off on the mesh until a tokenless call cannot share
-  one empty session key.
+- **Rates stay per workload; per-session budgets become per run.**
 
 **3a (done).** As designed above. Bound calls report assurance `MEDIUM`.
 Demo 17 verifies it on brainbox through a real waypoint, including the
@@ -160,9 +158,12 @@ binding, narrowing by `tctx`, and the strip.
 Found on the way: the CRD schema does not preserve unknown fields at `spec`,
 so a new top-level block is pruned silently unless the schema names it.
 
-**3b (next):** the circuit breaker keyed on run ID; header propagation
-through MCP servers you own; an upstream token riding alongside (the third
-identity source).
+**3b.** Circuit breaker keyed on run ID: done. It runs only when the policy
+declares limits, since the environment default (5m) would end long runs. The
+empty-session concern above was unfounded: the breaker already ignores an
+empty session. Still open: header propagation through MCP servers you own,
+and an upstream token riding alongside (the third identity source). Neither
+blocks steps 4 and 5, so they wait for a scenario that needs them.
 
 ### 4. Integration operation maps as data
 

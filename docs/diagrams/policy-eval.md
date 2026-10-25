@@ -219,9 +219,10 @@ Non-`tools/call` methods emit `mcp.request` and are forwarded without gate evalu
 ## Two Entries, Different Chains
 
 Everything above describes **proxy mode**. The `ext_authz` decision service runs
-the same registry, policy, budget and velocity gates — one implementation,
-`pkg/gates`, shared by both — but not the rest, and the difference is not
-cosmetic: assuming all nine apply there would be a security error.
+the same registry, circuit, policy, rate, budget and velocity gates — one
+implementation, `pkg/gates`, shared by both — but not the rest, and the
+difference is not cosmetic: assuming all nine apply there would be a security
+error.
 
 ```text
   PROXY MODE (:9090)                    EXT_AUTHZ MODE (:9191)
@@ -236,14 +237,15 @@ cosmetic: assuming all nine apply there would be a security error.
        │                              │  TRUNCATION  │  is the body whole?
        │                              └──────┬───────┘  no ──► refuse to decide
        ▼                                     │
-  1. IDENTITY      (token)              ─────┤  not run
+  1. IDENTITY      (token)              ─────►  RUN TOKEN (when runToken is set)
   2. REGISTRY  ◄──────────────────────────►  REGISTRY  (MCP calls only)
   3. INTEGRITY                          ─────┤  not run
-  4. CIRCUIT                            ─────┤  not run
+  4. CIRCUIT  ◄───────────────────────────►  CIRCUIT   (per run, see below)
        │                                     │
   5. POLICY  ◄─── the same engine, ─────►  POLICY
        │          the same rules            │
-  6. BUDGET    ◄──────────────────────────►  BUDGET    (per workload)
+     RATE      ◄──────────────────────────►  RATE      (per workload)
+  6. BUDGET    ◄──────────────────────────►  BUDGET    (per workload / per run)
   7. VELOCITY  ◄──────────────────────────►  VELOCITY  (per workload)
        │                                     │
        ▼                                     ▼
@@ -260,19 +262,23 @@ cosmetic: assuming all nine apply there would be a security error.
 
 | Gate | Absent from `ext_authz` because |
 |------|--------------------------------|
-| Identity | Superseded, not missing. The caller is attested from the mesh instead of presenting a token — a stronger claim, established earlier. |
-| Integrity, Circuit | Both are keyed on the MCP session, which the mesh does not carry. |
+| Identity | Superseded, not missing. The caller is attested from the mesh instead of presenting a token. A [run token](../identity-policy.md#run-tokens-ext_authz), when the policy sets `runToken`, adds the run and its principal, bound to that attestation. |
+| Integrity | Keyed on the MCP session, which the mesh does not carry. |
 | SCOPE / response | Structurally impossible: `ext_authz` sees requests only and cannot mutate them. Needs `ext_proc`. |
 
 The gates that do run differ in two ways:
 
 - **Registry** runs only when `NULLFIELD_REGISTRY_PATH` is set, and only on calls
   that name an MCP tool. A direct API call names none, so it reaches policy.
-- **Budget and velocity** are charged to the attested workload principal. A rule
-  whose budget is `perSession` refuses every call here, because there is no
-  session to charge it to; so does a `perIdentity` budget when the caller could
-  not be attested. A limit that cannot be charged refuses the call rather than
-  being skipped.
+- **Rate, budget and velocity** are charged to the attested workload principal.
+  `perIdentity` refuses every call when the caller could not be attested.
+- **The session is the run.** With run tokens, the token's run ID is the
+  session: `perSession` budgets count per run, and the circuit breaker runs per
+  run when the policy declares `circuitBreaker` limits (the environment default
+  would end every run at 5m, so it is not used here). Without a run token there
+  is no session, so `perSession` refuses every call and the breaker does not
+  run. A limit that cannot be charged refuses the call rather than being
+  skipped.
 
 ### Gate values in the audit trail
 

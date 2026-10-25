@@ -64,6 +64,12 @@ them silent, which is the argument for the exercise.
   applies before any is charged, so a refused call spends nothing. A call
   with no subject is refused rather than counted under a shared key.
 
+- **Circuit breaker per run on the mesh.** With `runToken` set and
+  `circuitBreaker` limits declared, ext_authz trips a breaker per run ID, so
+  one runaway run stops without touching others on the same pod. It does not
+  fall back to the environment default (5m per session), which would end
+  every long run.
+
 - **Run tokens on the mesh** (`spec.runToken`, ext_authz). Attestation
   says which pod is calling; every run of a flow shares that service
   account, so nothing could tell runs apart or know whom one acted for.

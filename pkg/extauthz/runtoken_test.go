@@ -18,6 +18,7 @@ import (
 
 	v1alpha1 "github.com/babywyrm/nullfield/api/v1alpha1"
 	"github.com/babywyrm/nullfield/pkg/budget"
+	"github.com/babywyrm/nullfield/pkg/circuit"
 	"github.com/babywyrm/nullfield/pkg/gates"
 	"github.com/babywyrm/nullfield/pkg/identity"
 	"github.com/babywyrm/nullfield/pkg/policy"
@@ -165,5 +166,25 @@ func TestPerSessionBudgetsCountPerRun(t *testing.T) {
 	}
 	if got := status(t, s, withRunToken(second)); got != codes.OK {
 		t.Fatalf("run-2 shares the pod but not run-1's budget: %v", got)
+	}
+}
+
+func TestTheCircuitBreakerTripsPerRun(t *testing.T) {
+	c := newController(t)
+	s := NewServer(Config{
+		Mode: ModeEnforce, Audit: &recorder{}, RunTokens: c.verifier(),
+		Engine: policy.NewRuleEngine([]v1alpha1.Rule{{Action: v1alpha1.ActionAllow}}),
+		Gates:  gates.Gates{Breaker: circuit.New(1, 0)},
+	})
+	first, second := c.mint(t, "run-1", spiffeRunner), c.mint(t, "run-2", spiffeRunner)
+
+	if got := status(t, s, withRunToken(first)); got != codes.OK {
+		t.Fatalf("run-1 first call: %v", got)
+	}
+	if got := status(t, s, withRunToken(first)); got != codes.PermissionDenied {
+		t.Fatalf("run-1 past its breaker: %v, want PermissionDenied", got)
+	}
+	if got := status(t, s, withRunToken(second)); got != codes.OK {
+		t.Fatalf("run-2 shares the pod but not run-1's breaker: %v", got)
 	}
 }

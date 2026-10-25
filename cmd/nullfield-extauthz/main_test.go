@@ -58,3 +58,33 @@ func TestAPolicyRunTokenBlockBuildsAVerifier(t *testing.T) {
 		t.Fatal("a runToken block was dropped: every call would go unverified")
 	}
 }
+
+func TestTheBreakerRunsOnlyWithRunTokensAndDeclaredLimits(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	rt := &v1alpha1.RunTokenConfig{JWKSURI: "http://controller/jwks", Audience: "cluster.local"}
+	limits := v1alpha1.CircuitBreaker{MaxToolCallsPerSession: 50}
+	t.Setenv("NULLFIELD_REGISTRY_PATH", "")
+	os.Unsetenv("NULLFIELD_REGISTRY_PATH")
+
+	for name, tc := range map[string]struct {
+		spec v1alpha1.NullfieldPolicySpec
+		want bool
+	}{
+		// Without run tokens there is no session on the mesh to key it on.
+		"limits, no run tokens": {v1alpha1.NullfieldPolicySpec{CircuitBreaker: limits}, false},
+		// The environment default ends a session at 5m, which would cut off a
+		// long run nobody asked to limit.
+		"run tokens, no limits": {v1alpha1.NullfieldPolicySpec{RunToken: rt}, false},
+		"run tokens and limits": {v1alpha1.NullfieldPolicySpec{RunToken: rt, CircuitBreaker: limits}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			g, err := buildGates(&tc.spec, logger)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := g.Breaker != nil; got != tc.want {
+				t.Fatalf("breaker built = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
