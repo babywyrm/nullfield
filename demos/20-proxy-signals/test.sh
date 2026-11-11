@@ -26,6 +26,7 @@ fail() { echo "FAIL: $1" >&2; exit 1; }
 # A fresh signing secret per run, in a temp dir. Readable by the containers'
 # non-root users through the bind mount; the directory itself is private.
 work="$(mktemp -d)"
+chmod 0755 "$work"
 openssl rand -hex 32 >"$work/secret"
 chmod 0644 "$work/secret"
 export SIGNAL_SECRET_FILE="$work/secret"
@@ -33,9 +34,11 @@ export SIGNAL_SECRET_FILE="$work/secret"
 cleanup() { "${compose[@]}" down -v >/dev/null 2>&1 || true; rm -rf "$work"; }
 trap cleanup EXIT
 
-"${compose[@]}" up -d --wait >/dev/null 2>&1 || { "${compose[@]}" logs >&2; fail "the stack did not start"; }
-"${compose[@]}" logs nullfield | grep -q '"signalling by webhook"' \
-  || fail "the proxy is not signalling -- rebuild the image (docker compose build)"
+"${compose[@]}" up -d --wait >/dev/null || { "${compose[@]}" logs >&2; fail "the stack did not start"; }
+if ! "${compose[@]}" logs nullfield | grep -q '"signalling by webhook"'; then
+  "${compose[@]}" logs >&2
+  fail "the proxy is not signalling -- rebuild the image (docker compose build)"
+fi
 
 call() {
   curl -sS -X POST "$proxy" -H 'Content-Type: application/json' -H "Mcp-Session-Id: $1" \
