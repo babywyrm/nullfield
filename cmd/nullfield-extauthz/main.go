@@ -48,7 +48,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	spec, err := loadSpec(cfg.PolicyPath)
+	mode := extauthz.Mode(cfg.ExtAuthzMode)
+	if !mode.Valid() {
+		// Loud, because silently observing when an operator asked to enforce is
+		// a security failure, and silently enforcing is an availability one.
+		logger.Warn("unrecognised ext_authz mode, defaulting to observe",
+			"configured", cfg.ExtAuthzMode,
+			"valid", []string{string(extauthz.ModeNoOp), string(extauthz.ModeObserve), string(extauthz.ModeEnforce)})
+	}
+
+	spec, err := loadSpecForMode(cfg.PolicyPath, mode)
 	if err != nil {
 		logger.Error("policy engine", "error", err)
 		os.Exit(1)
@@ -57,15 +66,6 @@ func main() {
 	if err != nil {
 		logger.Error("gates", "error", err)
 		os.Exit(1)
-	}
-
-	mode := extauthz.Mode(cfg.ExtAuthzMode)
-	if !mode.Valid() {
-		// Loud, because silently observing when an operator asked to enforce is
-		// a security failure, and silently enforcing is an availability one.
-		logger.Warn("unrecognised ext_authz mode, defaulting to observe",
-			"configured", cfg.ExtAuthzMode,
-			"valid", []string{string(extauthz.ModeNoOp), string(extauthz.ModeObserve), string(extauthz.ModeEnforce)})
 	}
 
 	if g.Breaker != nil {
@@ -176,13 +176,23 @@ func main() {
 // wraps its engine so swaps stay transparent to in-flight requests; doing that
 // correctly for a second entrypoint is its own change, and shipping it untested
 // alongside a new front door would tangle two failure modes together.
-func loadSpec(path string) (*v1alpha1.NullfieldPolicySpec, error) {
+func loadSpecForMode(path string, mode extauthz.Mode) (*v1alpha1.NullfieldPolicySpec, error) {
 	if path == "" {
 		return nil, fmt.Errorf("no policy path configured")
 	}
 	spec, err := policy.LoadSpecFromFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("load policy from %s: %w", path, err)
+	}
+	if mode == extauthz.ModeEnforce {
+		for i, r := range spec.Rules {
+			if r.Action == v1alpha1.ActionScope || r.Scope != nil {
+				return nil, fmt.Errorf("policy: rule %d uses SCOPE, which nullfield-extauthz cannot enforce (ext_authz cannot mutate bodies or read responses; use the proxy or observe mode)", i)
+			}
+			if r.Inspection != nil && r.Inspection.Enabled {
+				return nil, fmt.Errorf("policy: rule %d enables response inspection, which nullfield-extauthz cannot enforce (ext_authz sees requests only; use the proxy or observe mode)", i)
+			}
+		}
 	}
 	return spec, nil
 }

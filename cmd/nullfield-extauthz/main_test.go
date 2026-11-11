@@ -88,3 +88,29 @@ func TestTheBreakerRunsOnlyWithRunTokensAndDeclaredLimits(t *testing.T) {
 		})
 	}
 }
+
+func TestEnforceModeRefusesAPolicyWithScopeOrInspectionItCannotPerform(t *testing.T) {
+	write := func(rules string) string {
+		p := filepath.Join(t.TempDir(), "policy.yaml")
+		doc := "apiVersion: nullfield.io/v1alpha1\nkind: NullfieldPolicy\nmetadata:\n  name: t\nspec:\n  rules:\n" + rules
+		if err := os.WriteFile(p, []byte(doc), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	scoped := write("    - action: SCOPE\n      scope:\n        request:\n          stripArguments: [secret]\n")
+	inspected := write("    - action: ALLOW\n      inspection:\n        enabled: true\n        detectCredentials: true\n")
+
+	for name, path := range map[string]string{"scope": scoped, "inspection": inspected} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := loadSpecForMode(path, "enforce"); err == nil {
+				t.Fatalf("enforce mode loaded a %s policy it cannot perform over ext_authz", name)
+			}
+			// Observe mode still loads it so an operator can shadow-test what
+			// would have been scoped.
+			if _, err := loadSpecForMode(path, "observe"); err != nil {
+				t.Fatalf("observe mode refused %s: %v", name, err)
+			}
+		})
+	}
+}

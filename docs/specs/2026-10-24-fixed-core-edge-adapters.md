@@ -80,8 +80,10 @@ Found while doing this, recorded rather than fixed here:
   Fixed by this step.
 - A SCOPE rule on the mesh path returns allowed and the call passes
   **unmodified**. ext_authz cannot rewrite a body, so stripping arguments or
-  injecting credentials silently does not happen. Needs `ext_proc`, or a refusal
-  in enforce mode until then.
+  injecting credentials silently does not happen. Fixed: `nullfield-extauthz`
+  refuses `SCOPE` and `inspection.enabled` rules in `enforce` mode at load
+  and in `Server.Check` (`gate: scope`, `reason_class: scope_unsupported`),
+  while keeping `observe` mode for shadow diffs.
 - HOLD on the mesh path fails closed, which is correct, but cannot wait for a
   human: the provider timeout is 1s.
 - Omitting `Mcp-Session-Id` skipped per-session budgets on the proxy. Fixed by

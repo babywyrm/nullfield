@@ -300,3 +300,31 @@ func TestCounterfactualNamesTheActionThatWouldHaveBeenTaken(t *testing.T) {
 		}
 	}
 }
+
+func TestAScopedDecisionIsRefusedInEnforceModeRatherThanForwardedUnmodified(t *testing.T) {
+	scoped := policy.Decision{Allowed: true, Scoped: true, Gate: policy.GatePolicy, ReasonClass: policy.ReasonClassPolicyScoped}
+	s, _, rec := newServer(ModeEnforce, scoped)
+	resp, err := s.Check(context.Background(), checkRequest(spiffeRunner, toolsCallBody, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codes.Code(resp.GetStatus().GetCode()) != codes.PermissionDenied {
+		t.Fatalf("enforce mode returned %v for a SCOPE decision ext_authz cannot perform", resp.GetStatus())
+	}
+	if e := rec.events[len(rec.events)-1]; e.ReasonClass != ReasonScopeUnsupported {
+		t.Errorf("reason_class = %q, want %q", e.ReasonClass, ReasonScopeUnsupported)
+	}
+
+	// Observe mode still returns OK and records counterfactual SCOPE.
+	obs, _, obsRec := newServer(ModeObserve, scoped)
+	resp, err = obs.Check(context.Background(), checkRequest(spiffeRunner, toolsCallBody, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codes.Code(resp.GetStatus().GetCode()) != codes.OK {
+		t.Fatalf("observe mode returned %v, want OK", resp.GetStatus())
+	}
+	if e := obsRec.events[len(obsRec.events)-1]; e.Counterfactual != "SCOPE" {
+		t.Errorf("observe counterfactual = %q, want SCOPE", e.Counterfactual)
+	}
+}

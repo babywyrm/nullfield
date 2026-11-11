@@ -15,7 +15,8 @@ func TestASpanCarriesTheRunAndProvenance(t *testing.T) {
 	t.Cleanup(func() { tracer = prev })
 
 	NewOTLPEmitter().Emit(context.Background(), Event{
-		Type: EventCircuitTripped, RunID: "run-1", Action: "repos.delete",
+		Type: EventCircuitTripped, RunID: "run-1", RunWorkload: "spiffe://cluster.local/ns/a/sa/agent",
+		Action: "repos.delete",
 		WorkloadPrincipal: "spiffe://cluster.local/ns/a/sa/b", Attester: "istio",
 		Assurance: "MEDIUM", Transport: "B", Counterfactual: "enforced",
 	})
@@ -26,10 +27,11 @@ func TestASpanCarriesTheRunAndProvenance(t *testing.T) {
 	}
 	got := map[string]string{}
 	for _, kv := range ended[0].Attributes() {
-		got[string(kv.Key)] = kv.Value.Emit()
+		got[string(kv.Key)] = kv.Value.AsString()
 	}
 	for k, want := range map[string]string{
 		"nullfield.run_id":             "run-1",
+		"nullfield.run_workload":       "spiffe://cluster.local/ns/a/sa/agent",
 		"nullfield.action":             "repos.delete",
 		"nullfield.workload_principal": "spiffe://cluster.local/ns/a/sa/b",
 		"nullfield.attester":           "istio",

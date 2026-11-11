@@ -26,6 +26,16 @@ them silent, which is the argument for the exercise.
 
 ### Security
 
+- **ext_authz in enforce mode refuses `SCOPE` and response inspection**
+  rather than passing calls through unmodified. Envoy's `ext_authz` filter
+  sees requests only and cannot mutate bodies, so a `SCOPE` or
+  `inspection.enabled` rule in `enforce` mode previously returned OK and
+  forwarded the unstripped request and unredacted response. `nullfield-extauthz`
+  now refuses to load such a policy in `enforce` mode (and `Server.Check`
+  refuses a scoped decision as `gate: scope`, `reasonClass: scope_unsupported`
+  as defence in depth). `observe` mode continues to load them and record
+  `counterfactual: SCOPE`.
+
 - **ext_authz checks Host against where the call is routed** (CWE-290).
   An Istio waypoint routes on the destination address and matches every
   Host (`domains: ["*"]`), but the target nullfield decided on was the

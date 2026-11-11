@@ -44,6 +44,9 @@ const (
 
 	GateTarget           = "target"
 	ReasonTargetMismatch = "target_mismatch"
+
+	GateScope              = "scope"
+	ReasonScopeUnsupported = "scope_unsupported"
 )
 
 // Config is the server's dependencies.
@@ -366,6 +369,13 @@ func (s *Server) decide(ctx context.Context, t *Translated) policy.Decision {
 	decision := s.engine.Evaluate(ctx, t.Policy)
 	if !decision.Allowed {
 		return decision
+	}
+	if s.mode == ModeEnforce && (decision.Scoped || (decision.MatchedRule != nil && decision.MatchedRule.Inspection != nil && decision.MatchedRule.Inspection.Enabled)) {
+		return refuse(decision, &gates.Refusal{
+			Gate:        GateScope,
+			ReasonClass: ReasonScopeUnsupported,
+			Reason:      "SCOPE and response inspection require the proxy (ext_authz cannot mutate bodies or read responses)",
+		})
 	}
 	r, warning := s.gates.Charge(call, decision)
 	if r != nil {
