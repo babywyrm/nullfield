@@ -61,6 +61,21 @@ type RunTokenConfig struct {
 	// Optional admits calls that carry no run token. A token that is present
 	// is still verified, and still refuses the call if it fails.
 	Optional bool `json:"optional,omitempty" yaml:"optional,omitempty"`
+	// ForwardTo lists in-cluster Services (name.ns.svc.<domain>) that keep the
+	// Txn-Token header when Envoy forwards an allowed call. Forwarded only when
+	// the destination VIP reverse-resolves to a listed Service; stripped
+	// everywhere else, unverified destinations included.
+	ForwardTo []string `json:"forwardTo,omitempty" yaml:"forwardTo,omitempty"`
+	// Delegates lists workloads (such as an in-cluster MCP server) that may
+	// present a run token issued to one of their allowed callers.
+	Delegates []RunTokenDelegate `json:"delegates,omitempty" yaml:"delegates,omitempty"`
+}
+
+// RunTokenDelegate permits Workload to present a run token whose req_wl matches
+// an entry in For (an exact SPIFFE ID or a prefix ending in "/*").
+type RunTokenDelegate struct {
+	Workload string   `json:"workload" yaml:"workload"`
+	For      []string `json:"for" yaml:"for"`
 }
 
 type IdentityConfig struct {

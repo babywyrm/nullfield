@@ -1,7 +1,7 @@
 # Fixed Core, Edge Adapters — Design
 
 **Date:** 2026-10-24
-**Status:** Steps 1–5 done; step 6 (run tokens across owned MCP servers) in progress; upstream token deferred
+**Status:** Steps 1–6 done; upstream token deferred
 **Related:**
 - [`2026-07-26-mesh-native-arbiter.md`](2026-07-26-mesh-native-arbiter.md) — the three facts and authority grants this builds on
 
@@ -161,9 +161,9 @@ so a new top-level block is pruned silently unless the schema names it.
 **3b.** Circuit breaker keyed on run ID: done. It runs only when the policy
 declares limits, since the environment default (5m) would end long runs. The
 empty-session concern above was unfounded: the breaker already ignores an
-empty session. Still open: header propagation through MCP servers you own,
-and an upstream token riding alongside (the third identity source). Neither
-blocks steps 4 and 5, so they wait for a scenario that needs them.
+empty session. Header propagation through MCP servers you own is covered by
+step 6 below; an upstream token riding alongside (the third identity source)
+waits for a scenario that needs it.
 
 ### 4. Integration operation maps as data
 
@@ -263,6 +263,28 @@ Service. Decisions:
   PTR. Forwarding will treat unverified as "do not forward".
 
 Demo 18 check 7 asserts it, and fails on the prior image.
+
+**6b (done): `runToken.forwardTo`.** Policy lists full Service DNS names
+(`name.ns.svc.<domain>`); loader refuses short names, wildcards, and
+non-Service hosts because only a Service VIP reverse-resolves to a Service
+name at the waypoint. `ext_authz` keeps `Txn-Token` on `OkResponse` only
+when `Translated.Service` is in `forwardTo`, and strips it everywhere else,
+unverified destinations included.
+
+**6c (done): Delegation (`runToken.delegates`).** Each entry pairs an exact
+SPIFFE `workload` (the MCP server) with one or more `for` patterns (exact
+SPIFFE ID or prefix ending in `/*`). `Run` carries both `Workload` (`req_wl`)
+and `Presenter` (the attested caller on this hop), exposed to CEL as
+`request.run.workload` and `request.run.presenter`. Audit events and OTLP
+spans record `run_workload` when `Presenter != Workload`.
+
+**6d (done): Token exchange contract.** An MCP server that receives the
+forwarded token via `forwardTo` exchanges it at the controller for a new
+`txntoken+jwt` bound to its own SPIFFE ID with the same `txn` and narrowed
+`tctx`. `nullfield` verifies that token with no `delegates` entry, strips it
+toward unlisted upstreams, and charges both hops to the same run's
+`perSession` budget and circuit breaker. Reference in
+[`docs/identity-policy.md`](../identity-policy.md#multi-hop-runs-across-mcp-servers-you-own).
 
 ## Out of scope
 

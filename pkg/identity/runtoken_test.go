@@ -120,3 +120,39 @@ func TestAMalformedRunTokenIsRefused(t *testing.T) {
 		})
 	}
 }
+
+func TestAListedDelegateMayPresentARunTokenIssuedToAnAllowedWorkload(t *testing.T) {
+	const (
+		mcpGitHub = "spiffe://cluster.local/ns/tools/sa/mcp-github"
+		mcpSlack  = "spiffe://cluster.local/ns/tools/sa/mcp-slack"
+		otherRun  = "spiffe://cluster.local/ns/other/sa/job"
+	)
+	cfg := RunTokenConfig{Delegates: []RunTokenDelegate{
+		{Workload: mcpGitHub, For: []string{"spiffe://cluster.local/ns/agents/sa/*"}},
+	}}
+
+	_, run, err := verifyRun(t, cfg, RunTokenType, runClaims(), mcpGitHub)
+	if err != nil {
+		t.Fatalf("listed delegate refused: %v", err)
+	}
+	if run.Workload != runner || run.Presenter != mcpGitHub {
+		t.Fatalf("run = %+v, want workload=%s presenter=%s", run, runner, mcpGitHub)
+	}
+
+	// Direct presenter still works and sets Presenter to itself.
+	if _, direct, err := verifyRun(t, cfg, RunTokenType, runClaims(), runner); err != nil || direct.Presenter != runner {
+		t.Fatalf("direct call: err=%v run=%+v", err, direct)
+	}
+
+	// An unlisted server presenting the agent's token is refused as unbound.
+	if _, _, err := verifyRun(t, cfg, RunTokenType, runClaims(), mcpSlack); !errors.Is(err, ErrRunTokenUnbound) {
+		t.Fatalf("unlisted presenter: got %v, want ErrRunTokenUnbound", err)
+	}
+
+	// Listed server presenting a token issued to a workload outside its `for` list is refused.
+	outside := runClaims()
+	outside["req_wl"] = otherRun
+	if _, _, err := verifyRun(t, cfg, RunTokenType, outside, mcpGitHub); !errors.Is(err, ErrRunTokenUnbound) {
+		t.Fatalf("req_wl outside for: got %v, want ErrRunTokenUnbound", err)
+	}
+}

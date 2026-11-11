@@ -58,8 +58,9 @@ type Config struct {
 	// RunTokens, when set, verifies the Txn-Token on every call and binds it to
 	// the attested workload. A call without one is refused unless
 	// RunTokenOptional; a token that is present and fails is always refused.
-	RunTokens        *identity.RunTokenVerifier
-	RunTokenOptional bool
+	RunTokens         *identity.RunTokenVerifier
+	RunTokenOptional  bool
+	RunTokenForwardTo []string
 
 	// Operations, when set, names each call from its target's operation map.
 	// A path on a mapped target that the map cannot read one way only is
@@ -101,6 +102,7 @@ type Server struct {
 
 	runTokens        *identity.RunTokenVerifier
 	runTokenOptional bool
+	forwardTo        map[string]bool
 	operations       *operations.Map
 	lookupAddr       func(ctx context.Context, addr string) ([]string, error)
 }
@@ -117,6 +119,12 @@ func NewServer(cfg Config) *Server {
 	if logger == nil {
 		logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
 	}
+	forwardTo := make(map[string]bool, len(cfg.RunTokenForwardTo))
+	for _, s := range cfg.RunTokenForwardTo {
+		if h := hostOf(s); isService(h) {
+			forwardTo[h] = true
+		}
+	}
 	return &Server{
 		mode:    mode,
 		engine:  cfg.Engine,
@@ -127,6 +135,7 @@ func NewServer(cfg Config) *Server {
 
 		runTokens:        cfg.RunTokens,
 		runTokenOptional: cfg.RunTokenOptional,
+		forwardTo:        forwardTo,
 		operations:       cfg.Operations,
 		lookupAddr:       cfg.LookupAddr,
 	}
@@ -191,7 +200,7 @@ func (s *Server) Check(ctx context.Context, req *authv3.CheckRequest) (*authv3.C
 			}
 		}
 		s.emit(ctx, event)
-		return s.respond(policy.Decision{Allowed: false, Reason: err.Error()}), nil
+		return s.respond(policy.Decision{Allowed: false, Reason: err.Error()}, ""), nil
 	}
 
 	decision := s.decide(ctx, translated)
@@ -223,17 +232,19 @@ func (s *Server) Check(ctx context.Context, req *authv3.CheckRequest) (*authv3.C
 		event.RunID, event.SessionID = run.ID, run.ID
 		event.Identity = translated.Policy.Identity.Subject
 		event.Assurance = AssuranceMedium
+		event.RunWorkload = runWorkload(run)
 	}
 	s.emit(ctx, event)
 
-	return s.respond(decision), nil
+	return s.respond(decision, translated.Service), nil
 }
 
-// respond strips the run token from anything Envoy will forward, so it never
-// reaches the upstream, a SaaS API included.
-func (s *Server) respond(d policy.Decision) *authv3.CheckResponse {
+// respond strips the run token from anything Envoy will forward unless the
+// destination was verified as a Service listed in ForwardTo. An unverified
+// destination (such as a ServiceEntry VIP to a SaaS API) always strips.
+func (s *Server) respond(d policy.Decision, service string) *authv3.CheckResponse {
 	resp := Respond(s.mode, d)
-	if ok := resp.GetOkResponse(); ok != nil && s.runTokens != nil {
+	if ok := resp.GetOkResponse(); ok != nil && s.runTokens != nil && !s.forwardTo[service] {
 		ok.HeadersToRemove = append(ok.HeadersToRemove, strings.ToLower(identity.RunTokenHeader))
 	}
 	return resp
@@ -346,7 +357,8 @@ func (s *Server) decide(ctx context.Context, t *Translated) policy.Decision {
 				Type: audit.EventCircuitTripped, Target: t.Policy.Target, ToolName: t.Policy.ToolName,
 				Gate: r.Gate, ReasonClass: r.ReasonClass, Reason: r.Reason,
 				RunID: call.Session, SessionID: call.Session, Identity: t.Policy.Identity.Subject,
-				WorkloadPrincipal: t.RawPrincipal, Attester: t.Attestation.Attester, Assurance: AssuranceMedium,
+				WorkloadPrincipal: t.RawPrincipal, RunWorkload: runWorkload(t.Policy.Run),
+				Attester: t.Attestation.Attester, Assurance: AssuranceMedium,
 			})
 		}
 		return refuse(policy.Decision{RuleIndex: -1}, r)
@@ -387,4 +399,11 @@ func (s *Server) emit(ctx context.Context, e audit.Event) {
 		return
 	}
 	s.audit.Emit(ctx, e)
+}
+
+func runWorkload(run *identity.Run) string {
+	if run != nil && run.Presenter != "" && run.Presenter != run.Workload {
+		return run.Workload
+	}
+	return ""
 }

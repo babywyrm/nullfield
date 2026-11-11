@@ -65,6 +65,10 @@ type Event struct {
 	Counterfactual    string `json:"counterfactual,omitempty"`
 	// RunID is the txn claim of a verified run token.
 	RunID string `json:"run_id,omitempty"`
+	// RunWorkload is the token's req_wl when a listed delegate presented the
+	// token on the caller's behalf. Empty on direct calls, where
+	// WorkloadPrincipal already names req_wl.
+	RunWorkload string `json:"run_workload,omitempty"`
 	// Action is the operation map's name for the call, such as repos.delete.
 	Action string `json:"action,omitempty"`
 

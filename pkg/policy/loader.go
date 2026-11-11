@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	v1alpha1 "github.com/babywyrm/nullfield/api/v1alpha1"
@@ -110,6 +111,24 @@ func validate(s *v1alpha1.NullfieldPolicySpec) error {
 				return fmt.Errorf("runToken.%s: %w", name, err)
 			}
 		}
+		for _, svc := range rt.ForwardTo {
+			if !isServiceFQDN(svc) {
+				return fmt.Errorf("runToken.forwardTo %q must be a full Service name (name.namespace.svc.<domain>); short names and external hosts cannot be verified from a destination VIP", svc)
+			}
+		}
+		for i, d := range rt.Delegates {
+			if !isSPIFFEPrincipal(d.Workload) {
+				return fmt.Errorf("runToken.delegates[%d].workload %q must be an exact SPIFFE ID (spiffe://<domain>/ns/<ns>/sa/<sa>)", i, d.Workload)
+			}
+			if len(d.For) == 0 {
+				return fmt.Errorf("runToken.delegates[%d] (%s) must list at least one caller in for", i, d.Workload)
+			}
+			for _, f := range d.For {
+				if !isSPIFFEPattern(f) {
+					return fmt.Errorf("runToken.delegates[%d].for %q must be a SPIFFE ID or prefix ending in /*", i, f)
+				}
+			}
+		}
 	}
 
 	id := s.Identity
@@ -132,4 +151,36 @@ func validate(s *v1alpha1.NullfieldPolicySpec) error {
 		}
 	}
 	return nil
+}
+
+func isServiceFQDN(name string) bool {
+	name = strings.TrimSuffix(strings.ToLower(name), ".")
+	if strings.ContainsAny(name, "*:[]/ ") {
+		return false
+	}
+	labels := strings.Split(name, ".")
+	if len(labels) < 4 || labels[2] != "svc" {
+		return false
+	}
+	for _, l := range labels {
+		if l == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func isSPIFFEPrincipal(s string) bool {
+	if !strings.HasPrefix(s, "spiffe://") || strings.ContainsAny(s, "* ") {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(s, "spiffe://"), "/")
+	return len(parts) == 5 && parts[0] != "" && parts[1] == "ns" && parts[2] != "" && parts[3] == "sa" && parts[4] != ""
+}
+
+func isSPIFFEPattern(s string) bool {
+	if prefix, ok := strings.CutSuffix(s, "/*"); ok {
+		return isSPIFFEPrincipal(prefix + "/x")
+	}
+	return isSPIFFEPrincipal(s)
 }

@@ -62,11 +62,15 @@ rules:
 | 4 | token minted for another service account | 403 | `run_token_unbound` |
 | 5 | same claims, `typ: at+jwt` | 403 | `run_token_invalid` |
 | 6 | token for this pod | 200 | the echo server logs `txn_token: false` |
+| 7 | `forwardTo` + `delegates` enabled, token minted for `someone-else` | 200 | `run_id: run-d`, `workload_principal` (presenter), `run_workload` (`req_wl`), and the echo server logs `txn_token: true` |
 
 Row 3 is the narrowing: policy allows `echo`, the token allows only
 `acme/widgets`, and the call needs both. Row 4 is the binding: the token is
 genuine and signed by the right key, and it still fails from the wrong pod.
-Row 6 is the strip: the client sent `Txn-Token`, and the upstream never saw it.
+Row 6 is the default strip: the client sent `Txn-Token`, and the upstream never
+saw it. Row 7 enables `runToken.forwardTo` (naming the verified Service) and
+`runToken.delegates`, showing the token forwarded to the listed Service and a
+listed delegate presenting a caller's token with both principals recorded.
 
 ## Two things the first run found
 

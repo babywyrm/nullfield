@@ -80,8 +80,13 @@ func main() {
 	}
 
 	rt := runTokens(spec)
+	var forwardTo []string
 	if rt != nil {
-		logger.Info("run tokens verified", "audience", spec.RunToken.Audience, "optional", spec.RunToken.Optional)
+		forwardTo = spec.RunToken.ForwardTo
+		logger.Info("run tokens verified",
+			"audience", spec.RunToken.Audience,
+			"optional", spec.RunToken.Optional,
+			"forwardTo", forwardTo)
 	}
 	var ops *operations.Map
 	if dir := os.Getenv("NULLFIELD_OPERATIONS_DIR"); dir != "" {
@@ -113,16 +118,17 @@ func main() {
 	emitters = append(emitters, sinks...)
 
 	server := extauthz.NewServer(extauthz.Config{
-		Mode:             mode,
-		Engine:           policy.NewRuleEngine(spec.Rules),
-		Gates:            g,
-		RunTokens:        rt,
-		RunTokenOptional: rt != nil && spec.RunToken.Optional,
-		Operations:       ops,
-		LookupAddr:       net.DefaultResolver.LookupAddr,
-		Audit:            audit.NewMultiEmitter(emitters...),
-		Logger:           logger,
-		LogPeer:          os.Getenv("NULLFIELD_EXTAUTHZ_LOG_PEER") == "true",
+		Mode:              mode,
+		Engine:            policy.NewRuleEngine(spec.Rules),
+		Gates:             g,
+		RunTokens:         rt,
+		RunTokenOptional:  rt != nil && spec.RunToken.Optional,
+		RunTokenForwardTo: forwardTo,
+		Operations:        ops,
+		LookupAddr:        net.DefaultResolver.LookupAddr,
+		Audit:             audit.NewMultiEmitter(emitters...),
+		Logger:            logger,
+		LogPeer:           os.Getenv("NULLFIELD_EXTAUTHZ_LOG_PEER") == "true",
 	})
 
 	listener, err := net.Listen("tcp", cfg.ExtAuthzListenAddr)
@@ -191,9 +197,14 @@ func runTokens(spec *v1alpha1.NullfieldPolicySpec) *identity.RunTokenVerifier {
 	}
 	maxLifetime, _ := time.ParseDuration(rt.MaxLifetime)
 	clockSkew, _ := time.ParseDuration(rt.ClockSkew)
+	delegates := make([]identity.RunTokenDelegate, len(rt.Delegates))
+	for i, d := range rt.Delegates {
+		delegates[i] = identity.RunTokenDelegate{Workload: d.Workload, For: d.For}
+	}
 	return identity.NewRunTokenVerifier(identity.RunTokenConfig{
 		JWKSURI: rt.JWKSURI, Audience: rt.Audience, Issuer: rt.Issuer,
 		MaxLifetime: maxLifetime, ClockSkew: clockSkew,
+		Delegates: delegates,
 	})
 }
 

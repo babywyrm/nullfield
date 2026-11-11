@@ -41,10 +41,8 @@ type Watcher struct {
 	activeTargetCMKey string
 	activeTargetLabel string
 
-	mu             sync.Mutex
-	lastPolicyRV   string
-	lastRegistryRV string
-	lastActiveSig  string
+	mu            sync.Mutex
+	lastActiveSig string
 }
 
 // Config for the watcher.

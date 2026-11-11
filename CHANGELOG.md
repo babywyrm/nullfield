@@ -8,6 +8,22 @@ Rebuilding the demos so they assert what they describe. Every claim now has a
 script behind it, and running those scripts found five product bugs — four of
 them silent, which is the argument for the exercise.
 
+### Added
+
+- **Run tokens across MCP servers you own** (`runToken.forwardTo`,
+  `runToken.delegates`). By default `ext_authz` strips `Txn-Token` on allow
+  and requires `req_wl` to equal the immediate caller, which ended a run at
+  the first hop. `runToken.forwardTo` lists full in-cluster Service names
+  (`<name>.<ns>.svc.<domain>`) that keep `Txn-Token` when the destination VIP
+  reverse-resolves to them; every other Service and every unverified
+  destination (such as a `ServiceEntry` VIP) still strips it. For the second
+  hop, deployments choose between policy delegation (`runToken.delegates`,
+  exposing `request.run.presenter` to CEL and `run_workload` in audit/OTLP
+  when a listed server presents an agent's token) and controller token
+  exchange (the server trades the forwarded token for one bound to itself
+  with the same `txn`). Both patterns share the run's `perSession` budget and
+  per-run circuit breaker across hops.
+
 ### Security
 
 - **ext_authz checks Host against where the call is routed** (CWE-290).

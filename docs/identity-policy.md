@@ -130,7 +130,7 @@ Sent in the `Txn-Token` header, as the bare JWT:
 
 ### Using it in rules
 
-The verified token appears to [CEL](diagrams/policy-eval.md#celexpression) as `request.run` (`id`, `workload`, `context`) and `request.identity`. Policy grants; the token narrows. A condition on `request.run.context` can only make a rule match less, so a controller can restrict one run below what the policy allows and never above it:
+The verified token appears to [CEL](diagrams/policy-eval.md#celexpression) as `request.run` (`id`, `workload`, `presenter`, `context`) and `request.identity`. Policy grants; the token narrows. A condition on `request.run.context` can only make a rule match less, so a controller can restrict one run below what the policy allows and never above it:
 
 ```yaml
 rules:
@@ -140,12 +140,55 @@ rules:
   - action: DENY
 ```
 
+### Multi-hop runs across MCP servers you own
+
+When an agent calls an MCP server you own and that server makes a second call on the run's behalf, both hops must be tied to the same run. By default `ext_authz` strips `Txn-Token` on allow and refuses any token whose `req_wl` is not the immediate caller.
+
+First, allow the token to reach the MCP server by listing its full Service DNS name in `runToken.forwardTo`:
+
+```yaml
+runToken:
+  jwksUri: http://run-controller/.well-known/jwks.json
+  audience: cluster.local
+  maxLifetime: 15m
+  forwardTo:
+    - mcp-github.tools.svc.cluster.local
+```
+
+`forwardTo` entries must be full Service names (`<name>.<namespace>.svc.<domain>`). `ext_authz` keeps `Txn-Token` only when the destination VIP reverse-resolves to a listed Service; it is still stripped toward every other Service and every unverified destination (such as a `ServiceEntry` VIP to a SaaS API), regardless of the `Host` header.
+
+For the second hop from the MCP server, pick one of two patterns:
+
+**Option A — Delegation (`runToken.delegates`).** Policy lists which MCP server workloads may present a token originally issued to which caller workloads:
+
+```yaml
+runToken:
+  jwksUri: http://run-controller/.well-known/jwks.json
+  audience: cluster.local
+  maxLifetime: 15m
+  forwardTo:
+    - mcp-github.tools.svc.cluster.local
+  delegates:
+    - workload: spiffe://cluster.local/ns/tools/sa/mcp-github
+      for:
+        - "spiffe://cluster.local/ns/agents/sa/*"
+```
+
+- `workload` must be an exact SPIFFE ID; each `for` entry is an exact SPIFFE ID or a prefix ending in `/*`.
+- `request.run.workload` stays the token's `req_wl` (the agent); `request.run.presenter` is the attested workload on this hop (`mcp-github` on the second hop, equal to `workload` on a direct call).
+- Audit events record `workload_principal` (the presenter) and `run_workload` (the token's `req_wl`, set when delegated).
+- **Ceiling:** a compromised MCP server can replay a token it received until that token expires (bounded by `maxLifetime`), limited to runs that passed through it and narrowed by each token's `tctx`.
+
+**Option B — Token exchange.** The MCP server trades the incoming `Txn-Token` at your controller or token service for a new `txntoken+jwt` with the same `txn` (run ID) and ` req_wl` set to the MCP server's own SPIFFE ID, optionally narrowing `tctx` further. `nullfield` verifies the exchanged token as an ordinary bound run token — no `delegates` block is needed. Only the token issuer sees both tokens, so enforcing that the new `tctx` narrows the original is the issuer's contract.
+
+**Shared budgets and circuit breaker.** In both patterns `txn` is the session key: one agent call to the MCP server that leads to one outbound call from the server counts as two calls against the run's `perSession` budget and per-run circuit breaker.
+
 ### Refusals
 
 | `reason_class` | Cause |
 |---|---|
 | `run_token_missing` | no `Txn-Token` header, and `optional` is not set |
-| `run_token_unbound` | `req_wl` is not the attested caller, or there is no attested caller |
+| `run_token_unbound` | `req_wl` is not the attested caller (or a listed delegate for it), or there is no attested caller |
 | `run_token_invalid` | signature, `typ`, `aud`, expiry, lifetime, or a missing claim |
 
 All are recorded with `gate: run_token`.
@@ -153,7 +196,7 @@ All are recorded with `gate: run_token`.
 ### Where it applies
 
 - **ext_authz only.** The proxy and gateway have no attested workload to bind to, so they refuse to load a policy that sets `runToken`.
-- **Stripped on allow.** ext_authz tells Envoy to remove `Txn-Token` before forwarding, so it never reaches the upstream. Propagating it through MCP servers you own is not supported yet.
+- **Stripped on allow unless listed in `forwardTo`.** `ext_authz` tells Envoy to remove `Txn-Token` before forwarding unless the destination VIP reverse-resolves to a Service in `runToken.forwardTo`.
 - **Budgets.** `perSession` budgets count per run; `perIdentity` budgets and `maxCallsPerMinute` stay per workload.
 - **Circuit breaker per run.** When the policy also declares `circuitBreaker.maxToolCallsPerSession` or `maxSessionDuration`, each run trips its own breaker (`gate: circuit`); other runs on the same pod are unaffected. Without a declared limit it does not run: the environment default ends a session at 5m, which would cut off long runs. Calls admitted by `optional: true` without a token have no run, so the breaker does not count them.
 - **Key fetch.** The JWKS is fetched on first use and cached for five minutes. A cold fetch counts against the ext_authz timeout (1s), so keep the endpoint in-cluster.

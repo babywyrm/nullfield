@@ -62,7 +62,16 @@ func celInput(req Request) map[string]any {
 		r["action"], r["params"] = req.Action, params
 	}
 	if run := req.Run; run != nil {
-		r["run"] = map[string]any{"id": run.ID, "workload": run.Workload, "context": nonNilMap(run.Context)}
+		presenter := run.Presenter
+		if presenter == "" {
+			presenter = run.Workload
+		}
+		r["run"] = map[string]any{
+			"id":        run.ID,
+			"workload":  run.Workload,
+			"presenter": presenter,
+			"context":   nonNilMap(run.Context),
+		}
 	}
 	return map[string]any{"request": r}
 }

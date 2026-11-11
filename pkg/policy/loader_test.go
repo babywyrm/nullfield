@@ -141,6 +141,57 @@ func TestARunTokenBlockMustNameItsKeysAndTrustDomain(t *testing.T) {
 	}
 }
 
+func TestRunTokenForwardToMustNameFullServices(t *testing.T) {
+	base := "  runToken:\n    jwksUri: http://controller/jwks\n    audience: cluster.local\n"
+	for name, fwd := range map[string]string{
+		"short name":     "    forwardTo: [mcp-github]\n",
+		"name.ns":        "    forwardTo: [mcp-github.tools]\n",
+		"name.ns.svc":    "    forwardTo: [mcp-github.tools.svc]\n",
+		"pod DNS":        "    forwardTo: [10-42-0-5.tools.pod.cluster.local]\n",
+		"external host":  "    forwardTo: [api.github.com]\n",
+		"empty entry":    "    forwardTo: [\"\"]\n",
+		"wildcard":       "    forwardTo: [\"*.tools.svc.cluster.local\"]\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := parse(base + fwd + "  rules:\n    - action: ALLOW\n"); err == nil || !strings.Contains(err.Error(), "forwardTo") {
+				t.Fatalf("want a forwardTo error, got %v", err)
+			}
+		})
+	}
+	if err := parse(base + "    forwardTo: [mcp-github.tools.svc.cluster.local]\n  rules:\n    - action: ALLOW\n"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunTokenDelegatesMustNameSPIFFEWorkloadsAndAllowedCallers(t *testing.T) {
+	base := "  runToken:\n    jwksUri: http://controller/jwks\n    audience: cluster.local\n"
+	for name, del := range map[string]string{
+		"missing workload": "    delegates:\n      - for: [\"spiffe://cluster.local/ns/agents/sa/*\"]\n",
+		"non-spiffe wl":    "    delegates:\n      - workload: mcp-github\n        for: [\"spiffe://cluster.local/ns/agents/sa/*\"]\n",
+		"wildcard wl":      "    delegates:\n      - workload: \"spiffe://cluster.local/ns/tools/sa/*\"\n        for: [\"spiffe://cluster.local/ns/agents/sa/*\"]\n",
+		"empty for":        "    delegates:\n      - workload: spiffe://cluster.local/ns/tools/sa/mcp-github\n",
+		"non-spiffe for":   "    delegates:\n      - workload: spiffe://cluster.local/ns/tools/sa/mcp-github\n        for: [\"*\"]\n",
+		"mid wildcard for": "    delegates:\n      - workload: spiffe://cluster.local/ns/tools/sa/mcp-github\n        for: [\"spiffe://cluster.local/ns/*/sa/agent\"]\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := parse(base + del + "  rules:\n    - action: ALLOW\n"); err == nil || !strings.Contains(err.Error(), "delegates") {
+				t.Fatalf("want a delegates error, got %v", err)
+			}
+		})
+	}
+	valid := base + `    delegates:
+      - workload: spiffe://cluster.local/ns/tools/sa/mcp-github
+        for:
+          - spiffe://cluster.local/ns/agents/sa/triage
+          - "spiffe://cluster.local/ns/agents/sa/*"
+  rules:
+    - action: ALLOW
+`
+	if err := parse(valid); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTheProxyRefusesARunTokenItCannotBind(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "policy.yaml")
 	if err := os.WriteFile(path, []byte(header+"  runToken:\n    jwksUri: http://controller/jwks\n    audience: cluster.local\n  rules:\n    - action: ALLOW\n"), 0o600); err != nil {

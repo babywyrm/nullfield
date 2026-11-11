@@ -180,7 +180,7 @@ compile and return a bool, or the policy refuses to load.
 | `request.operation` | `METHOD /path`; set by ext_authz, empty on the proxy |
 | `request.action`, `request.params` | the [operation map](../operation-maps.md)'s name and path parameters; absent when no map names the call |
 | `request.identity` | `subject`, `issuer`, `type`, `provider`, `scopes`, `groups`, `claims`; absent when unauthenticated |
-| `request.run` | `id`, `workload`, `context` from a verified [run token](../identity-policy.md#run-tokens-ext_authz); absent without one |
+| `request.run` | `id`, `workload`, `presenter`, `context` from a verified [run token](../identity-policy.md#run-tokens-ext_authz); absent without one |
 
 ```yaml
 - action: ALLOW

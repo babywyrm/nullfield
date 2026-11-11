@@ -167,4 +167,69 @@ seen="$(kubectl -n "$ns" logs deploy/mcp-echo --tail=20 | grep '"msg":"received"
 ok "mcp-echo received no Txn-Token"
 
 echo
-echo "run tokens green: bound to the pod, narrowing one run, never forwarded"
+echo "7. forwardTo + delegates: a listed server receives the token and may present an allowed caller's token"
+kubectl -n "$ns" apply -f - >/dev/null <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nullfield-extauthz-policy
+  namespace: $ns
+data:
+  policy.yaml: |
+    apiVersion: nullfield.io/v1alpha1
+    kind: NullfieldPolicy
+    metadata:
+      name: run-token-demo
+    spec:
+      runToken:
+        jwksUri: http://run-controller/.well-known/jwks.json
+        audience: cluster.local
+        maxLifetime: 15m
+        forwardTo:
+          - mcp-echo.${ns}.svc.cluster.local
+        delegates:
+          - workload: ${principal}
+            for:
+              - "${principal%/sa/*}/sa/*"
+      rules:
+        - action: ALLOW
+          mcpMethod: tools/call
+          toolNames: [echo]
+          celExpression: request.arguments.repo in request.run.context.repos && request.run.presenter == "${principal}"
+        - action: DENY
+          mcpMethod: tools/call
+          toolNames: ["*"]
+      audit:
+        logLevel: FULL
+  tools.yaml: |
+    apiVersion: nullfield.io/v1alpha1
+    kind: ToolRegistry
+    metadata:
+      name: run-token-demo-tools
+    tools:
+      - name: echo
+        description: Echoes back the input
+EOF
+kubectl -n "$ns" rollout restart deploy/nullfield-extauthz >/dev/null
+kubectl -n "$ns" rollout status deploy/nullfield-extauthz --timeout=120s >/dev/null
+for i in $(seq 1 60); do
+  [[ "$(kubectl -n "$ns" get pods -l app=nullfield-extauthz --no-headers | wc -l)" -eq 1 ]] && break
+  [[ "$i" == 60 ]] && fail "an old nullfield-extauthz pod did not terminate in 60s"
+  sleep 1
+done
+
+delegated="$(mint txntoken+jwt run-d "$other" acme/widgets)"
+expect_status "$(call acme/widgets "$delegated")" 200
+sleep 1
+expect_field run_id run-d
+expect_field workload_principal "$principal"
+expect_field run_workload "$other"
+seen_fwd="$(kubectl -n "$ns" logs deploy/mcp-echo --tail=20 | grep '"msg":"received"' | tail -1 \
+  | python3 -c "import sys,json;print(json.loads(sys.stdin.read()).get('txn_token','absent'))")"
+[[ "$seen_fwd" == "True" ]] || fail "forwardTo listed mcp-echo, but txn_token = $seen_fwd"
+ok "mcp-echo received Txn-Token when listed in forwardTo"
+
+kubectl apply -f "$here/arbiter-policy.yaml" >/dev/null
+
+echo
+echo "run tokens green: bound to the pod, narrowing one run, stripped by default, forwarded and delegated only when listed"

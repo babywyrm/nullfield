@@ -55,11 +55,20 @@ func (c *controller) verifier() *identity.RunTokenVerifier {
 
 func (c *controller) mint(t *testing.T, run, workload string) string {
 	t.Helper()
+	return c.mintWithContext(t, run, workload, nil)
+}
+
+func (c *controller) mintWithContext(t *testing.T, run, workload string, tctx map[string]any) string {
+	t.Helper()
 	now := time.Now()
-	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+	claims := jwt.MapClaims{
 		"aud": "cluster.local", "iat": now.Unix(), "exp": now.Add(10 * time.Minute).Unix(),
 		"txn": run, "sub": "team-sre", "scope": "triage", "req_wl": workload,
-	})
+	}
+	if tctx != nil {
+		claims["tctx"] = tctx
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	tok.Header["kid"], tok.Header["typ"] = "k", identity.RunTokenType
 	s, err := tok.SignedString(c.key)
 	if err != nil {
@@ -215,5 +224,172 @@ func TestATrippedRunSignalsOnce(t *testing.T) {
 	}
 	if e := trips[0]; e.RunID != "run-1" || e.WorkloadPrincipal != spiffeRunner || e.Gate != gates.GateCircuit {
 		t.Fatalf("trip event = %+v, want run-1 from %s at gate circuit", e, spiffeRunner)
+	}
+}
+
+func TestARunTokenIsForwardedOnlyToAVerifiedListedService(t *testing.T) {
+	c := newController(t)
+	token := c.mint(t, "run-1", spiffeRunner)
+	s := NewServer(Config{
+		Mode: ModeEnforce, Audit: &recorder{}, Engine: allowRun("run-1"),
+		RunTokens:      c.verifier(),
+		RunTokenForwardTo: []string{"MCP-GitHub.tools.svc.cluster.local."},
+		LookupAddr:     clusterDNS,
+	})
+
+	callTo := func(host, addr string) bool {
+		req := toAddress(host, addr)
+		req.Attributes.Request.Http.Headers = map[string]string{"txn-token": token}
+		resp := check(t, s, req)
+		if codes.Code(resp.GetStatus().GetCode()) != codes.OK {
+			t.Fatalf("%s (%s) refused: %v", host, addr, resp.GetDeniedResponse().GetBody())
+		}
+		return !slices.Contains(resp.GetOkResponse().GetHeadersToRemove(), "txn-token")
+	}
+
+	// Routed to the listed Service: Host may be short or full, because the
+	// reverse-resolved VIP proves where the call is going.
+	for _, host := range []string{"mcp-github", "mcp-github.tools.svc.cluster.local"} {
+		if !callTo(host, "10.43.0.10") {
+			t.Errorf("Host %q to 10.43.0.10 (mcp-github): token was stripped, want forwarded", host)
+		}
+	}
+	// Routed to another in-mesh Service that is not in forwardTo: stripped.
+	if callTo("run-controller", "10.43.0.20") {
+		t.Error("call to unlisted Service run-controller: token was forwarded, want stripped")
+	}
+	// Unresolvable destination (ServiceEntry VIP, pod IP) with Host claiming to
+	// be the listed Service: unverified, so stripped.
+	for _, addr := range []string{"240.240.0.1", "10.42.0.5", ""} {
+		if callTo("mcp-github.tools.svc.cluster.local", addr) {
+			t.Errorf("unverified destination %q: token was forwarded on Host claim alone", addr)
+		}
+	}
+}
+
+func TestADelegatedRunTokenRecordsBothPresenterAndOriginAndSharesTheRunBreaker(t *testing.T) {
+	const spiffeMCP = "spiffe://cluster.local/ns/tools/sa/mcp-github"
+	c := newController(t)
+	rec := &recorder{}
+	verifier := identity.NewRunTokenVerifier(identity.RunTokenConfig{
+		JWKSURI:  c.srv.URL,
+		Audience: "cluster.local",
+		Delegates: []identity.RunTokenDelegate{
+			{Workload: spiffeMCP, For: []string{"spiffe://cluster.local/ns/agents/sa/*"}},
+		},
+	})
+	s := NewServer(Config{
+		Mode:      ModeEnforce,
+		Audit:     rec,
+		RunTokens: verifier,
+		Engine: policy.NewRuleEngine([]v1alpha1.Rule{
+			{Action: v1alpha1.ActionAllow, CELExpression: `has(request.run) && request.run.workload == "` + spiffeRunner + `"`},
+			{Action: v1alpha1.ActionDeny},
+		}),
+		Gates: gates.Gates{Breaker: circuit.New(2, 0)},
+	})
+
+	token := c.mint(t, "run-1", spiffeRunner)
+
+	// Hop 1: agent calls MCP server (1st call in run-1).
+	if got := status(t, s, checkRequest(spiffeRunner, toolsCallBody, map[string]string{"txn-token": token})); got != codes.OK {
+		t.Fatalf("hop 1 (agent): %v", got)
+	}
+	if e := rec.events[len(rec.events)-1]; e.WorkloadPrincipal != spiffeRunner || e.RunWorkload != "" {
+		t.Errorf("direct call audit: workload_principal=%q run_workload=%q", e.WorkloadPrincipal, e.RunWorkload)
+	}
+
+	// Hop 2: MCP server presents the agent's token on an outbound call (2nd call in run-1).
+	if got := status(t, s, checkRequest(spiffeMCP, toolsCallBody, map[string]string{"txn-token": token})); got != codes.OK {
+		t.Fatalf("hop 2 (delegated MCP server): %v", got)
+	}
+	e := rec.events[len(rec.events)-1]
+	if e.RunID != "run-1" || e.WorkloadPrincipal != spiffeMCP || e.RunWorkload != spiffeRunner || e.Assurance != AssuranceMedium {
+		t.Errorf("delegated audit: run_id=%q workload_principal=%q run_workload=%q assurance=%q",
+			e.RunID, e.WorkloadPrincipal, e.RunWorkload, e.Assurance)
+	}
+
+	// 3rd call in the same run trips the shared breaker (limit 2).
+	if got := status(t, s, checkRequest(spiffeMCP, toolsCallBody, map[string]string{"txn-token": token})); got != codes.PermissionDenied {
+		t.Fatalf("3rd call in run-1 across hops: %v, want PermissionDenied from shared breaker", got)
+	}
+	// Both the circuit.tripped event and the decision event record the presenter and origin.
+	for _, ev := range rec.events[len(rec.events)-2:] {
+		if ev.WorkloadPrincipal != spiffeMCP || ev.RunWorkload != spiffeRunner {
+			t.Errorf("%s: workload_principal=%q run_workload=%q", ev.Type, ev.WorkloadPrincipal, ev.RunWorkload)
+		}
+	}
+}
+
+func TestAnExchangedRunTokenBindsToTheServerAndSharesTheRunsBudget(t *testing.T) {
+	const spiffeMCP = "spiffe://cluster.local/ns/tools/sa/mcp-github"
+	c := newController(t)
+	rec := &recorder{}
+	// No delegates configured: each hop must present a token bound to itself.
+	s := NewServer(Config{
+		Mode:              ModeEnforce,
+		Audit:             rec,
+		RunTokens:         c.verifier(),
+		RunTokenForwardTo: []string{"mcp-github.tools.svc.cluster.local"},
+		LookupAddr:        clusterDNS,
+		Engine: policy.NewRuleEngine([]v1alpha1.Rule{
+			{
+				Action:        v1alpha1.ActionAllow,
+				CELExpression: `has(request.run) && request.arguments.repo in request.run.context.repos`,
+				Budget:        &v1alpha1.BudgetConfig{PerSession: &v1alpha1.BudgetLimits{MaxCallsPerHour: 2}},
+			},
+			{Action: v1alpha1.ActionDeny},
+		}),
+		Gates: gates.Gates{Budgets: budget.New()},
+	})
+
+	callRepo := func(principal, host, addr, token, repo string) *authv3.CheckResponse {
+		body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo","arguments":{"repo":"` + repo + `"}}}`
+		req := checkRequest(principal, body, map[string]string{"txn-token": token})
+		req.Attributes.Request.Http.Host = host
+		if addr != "" {
+			req.Attributes.Destination = toAddress(host, addr).Attributes.Destination
+		}
+		return check(t, s, req)
+	}
+
+	// Hop 1: agent calls mcp-github; token is forwarded so mcp-github can exchange it.
+	agentTok := c.mintWithContext(t, "run-x", spiffeRunner, map[string]any{"repos": []any{"acme/widgets", "acme/docs"}})
+	resp1 := callRepo(spiffeRunner, "mcp-github", "10.43.0.10", agentTok, "acme/widgets")
+	if codes.Code(resp1.GetStatus().GetCode()) != codes.OK {
+		t.Fatalf("hop 1 refused: %v", resp1.GetDeniedResponse().GetBody())
+	}
+	if slices.Contains(resp1.GetOkResponse().GetHeadersToRemove(), "txn-token") {
+		t.Fatal("hop 1 stripped txn-token; mcp-github would have nothing to exchange")
+	}
+
+	// Without exchange, mcp-github cannot present the agent's token when no delegate is configured.
+	if got := codes.Code(callRepo(spiffeMCP, "run-controller", "10.43.0.20", agentTok, "acme/widgets").GetStatus().GetCode()); got != codes.PermissionDenied {
+		t.Fatalf("unexchanged agent token from mcp-github: %v, want PermissionDenied", got)
+	}
+
+	// Exchange: controller mints a token bound to spiffeMCP with the same txn and narrowed tctx.
+	exchangedTok := c.mintWithContext(t, "run-x", spiffeMCP, map[string]any{"repos": []any{"acme/widgets"}})
+
+	// Narrowed out repo is refused by policy before charging the run's budget.
+	if got := codes.Code(callRepo(spiffeMCP, "run-controller", "10.43.0.20", exchangedTok, "acme/docs").GetStatus().GetCode()); got != codes.PermissionDenied {
+		t.Fatalf("repo narrowed out by exchange: %v, want PermissionDenied", got)
+	}
+
+	// Hop 2: allowed, stripped toward unlisted Service, and consumes the 2nd call of run-x's budget.
+	resp2 := callRepo(spiffeMCP, "run-controller", "10.43.0.20", exchangedTok, "acme/widgets")
+	if codes.Code(resp2.GetStatus().GetCode()) != codes.OK {
+		t.Fatalf("hop 2 refused: %v", resp2.GetDeniedResponse().GetBody())
+	}
+	if !slices.Contains(resp2.GetOkResponse().GetHeadersToRemove(), "txn-token") {
+		t.Fatal("hop 2 did not strip txn-token toward unlisted Service")
+	}
+	if e := rec.events[len(rec.events)-1]; e.RunID != "run-x" || e.WorkloadPrincipal != spiffeMCP || e.RunWorkload != "" {
+		t.Errorf("hop 2 audit: run_id=%q workload=%q run_workload=%q", e.RunID, e.WorkloadPrincipal, e.RunWorkload)
+	}
+
+	// A 3rd call under run-x is refused by the shared per-run budget (limit 2).
+	if got := codes.Code(callRepo(spiffeMCP, "run-controller", "10.43.0.20", exchangedTok, "acme/widgets").GetStatus().GetCode()); got != codes.PermissionDenied {
+		t.Fatalf("3rd call in run-x: %v, want PermissionDenied from shared run budget", got)
 	}
 }

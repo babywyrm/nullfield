@@ -123,6 +123,26 @@ func TestACELRuleNarrowsToTheRunsContext(t *testing.T) {
 	}
 }
 
+func TestACELRuleSeesTheRunPresenter(t *testing.T) {
+	e := celRules(`has(request.run) && request.run.presenter == "spiffe://cluster.local/ns/tools/sa/mcp-github" && request.run.workload == "spiffe://cluster.local/ns/agents/sa/x"`)
+	delegated := Request{Run: &identity.Run{
+		ID:        "run-7f3a",
+		Workload:  "spiffe://cluster.local/ns/agents/sa/x",
+		Presenter: "spiffe://cluster.local/ns/tools/sa/mcp-github",
+	}}
+	if d := e.Evaluate(context.Background(), delegated); !d.Allowed {
+		t.Fatalf("delegated call refused: %s", d.Reason)
+	}
+	direct := Request{Run: &identity.Run{
+		ID:        "run-7f3a",
+		Workload:  "spiffe://cluster.local/ns/agents/sa/x",
+		Presenter: "spiffe://cluster.local/ns/agents/sa/x",
+	}}
+	if d := e.Evaluate(context.Background(), direct); d.Allowed {
+		t.Fatal("direct call matched a rule requiring the MCP server presenter")
+	}
+}
+
 func TestACELRuleMatchesANamedOperation(t *testing.T) {
 	e := celRules(`has(request.action) && request.action == "repos.delete" && request.params.owner == "acme"`)
 	named := Request{Action: "repos.delete", Params: map[string]string{"owner": "acme", "repo": "widgets"}}
